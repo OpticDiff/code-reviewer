@@ -89,10 +89,13 @@ func pathMatch(a, b string) bool {
 		return true
 	}
 	// Handle "a/foo/bar.go" vs "foo/bar.go".
-	if len(a) > len(b) {
+	if len(a) > len(b) && len(a) > len(b)+1 {
 		return a[len(a)-len(b)-1:] == "/"+b
 	}
-	return b[len(b)-len(a)-1:] == "/"+a
+	if len(b) > len(a) && len(b) > len(a)+1 {
+		return b[len(b)-len(a)-1:] == "/"+a
+	}
+	return false
 }
 
 // isInHunkRange checks if a line number falls within any hunk of the given file.
