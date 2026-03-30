@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	botMarker     = "<!-- code-reviewer -->"
-	apiRateDelay  = 100 * time.Millisecond
+	botMarker    = "<!-- code-reviewer -->"
+	apiRateDelay = 100 * time.Millisecond
 )
 
 // Client is an HTTP client for the GitLab REST API v4.
@@ -160,7 +160,7 @@ func (c *Client) do(req *http.Request, out interface{}) error {
 	if err != nil {
 		return fmt.Errorf("HTTP request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

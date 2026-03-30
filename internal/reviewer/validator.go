@@ -40,7 +40,6 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 			for path, lines := range validLines {
 				if pathMatch(f.File, path) {
 					fileLines = lines
-					fileExists = true
 					f.File = path // Normalize to the actual path.
 					matched = true
 					break

@@ -60,11 +60,8 @@ func (s *SplitStrategy) Chunk(diffs []FileDiff, tokenLimit int) ([][]FileDiff, e
 		return indexed[i].tokens > indexed[j].tokens
 	})
 
-	// Check if any single file exceeds the limit.
-	if indexed[0].tokens > effectiveLimit {
-		// Still include it, but warn — the model will have to do its best.
-		// We don't fail here because a single huge file shouldn't block the whole review.
-	}
+	// Note: if a single file exceeds the limit, we still include it.
+	// The model will do its best with a truncated context.
 
 	// Bin-pack into groups.
 	var chunks [][]FileDiff

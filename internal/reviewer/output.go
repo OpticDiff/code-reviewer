@@ -16,14 +16,14 @@ import (
 func TerminalOutput(result *model.ReviewResult) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("# Review Summary\n%s\n\n", result.Summary))
+	fmt.Fprintf(&sb, "# Review Summary\n%s\n\n", result.Summary)
 
 	if len(result.Findings) == 0 {
 		sb.WriteString("✅ No issues found. Code looks clean and ready to merge.\n")
 		return sb.String()
 	}
 
-	sb.WriteString(fmt.Sprintf("Found **%d** issue(s):\n\n", len(result.Findings)))
+	fmt.Fprintf(&sb, "Found **%d** issue(s):\n\n", len(result.Findings))
 
 	// Group by file.
 	byFile := make(map[string][]model.Finding)
@@ -36,12 +36,12 @@ func TerminalOutput(result *model.ReviewResult) string {
 	}
 
 	for _, file := range fileOrder {
-		sb.WriteString(fmt.Sprintf("## File: %s\n", file))
+		fmt.Fprintf(&sb, "## File: %s\n", file)
 		for _, f := range byFile[file] {
-			sb.WriteString(fmt.Sprintf("### L%d: [%s] %s\n", f.Line, f.Severity, f.Title))
+			fmt.Fprintf(&sb, "### L%d: [%s] %s\n", f.Line, f.Severity, f.Title)
 			sb.WriteString(f.Body + "\n")
 			if f.Suggestion != "" {
-				sb.WriteString(fmt.Sprintf("\n```suggestion\n%s\n```\n", f.Suggestion))
+				fmt.Fprintf(&sb, "\n```suggestion\n%s\n```\n", f.Suggestion)
 			}
 			sb.WriteString("\n")
 		}
@@ -133,14 +133,14 @@ func formatSummaryNote(result *model.ReviewResult) string {
 	sb.WriteString("| Severity | Count |\n|---|---|\n")
 	for _, sev := range []string{"CRITICAL", "HIGH", "MEDIUM", "LOW"} {
 		if c, ok := counts[sev]; ok {
-			sb.WriteString(fmt.Sprintf("| %s %s | %d |\n", severityEmoji(sev), sev, c))
+			fmt.Fprintf(&sb, "| %s %s | %d |\n", severityEmoji(sev), sev, c)
 		}
 	}
 	sb.WriteString("\n")
 
 	// List findings.
 	for _, f := range result.Findings {
-		sb.WriteString(fmt.Sprintf("- %s **[%s]** `%s:%d` — %s\n", severityEmoji(f.Severity), f.Severity, f.File, f.Line, f.Title))
+		fmt.Fprintf(&sb, "- %s **[%s]** `%s:%d` — %s\n", severityEmoji(f.Severity), f.Severity, f.File, f.Line, f.Title)
 	}
 
 	return sb.String()
@@ -148,10 +148,10 @@ func formatSummaryNote(result *model.ReviewResult) string {
 
 func formatInlineComment(f model.Finding) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%s **[%s]** %s\n\n", severityEmoji(f.Severity), f.Severity, f.Title))
+	fmt.Fprintf(&sb, "%s **[%s]** %s\n\n", severityEmoji(f.Severity), f.Severity, f.Title)
 	sb.WriteString(f.Body)
 	if f.Suggestion != "" {
-		sb.WriteString(fmt.Sprintf("\n\n```suggestion\n%s\n```", f.Suggestion))
+		fmt.Fprintf(&sb, "\n\n```suggestion\n%s\n```", f.Suggestion)
 	}
 	return sb.String()
 }

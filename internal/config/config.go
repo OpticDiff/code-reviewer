@@ -79,10 +79,10 @@ type Config struct {
 	DiffMode bool // true if --diff was passed
 
 	// Model settings.
-	Model          string
-	GCPProject     string
-	GCPLocation    string
-	ChunkStrategy  ChunkStrategy
+	Model         string
+	GCPProject    string
+	GCPLocation   string
+	ChunkStrategy ChunkStrategy
 
 	// Review settings.
 	Focus       []string
@@ -358,16 +358,23 @@ func (c *Config) validate() error {
 	// CI mode requires MR context.
 	if c.CIMode {
 		if c.CIProjectID == "" || c.CIMergeRequestID == "" {
-			return fmt.Errorf("CI mode requires CI_PROJECT_ID and CI_MERGE_REQUEST_IID env vars")
+			return fmt.Errorf("CI mode requires CI_PROJECT_ID and CI_MERGE_REQUEST_IID env vars\n\n" +
+				"These are set automatically when running in a GitLab MR pipeline.\n" +
+				"If running locally, use --diff instead of --ci")
 		}
 		if c.GitLabToken == "" {
-			return fmt.Errorf("CI mode requires GITLAB_TOKEN env var")
+			return fmt.Errorf("CI mode requires GITLAB_TOKEN env var\n\n" +
+				"Options:\n" +
+				"  CI_JOB_TOKEN:  Add 'GITLAB_TOKEN: $CI_JOB_TOKEN' to your job variables\n" +
+				"  Access Token:  Create a Project Access Token with api scope")
 		}
 	}
 
 	// GCP project required for model calls.
 	if c.GCPProject == "" {
-		return fmt.Errorf("GOOGLE_CLOUD_PROJECT env var is required")
+		return fmt.Errorf("GOOGLE_CLOUD_PROJECT env var is required\n\n" +
+			"Set it to your GCP project that has Vertex AI enabled:\n" +
+			"  export GOOGLE_CLOUD_PROJECT=my-project-id")
 	}
 
 	// Validate comment mode.

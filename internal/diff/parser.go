@@ -11,9 +11,9 @@ import (
 
 // FileDiff represents the diff for a single file.
 type FileDiff struct {
-	OldPath string
-	NewPath string
-	Hunks   []Hunk
+	OldPath  string
+	NewPath  string
+	Hunks    []Hunk
 	IsBinary bool
 	IsNew    bool
 	IsDelete bool
@@ -57,12 +57,12 @@ func (fd *FileDiff) RawText() string {
 
 // Hunk represents a contiguous section of changes within a file diff.
 type Hunk struct {
-	Header       string // e.g., @@ -10,5 +10,7 @@ func Foo()
-	OldStart     int
-	OldCount     int
-	NewStart     int
-	NewCount     int
-	Lines        []DiffLine
+	Header   string // e.g., @@ -10,5 +10,7 @@ func Foo()
+	OldStart int
+	OldCount int
+	NewStart int
+	NewCount int
+	Lines    []DiffLine
 }
 
 // LineType indicates whether a diff line is added, removed, or context.

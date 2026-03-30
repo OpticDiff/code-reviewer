@@ -212,7 +212,7 @@ func buildNumberedDiff(diffs []diff.FileDiff) string {
 		if path == "" {
 			path = d.OldPath
 		}
-		sb.WriteString(fmt.Sprintf("=== File: %s ===\n", path))
+		fmt.Fprintf(&sb, "=== File: %s ===\n", path)
 
 		for _, h := range d.Hunks {
 			sb.WriteString(h.Header + "\n")
@@ -229,7 +229,7 @@ func buildNumberedDiff(diffs []diff.FileDiff) string {
 				case diff.LineContext:
 					lineNo = l.NewLineNo
 				}
-				sb.WriteString(fmt.Sprintf("%4d %s %s\n", lineNo, prefix, l.Content))
+				fmt.Fprintf(&sb, "%4d %s %s\n", lineNo, prefix, l.Content)
 			}
 		}
 		sb.WriteString("\n")

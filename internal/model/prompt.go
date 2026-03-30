@@ -150,10 +150,10 @@ func BuildUserPrompt(mrTitle, mrDescription string, numberedDiff string) string 
 	var sb strings.Builder
 
 	if mrTitle != "" {
-		sb.WriteString(fmt.Sprintf("## Merge Request: %s\n\n", mrTitle))
+		fmt.Fprintf(&sb, "## Merge Request: %s\n\n", mrTitle)
 	}
 	if mrDescription != "" {
-		sb.WriteString(fmt.Sprintf("### Description\n%s\n\n", mrDescription))
+		fmt.Fprintf(&sb, "### Description\n%s\n\n", mrDescription)
 	}
 
 	sb.WriteString("### Code Changes (Diff)\n\n")
