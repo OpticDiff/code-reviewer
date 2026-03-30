@@ -1,0 +1,41 @@
+# .code-reviewer.yaml — per-repo configuration
+# Place this file in your repository root.
+# All settings can be overridden by environment variables or CLI flags.
+
+# Vertex AI model to use for reviews.
+# Options: gemini-2.5-flash (default), gemini-2.5-pro, claude-sonnet-4, etc.
+model: gemini-2.5-flash
+
+# Review focus areas. Options: all, bugs, security, performance, style, docs.
+focus: [bugs, security]
+
+# Minimum severity to report. Options: low (default), medium, high, critical.
+min_severity: low
+
+# How to post comments to GitLab MRs.
+# notes: simple MR note (works with CI_JOB_TOKEN)
+# discussions: inline diff-anchored comments (needs PAT with api scope)
+comment_mode: notes
+
+# How to handle diffs that exceed the model's context window.
+# fail: error out with a helpful message (default, forces smaller MRs)
+# split: auto-split into chunks and merge results
+chunk_strategy: fail
+
+# File patterns to exclude from review (glob syntax).
+excluded_patterns:
+  - "go.sum"
+  - "*.lock"
+  - "package-lock.json"
+  - "yarn.lock"
+  - "vendor/*"
+  - "node_modules/*"
+  - "*.pb.go"
+  - "generated/*"
+
+# Additional review rules appended to the AI prompt.
+# Use this for team-specific or repo-specific conventions.
+extra_rules: |
+  Always flag raw SQL string concatenation.
+  Ensure all gRPC handlers propagate context.
+  Check that zerolog is used instead of log/fmt for logging.

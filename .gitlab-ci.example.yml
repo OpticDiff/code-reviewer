@@ -1,0 +1,50 @@
+# === Option A: Quick setup with CI_JOB_TOKEN (no PAT needed) ===
+# Uses simple MR notes. Zero configuration required.
+code-review:
+  stage: review
+  image: gcr.io/$PROJECT/code-reviewer:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GITLAB_TOKEN: $CI_JOB_TOKEN
+    REVIEW_COMMENT_MODE: "notes"
+  script:
+    - code-reviewer --ci
+  allow_failure: true
+
+# === Option B: Full-featured with PAT (inline diff comments) ===
+# Requires: Project Access Token with 'api' scope, stored as CODE_REVIEWER_TOKEN.
+#
+# To create:
+#   1. Go to Settings > Access Tokens in your GitLab project
+#   2. Create a token with 'api' scope, expiry 1 year
+#   3. Add CODE_REVIEWER_TOKEN as a masked CI/CD variable
+
+# Security gate — blocks MR on high/critical findings.
+security-review:
+  stage: review
+  image: gcr.io/$PROJECT/code-reviewer:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
+    REVIEW_MODEL: "gemini-2.5-pro"
+    REVIEW_FOCUS: "security"
+    REVIEW_MIN_SEVERITY: "high"
+    REVIEW_COMMENT_MODE: "discussions"
+  script:
+    - code-reviewer --ci
+  allow_failure: false
+
+# General review — advisory, non-blocking.
+code-review-full:
+  stage: review
+  image: gcr.io/$PROJECT/code-reviewer:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
+    REVIEW_COMMENT_MODE: "discussions"
+  script:
+    - code-reviewer --ci
+  allow_failure: true
