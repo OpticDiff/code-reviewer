@@ -117,6 +117,7 @@ type repoConfig struct {
 	ChunkStrategy    string   `yaml:"chunk_strategy"`
 	ExcludedPatterns []string `yaml:"excluded_patterns"`
 	ExtraRules       string   `yaml:"extra_rules"`
+	OutputJSON       bool     `yaml:"output_json"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -227,6 +228,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.ExtraRules != "" {
 		c.ExtraRules = rc.ExtraRules
 	}
+	if rc.OutputJSON {
+		c.OutputJSON = true
+	}
 	return nil
 }
 
@@ -269,6 +273,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("SKIP_DRAFT_MRS"); strings.EqualFold(v, "false") {
 		c.SkipDraftMRs = false
 	}
+	if v := os.Getenv("REVIEW_OUTPUT_JSON"); strings.EqualFold(v, "true") {
+		c.OutputJSON = true
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -285,6 +292,8 @@ func (c *Config) loadFlags() error {
 	chunkStrategy := fs.String("chunk-strategy", "", "How to handle large diffs: fail (default) or split")
 	extraRules := fs.String("extra-rules", "", "Additional review rules appended to prompt")
 	dryRun := fs.Bool("dry-run", false, "Run analysis but don't post to GitLab")
+	outputJSON := fs.Bool("json", false, "Output results as JSON to stdout")
+	_ = fs.Bool("version", false, "Print version and exit") // Handled in main() before config.Load().
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -326,6 +335,9 @@ func (c *Config) loadFlags() error {
 	if *extraRules != "" {
 		c.ExtraRules = *extraRules
 	}
+	if *outputJSON {
+		c.OutputJSON = true
+	}
 
 	return nil
 }
@@ -361,6 +373,15 @@ func (c *Config) validate() error {
 			return fmt.Errorf("CI mode requires CI_PROJECT_ID and CI_MERGE_REQUEST_IID env vars\n\n" +
 				"These are set automatically when running in a GitLab MR pipeline.\n" +
 				"If running locally, use --diff instead of --ci")
+		}
+		// Validate GitLab URL scheme to prevent token leakage over plain HTTP.
+		if !strings.HasPrefix(c.GitLabBaseURL, "https://") {
+			if os.Getenv("CODE_REVIEWER_ALLOW_INSECURE") != "true" {
+				return fmt.Errorf("GITLAB_BASE_URL must use HTTPS to protect tokens\n\n"+
+					"Current URL: %s\n"+
+					"Set CODE_REVIEWER_ALLOW_INSECURE=true to override (not recommended)",
+					c.GitLabBaseURL)
+			}
 		}
 		if c.GitLabToken == "" {
 			return fmt.Errorf("CI mode requires GITLAB_TOKEN env var\n\n" +

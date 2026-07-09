@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/OpticDiff/code-reviewer/internal/retry"
 	"google.golang.org/genai"
 )
 
@@ -62,10 +63,29 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 	// For other models (Claude, Mistral), we rely on prompt-instructed JSON.
 	if isGeminiModel(p.modelName) {
 		config.ResponseMIMEType = "application/json"
+		config.ResponseSchema = reviewResultSchema()
 	}
 
-	result, err := p.client.Models.GenerateContent(ctx, p.modelName, []*genai.Content{genai.NewContentFromText(userPrompt, genai.RoleUser)}, config)
-	if err != nil {
+	var result *genai.GenerateContentResponse
+	var genErr error
+
+	retryOpts := retry.DefaultOptions()
+	retryOpts.RetryIf = func(err error) bool {
+		errStr := strings.ToLower(err.Error())
+		return strings.Contains(errStr, "429") ||
+			strings.Contains(errStr, "503") ||
+			strings.Contains(errStr, "502") ||
+			strings.Contains(errStr, "504") ||
+			strings.Contains(errStr, "rate") ||
+			strings.Contains(errStr, "unavailable") ||
+			strings.Contains(errStr, "overloaded") ||
+			strings.Contains(errStr, "temporarily")
+	}
+
+	if err := retry.Do(ctx, "model review", func() error {
+		result, genErr = p.client.Models.GenerateContent(ctx, p.modelName, []*genai.Content{genai.NewContentFromText(userPrompt, genai.RoleUser)}, config)
+		return genErr
+	}, retryOpts); err != nil {
 		return nil, fmt.Errorf("generating content: %w", err)
 	}
 
@@ -94,6 +114,37 @@ func isGeminiModel(model string) bool {
 	return strings.HasPrefix(model, "gemini-")
 }
 
+// reviewResultSchema returns the JSON schema for ReviewResult, used to constrain Gemini output.
+func reviewResultSchema() *genai.Schema {
+	return &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"summary": {
+				Type:        genai.TypeString,
+				Description: "Brief summary of the overall change and review.",
+			},
+			"findings": {
+				Type:        genai.TypeArray,
+				Description: "List of review findings.",
+				Items: &genai.Schema{
+					Type: genai.TypeObject,
+					Properties: map[string]*genai.Schema{
+						"file":       {Type: genai.TypeString, Description: "File path."},
+						"line":       {Type: genai.TypeInteger, Description: "Line number in the new file."},
+						"severity":   {Type: genai.TypeString, Description: "CRITICAL, HIGH, MEDIUM, or LOW.", Enum: []string{"CRITICAL", "HIGH", "MEDIUM", "LOW"}},
+						"category":   {Type: genai.TypeString, Description: "Finding category.", Enum: []string{"bug", "security", "performance", "style", "docs"}},
+						"title":      {Type: genai.TypeString, Description: "Single sentence summary."},
+						"body":       {Type: genai.TypeString, Description: "Detailed explanation."},
+						"suggestion": {Type: genai.TypeString, Description: "Optional corrected code."},
+					},
+					Required: []string{"file", "line", "severity", "category", "title", "body"},
+				},
+			},
+		},
+		Required: []string{"summary", "findings"},
+	}
+}
+
 func extractText(result *genai.GenerateContentResponse) string {
 	if result == nil || len(result.Candidates) == 0 {
 		return ""
@@ -113,23 +164,42 @@ func extractText(result *genai.GenerateContentResponse) string {
 }
 
 func parseReviewJSON(text string) (*ReviewResult, error) {
-	// Strip markdown code fences if present (models sometimes wrap JSON).
 	text = strings.TrimSpace(text)
-	if strings.HasPrefix(text, "```json") {
-		text = strings.TrimPrefix(text, "```json")
-		text = strings.TrimSuffix(text, "```")
-		text = strings.TrimSpace(text)
-	} else if strings.HasPrefix(text, "```") {
-		text = strings.TrimPrefix(text, "```")
-		text = strings.TrimSuffix(text, "```")
-		text = strings.TrimSpace(text)
+
+	// Try direct JSON parse first (for well-behaved models).
+	var result ReviewResult
+	if err := json.Unmarshal([]byte(text), &result); err == nil {
+		return &result, nil
 	}
 
-	var result ReviewResult
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
-		return nil, err
+	// Strip markdown code fences (case-insensitive).
+	lower := strings.ToLower(text)
+	if strings.HasPrefix(lower, "```json") {
+		text = text[7:] // len("```json") == 7
+	} else if strings.HasPrefix(lower, "```") {
+		text = text[3:]
 	}
-	return &result, nil
+	// Remove closing fence and any trailing content.
+	if idx := strings.LastIndex(text, "```"); idx >= 0 {
+		text = text[:idx]
+	}
+	text = strings.TrimSpace(text)
+
+	if err := json.Unmarshal([]byte(text), &result); err == nil {
+		return &result, nil
+	}
+
+	// Fallback: extract JSON object by finding first '{' and last '}'.
+	start := strings.Index(text, "{")
+	end := strings.LastIndex(text, "}")
+	if start >= 0 && end > start {
+		jsonStr := text[start : end+1]
+		if err := json.Unmarshal([]byte(jsonStr), &result); err == nil {
+			return &result, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not parse model response as JSON")
 }
 
 func truncate(s string, maxLen int) string {

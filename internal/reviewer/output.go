@@ -51,7 +51,7 @@ func TerminalOutput(result *model.ReviewResult) string {
 }
 
 // PostToGitLab posts review results to a GitLab merge request.
-func PostToGitLab(ctx context.Context, cfg *config.Config, client *gitlab.Client, result *model.ReviewResult, version *gitlab.DiffVersion) error {
+func PostToGitLab(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *gitlab.DiffVersion) error {
 	projectID := cfg.CIProjectID
 	mrIID := cfg.CIMergeRequestID
 
