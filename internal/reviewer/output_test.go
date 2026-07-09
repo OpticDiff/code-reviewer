@@ -214,87 +214,64 @@ func TestFormatInlineComment_WithSuggestion(t *testing.T) {
 	}
 }
 
-func TestColorTerminalOutput_TokenUsage(t *testing.T) {
-	result := &model.ReviewResult{
-		Summary:  "Review done.",
-		Findings: []model.Finding{{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "test", Body: "body"}},
-		Usage:    &model.TokenUsage{InputTokens: 1500, OutputTokens: 200, TotalTokens: 1700},
-	}
-	out := ColorTerminalOutput(result, true)
-	if !strings.Contains(out, "1500") {
-		t.Error("expected input token count in output")
-	}
-	if !strings.Contains(out, "200") {
-		t.Error("expected output token count in output")
-	}
-	if !strings.Contains(out, "1700") {
-		t.Error("expected total token count in output")
-	}
-}
+func TestTokenUsageRendering(t *testing.T) {
+	finding := model.Finding{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "test", Body: "body"}
 
-func TestColorTerminalOutput_NoTokenUsage(t *testing.T) {
-	result := &model.ReviewResult{
-		Summary:  "Review done.",
-		Findings: nil,
+	tests := []struct {
+		name         string
+		findings     []model.Finding
+		usage        *model.TokenUsage
+		wantContains []string // substrings that must appear
+		wantAbsent   []string // substrings that must not appear
+	}{
+		{
+			name:         "with findings and usage",
+			findings:     []model.Finding{finding},
+			usage:        &model.TokenUsage{InputTokens: 1500, OutputTokens: 200, TotalTokens: 1700},
+			wantContains: []string{"1500", "200", "1700"},
+		},
+		{
+			name:       "nil usage hidden",
+			findings:   nil,
+			usage:      nil,
+			wantAbsent: []string{"Tokens:"},
+		},
+		{
+			name:         "no findings but usage shown",
+			findings:     nil,
+			usage:        &model.TokenUsage{InputTokens: 3000, OutputTokens: 100, TotalTokens: 3100},
+			wantContains: []string{"3000", "3100"},
+		},
 	}
-	out := ColorTerminalOutput(result, true)
-	if strings.Contains(out, "Tokens:") {
-		t.Error("should not show token line when usage is nil")
-	}
-}
 
-func TestTerminalOutput_PlainText_TokenUsage(t *testing.T) {
-	result := &model.ReviewResult{
-		Summary:  "Review done.",
-		Findings: []model.Finding{{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "test", Body: "body"}},
-		Usage:    &model.TokenUsage{InputTokens: 5000, OutputTokens: 800, TotalTokens: 5800},
+	renderers := []struct {
+		name   string
+		render func(*model.ReviewResult) string
+	}{
+		{"PlainText", func(r *model.ReviewResult) string { return TerminalOutput(r) }},
+		{"Color", func(r *model.ReviewResult) string { return ColorTerminalOutput(r, true) }},
 	}
-	out := TerminalOutput(result)
-	if !strings.Contains(out, "5000") {
-		t.Error("expected input token count in plain output")
-	}
-	if !strings.Contains(out, "5800") {
-		t.Error("expected total token count in plain output")
-	}
-}
 
-func TestTerminalOutput_PlainText_NoTokenUsage(t *testing.T) {
-	result := &model.ReviewResult{
-		Summary:  "Clean.",
-		Findings: nil,
-	}
-	out := TerminalOutput(result)
-	if strings.Contains(out, "Tokens:") {
-		t.Error("should not show token line when usage is nil")
-	}
-}
-
-func TestTerminalOutput_PlainText_UsageWithNoFindings(t *testing.T) {
-	result := &model.ReviewResult{
-		Summary:  "Clean.",
-		Findings: nil,
-		Usage:    &model.TokenUsage{InputTokens: 3000, OutputTokens: 100, TotalTokens: 3100},
-	}
-	out := TerminalOutput(result)
-	if !strings.Contains(out, "3000") {
-		t.Error("expected token usage even with no findings")
-	}
-	if !strings.Contains(out, "3100") {
-		t.Error("expected total tokens even with no findings")
-	}
-}
-
-func TestColorTerminalOutput_UsageWithNoFindings(t *testing.T) {
-	result := &model.ReviewResult{
-		Summary:  "Clean.",
-		Findings: nil,
-		Usage:    &model.TokenUsage{InputTokens: 4000, OutputTokens: 150, TotalTokens: 4150},
-	}
-	out := ColorTerminalOutput(result, true)
-	if !strings.Contains(out, "4000") {
-		t.Error("expected token usage in colored output even with no findings")
-	}
-	if !strings.Contains(out, "4150") {
-		t.Error("expected total tokens in colored output even with no findings")
+	for _, tt := range tests {
+		for _, renderer := range renderers {
+			t.Run(renderer.name+"/"+tt.name, func(t *testing.T) {
+				result := &model.ReviewResult{
+					Summary:  "Review.",
+					Findings: tt.findings,
+					Usage:    tt.usage,
+				}
+				out := renderer.render(result)
+				for _, s := range tt.wantContains {
+					if !strings.Contains(out, s) {
+						t.Errorf("expected %q in output, got:\n%s", s, out)
+					}
+				}
+				for _, s := range tt.wantAbsent {
+					if strings.Contains(out, s) {
+						t.Errorf("unexpected %q in output, got:\n%s", s, out)
+					}
+				}
+			})
+		}
 	}
 }
