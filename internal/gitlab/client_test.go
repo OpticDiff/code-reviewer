@@ -127,7 +127,7 @@ func TestGetMRChanges_Success(t *testing.T) {
 func TestGetMRChanges_Error(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, `{"message":"404 Not Found"}`)
+		_, _ = fmt.Fprint(w, `{"message":"404 Not Found"}`)
 	}))
 	defer srv.Close()
 
@@ -190,7 +190,7 @@ func TestCreateDiscussion_BotMarker(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		fmt.Fprint(w, `{}`)
+		_, _ = fmt.Fprint(w, `{}`)
 	}))
 	defer srv.Close()
 
@@ -506,7 +506,7 @@ func TestDo_ErrorResponseBody(t *testing.T) {
 	errorBody := `{"error":"internal server error","message":"something went terribly wrong"}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, errorBody)
+		_, _ = fmt.Fprint(w, errorBody)
 	}))
 	defer srv.Close()
 

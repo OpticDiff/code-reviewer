@@ -154,16 +154,16 @@ func (c *Client) getPaginated(ctx context.Context, initialURL string, out *[]Not
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return fmt.Errorf("GitLab API error %d: %s", resp.StatusCode, string(body))
 		}
 
 		var page []Note
 		if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return fmt.Errorf("decoding response: %w", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		*out = append(*out, page...)
 		nextURL = parseLinkNext(resp.Header.Get("Link"))
