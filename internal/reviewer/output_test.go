@@ -242,6 +242,12 @@ func TestTokenUsageRendering(t *testing.T) {
 			usage:        &model.TokenUsage{InputTokens: 3000, OutputTokens: 100, TotalTokens: 3100},
 			wantContains: []string{"3000", "3100"},
 		},
+		{
+			name:       "findings present but nil usage hidden",
+			findings:   []model.Finding{finding},
+			usage:      nil,
+			wantAbsent: []string{"Tokens:"},
+		},
 	}
 
 	renderers := []struct {
