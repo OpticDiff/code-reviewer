@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/gitlab"
@@ -33,7 +34,11 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	exitCode, err := run(ctx)
+	// Bound provider initialization so CI doesn't hang on auth issues.
+	initCtx, initCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer initCancel()
+
+	exitCode, err := run(ctx, initCtx)
 	if err != nil {
 		slog.Error("fatal", "error", err)
 		os.Exit(1)
@@ -41,7 +46,7 @@ func main() {
 	os.Exit(exitCode)
 }
 
-func run(ctx context.Context) (int, error) {
+func run(ctx, initCtx context.Context) (int, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return 0, fmt.Errorf("configuration: %w", err)
@@ -69,26 +74,15 @@ func run(ctx context.Context) (int, error) {
 			"models", cfg.Models,
 			"threshold", threshold,
 		)
-		mp, err := model.NewMultiProvider(ctx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold)
+		mp, err := model.NewMultiProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold)
 		if err != nil {
-			return 0, fmt.Errorf("initializing multi-model provider: %w", err)
+			return 0, wrapProviderError(err)
 		}
 		modelProvider = mp
 	} else {
-		provider, err := model.NewProvider(ctx, cfg.GCPProject, cfg.GCPLocation, cfg.Model)
+		provider, err := model.NewProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Model)
 		if err != nil {
-			errMsg := err.Error()
-			if strings.Contains(errMsg, "credentials") ||
-				strings.Contains(errMsg, "oauth2") ||
-				strings.Contains(errMsg, "authentication") {
-				return 0, fmt.Errorf(
-					"vertex AI authentication failed: %w\n\n"+
-						"To fix, set up Application Default Credentials:\n"+
-						"  Local:  gcloud auth application-default login\n"+
-						"  CI/CD:  Use Workload Identity Federation or set GOOGLE_APPLICATION_CREDENTIALS",
-					err)
-			}
-			return 0, fmt.Errorf("initializing model provider: %w", err)
+			return 0, wrapProviderError(err)
 		}
 		modelProvider = provider
 	}
@@ -114,4 +108,21 @@ func run(ctx context.Context) (int, error) {
 
 	slog.Info("review complete: no findings")
 	return 0, nil
+}
+
+// wrapProviderError detects authentication errors and adds actionable
+// remediation guidance. Used for both single-model and multi-model paths.
+func wrapProviderError(err error) error {
+	errMsg := strings.ToLower(err.Error())
+	if strings.Contains(errMsg, "credentials") ||
+		strings.Contains(errMsg, "oauth2") ||
+		strings.Contains(errMsg, "authentication") {
+		return fmt.Errorf(
+			"vertex AI authentication failed: %w\n\n"+
+				"To fix, set up Application Default Credentials:\n"+
+				"  Local:  gcloud auth application-default login\n"+
+				"  CI/CD:  Use Workload Identity Federation or set GOOGLE_APPLICATION_CREDENTIALS",
+			err)
+	}
+	return fmt.Errorf("initializing model provider: %w", err)
 }
