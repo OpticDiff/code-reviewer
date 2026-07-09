@@ -99,6 +99,45 @@ func TestMergeResults_NilResults(t *testing.T) {
 	}
 }
 
+func TestMergeResults_UsageAggregation(t *testing.T) {
+	results := []*ReviewResult{
+		{
+			Summary:  "A",
+			Findings: []Finding{{File: "a.go", Line: 1, Category: "bug", Title: "x", Body: "y"}},
+			Usage:    &TokenUsage{InputTokens: 1000, OutputTokens: 200, TotalTokens: 1200},
+		},
+		{
+			Summary:  "B",
+			Findings: []Finding{{File: "a.go", Line: 1, Category: "bug", Title: "x", Body: "y"}},
+			Usage:    &TokenUsage{InputTokens: 1500, OutputTokens: 300, TotalTokens: 1800},
+		},
+	}
+	merged := mergeResults(results, 2)
+	if merged.Usage == nil {
+		t.Fatal("expected usage to be set")
+	}
+	if merged.Usage.InputTokens != 2500 {
+		t.Errorf("expected 2500 input tokens, got %d", merged.Usage.InputTokens)
+	}
+	if merged.Usage.OutputTokens != 500 {
+		t.Errorf("expected 500 output tokens, got %d", merged.Usage.OutputTokens)
+	}
+	if merged.Usage.TotalTokens != 3000 {
+		t.Errorf("expected 3000 total tokens, got %d", merged.Usage.TotalTokens)
+	}
+}
+
+func TestMergeResults_UsageNilWhenNoUsage(t *testing.T) {
+	results := []*ReviewResult{
+		{Summary: "A", Findings: []Finding{{File: "a.go", Line: 1, Category: "bug", Title: "x", Body: "y"}}},
+		{Summary: "B", Findings: []Finding{{File: "a.go", Line: 1, Category: "bug", Title: "x", Body: "y"}}},
+	}
+	merged := mergeResults(results, 2)
+	if merged.Usage != nil {
+		t.Error("expected usage to be nil when no results have usage")
+	}
+}
+
 func TestMergeResults_SummaryMerge(t *testing.T) {
 	merged := mergeResults([]*ReviewResult{{Summary: "A."}, {Summary: "B."}, {Summary: "A."}}, 1)
 	if merged.Summary != "A. B." {

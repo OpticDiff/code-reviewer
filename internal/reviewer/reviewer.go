@@ -110,9 +110,11 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			summary = result.Summary
 		}
 		allFindings = append(allFindings, result.Findings...)
-		totalUsage.InputTokens += result.Usage.InputTokens
-		totalUsage.OutputTokens += result.Usage.OutputTokens
-		totalUsage.TotalTokens += result.Usage.TotalTokens
+		if result.Usage != nil {
+			totalUsage.InputTokens += result.Usage.InputTokens
+			totalUsage.OutputTokens += result.Usage.OutputTokens
+			totalUsage.TotalTokens += result.Usage.TotalTokens
+		}
 	}
 
 	if totalUsage.TotalTokens > 0 {
@@ -133,7 +135,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	result := &model.ReviewResult{
 		Summary:  summary,
 		Findings: allFindings,
-		Usage:    totalUsage,
+	}
+	if totalUsage.TotalTokens > 0 {
+		result.Usage = &totalUsage
 	}
 
 	// Step 7: Output.

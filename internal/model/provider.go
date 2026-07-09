@@ -13,16 +13,16 @@ import (
 
 // TokenUsage tracks input/output token counts for cost visibility.
 type TokenUsage struct {
-	InputTokens  int32 `json:"input_tokens"`
-	OutputTokens int32 `json:"output_tokens"`
-	TotalTokens  int32 `json:"total_tokens"`
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
 }
 
 // ReviewResult is the structured output from the model.
 type ReviewResult struct {
-	Summary  string     `json:"summary"`
-	Findings []Finding  `json:"findings"`
-	Usage    TokenUsage `json:"usage,omitempty"`
+	Summary  string      `json:"summary"`
+	Findings []Finding   `json:"findings"`
+	Usage    *TokenUsage `json:"usage,omitempty"`
 }
 
 // Finding is a single review comment from the model.
@@ -111,10 +111,10 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 
 	// Capture token usage from the response.
 	if result.UsageMetadata != nil {
-		review.Usage = TokenUsage{
-			InputTokens:  result.UsageMetadata.PromptTokenCount,
-			OutputTokens: result.UsageMetadata.CandidatesTokenCount,
-			TotalTokens:  result.UsageMetadata.TotalTokenCount,
+		review.Usage = &TokenUsage{
+			InputTokens:  int64(result.UsageMetadata.PromptTokenCount),
+			OutputTokens: int64(result.UsageMetadata.CandidatesTokenCount),
+			TotalTokens:  int64(result.UsageMetadata.TotalTokenCount),
 		}
 	}
 

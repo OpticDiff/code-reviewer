@@ -47,6 +47,11 @@ func TerminalOutput(result *model.ReviewResult) string {
 		}
 	}
 
+	if result.Usage != nil && result.Usage.TotalTokens > 0 {
+		fmt.Fprintf(&sb, "---\nTokens: %d in / %d out / %d total\n",
+			result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.TotalTokens)
+	}
+
 	return sb.String()
 }
 

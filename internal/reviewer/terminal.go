@@ -81,7 +81,7 @@ func ColorTerminalOutput(result *model.ReviewResult, useColor bool) string {
 	}
 
 	// Token usage line (if available).
-	if result.Usage.TotalTokens > 0 {
+	if result.Usage != nil && result.Usage.TotalTokens > 0 {
 		usageLine := fmt.Sprintf("  Tokens: %d in / %d out / %d total",
 			result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.TotalTokens)
 		usagePadLen := 53 - len(usageLine)

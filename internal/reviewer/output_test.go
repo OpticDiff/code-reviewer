@@ -218,7 +218,7 @@ func TestColorTerminalOutput_TokenUsage(t *testing.T) {
 	result := &model.ReviewResult{
 		Summary:  "Review done.",
 		Findings: []model.Finding{{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "test", Body: "body"}},
-		Usage:    model.TokenUsage{InputTokens: 1500, OutputTokens: 200, TotalTokens: 1700},
+		Usage:    &model.TokenUsage{InputTokens: 1500, OutputTokens: 200, TotalTokens: 1700},
 	}
 	out := ColorTerminalOutput(result, true)
 	if !strings.Contains(out, "1500") {
@@ -239,6 +239,32 @@ func TestColorTerminalOutput_NoTokenUsage(t *testing.T) {
 	}
 	out := ColorTerminalOutput(result, true)
 	if strings.Contains(out, "Tokens:") {
-		t.Error("should not show token line when usage is zero")
+		t.Error("should not show token line when usage is nil")
+	}
+}
+
+func TestTerminalOutput_PlainText_TokenUsage(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary:  "Review done.",
+		Findings: []model.Finding{{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "test", Body: "body"}},
+		Usage:    &model.TokenUsage{InputTokens: 5000, OutputTokens: 800, TotalTokens: 5800},
+	}
+	out := TerminalOutput(result)
+	if !strings.Contains(out, "5000") {
+		t.Error("expected input token count in plain output")
+	}
+	if !strings.Contains(out, "5800") {
+		t.Error("expected total token count in plain output")
+	}
+}
+
+func TestTerminalOutput_PlainText_NoTokenUsage(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary:  "Clean.",
+		Findings: nil,
+	}
+	out := TerminalOutput(result)
+	if strings.Contains(out, "Tokens:") {
+		t.Error("should not show token line when usage is nil")
 	}
 }
