@@ -91,12 +91,14 @@ type Config struct {
 	MinSeverity  Severity
 	ExtraRules   string
 	CustomPrompt string // Path to custom system prompt file.
+	Incremental  bool   // Only review files changed in the latest push (CI mode).
 
 	// Output settings.
 	CommentMode CommentMode
 	DryRun      bool
 	OutputJSON  bool
-	NoColor     bool // Disable ANSI color output.
+	NoColor     bool   // Disable ANSI color output.
+	SARIFOutput string // Path to write SARIF 2.1.0 output file.
 
 	// GitLab settings.
 	GitLabToken   string
@@ -106,7 +108,8 @@ type Config struct {
 	// CI auto-detected.
 	CIProjectID      string
 	CIMergeRequestID string
-	CIDiffBaseSHA    string // Reserved: loaded from CI_MERGE_REQUEST_DIFF_BASE_SHA for future incremental review.
+	CIDiffBaseSHA      string // Reserved: loaded from CI_MERGE_REQUEST_DIFF_BASE_SHA for future incremental review.
+	CICommitBeforeSHA  string // The SHA before the push (from CI_COMMIT_BEFORE_SHA).
 
 	// Exclusions.
 	ExcludedPatterns []string
@@ -291,8 +294,14 @@ func (c *Config) loadEnv() {
 	if _, ok := os.LookupEnv("NO_COLOR"); ok {
 		c.NoColor = true
 	}
+	if v := os.Getenv("SARIF_OUTPUT"); v != "" {
+		c.SARIFOutput = v
+	}
 	if v := os.Getenv("REVIEW_MODELS"); v != "" {
 		c.Models = splitAndTrim(v)
+	}
+	if v := os.Getenv("INCREMENTAL"); strings.EqualFold(v, "true") {
+		c.Incremental = true
 	}
 }
 
@@ -314,8 +323,10 @@ func (c *Config) loadFlags() error {
 	_ = fs.Bool("version", false, "Print version and exit") // Handled in main() before config.Load().
 	customPrompt := fs.String("custom-prompt", "", "Path to a custom system prompt file")
 	noColor := fs.Bool("no-color", false, "Disable ANSI color output")
+	sarifOutput := fs.String("sarif", "", "Write SARIF 2.1.0 output to the given file path")
 	models := fs.String("models", "", "Comma-separated list of models for consensus review")
 	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
+	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -366,11 +377,17 @@ func (c *Config) loadFlags() error {
 	if *noColor {
 		c.NoColor = true
 	}
+	if *sarifOutput != "" {
+		c.SARIFOutput = *sarifOutput
+	}
 	if *models != "" {
 		c.Models = splitAndTrim(*models)
 	}
 	if *consensusThreshold > 0 {
 		c.ConsensusThreshold = *consensusThreshold
+	}
+	if *incremental {
+		c.Incremental = true
 	}
 
 	return nil
@@ -380,6 +397,7 @@ func (c *Config) loadCIEnv() {
 	c.CIProjectID = os.Getenv("CI_PROJECT_ID")
 	c.CIMergeRequestID = os.Getenv("CI_MERGE_REQUEST_IID")
 	c.CIDiffBaseSHA = os.Getenv("CI_MERGE_REQUEST_DIFF_BASE_SHA")
+	c.CICommitBeforeSHA = os.Getenv("CI_COMMIT_BEFORE_SHA")
 }
 
 func (c *Config) validate() error {

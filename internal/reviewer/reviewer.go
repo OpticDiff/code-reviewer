@@ -75,6 +75,38 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
+	// Step 2b: Incremental review — filter to only files changed in latest push.
+	if r.cfg.Incremental && r.cfg.CIMode && r.glClient != nil {
+		versions, verr := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
+		if verr != nil {
+			slog.Warn("failed to get MR versions for incremental review, falling back to full review", "error", verr)
+		} else if len(versions) > 1 {
+			// Compare previous version's head to current version's head.
+			prevHead := versions[1].HeadSHA
+			currHead := versions[0].HeadSHA
+			changedFiles, cerr := r.glClient.CompareCommits(ctx, r.cfg.CIProjectID, prevHead, currHead)
+			if cerr != nil {
+				slog.Warn("failed to compare commits for incremental review, falling back to full review", "error", cerr)
+			} else {
+				before := len(diffs)
+				diffs = filterByFiles(diffs, changedFiles)
+				slog.Info("incremental review",
+					"total_files", before,
+					"changed_files", len(changedFiles),
+					"reviewing", len(diffs),
+				)
+			}
+		} else {
+			slog.Info("first push to MR, performing full review")
+		}
+	}
+
+	if len(diffs) == 0 {
+		slog.Info("no files to review after incremental filtering")
+		fmt.Println("✅ No reviewable files changed in latest push.")
+		return 0, nil
+	}
+
 	// Step 3: Check context window / chunk.
 	tokenLimit := diff.TokenLimitForModel(r.cfg.Model)
 	chunker, err := diff.NewChunkStrategy(string(r.cfg.ChunkStrategy))
@@ -167,6 +199,14 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		if err := PostToGitLab(ctx, r.cfg, r.glClient, result, version); err != nil {
 			return len(allFindings), fmt.Errorf("posting to GitLab: %w", err)
 		}
+	}
+
+	// Write SARIF if requested.
+	if r.cfg.SARIFOutput != "" {
+		if err := WriteSARIF(r.cfg.SARIFOutput, result); err != nil {
+			return 0, fmt.Errorf("writing SARIF: %w", err)
+		}
+		slog.Info("SARIF output written", "path", r.cfg.SARIFOutput)
 	}
 
 	return len(allFindings), nil
@@ -315,6 +355,25 @@ func filterBySeverity(findings []model.Finding, minSeverity config.Severity) []m
 		}
 		if sev >= minSeverity {
 			filtered = append(filtered, f)
+		}
+	}
+	return filtered
+}
+
+// filterByFiles returns only diffs whose file path matches one of the changed files.
+func filterByFiles(diffs []diff.FileDiff, changedFiles []string) []diff.FileDiff {
+	changed := make(map[string]bool, len(changedFiles))
+	for _, f := range changedFiles {
+		changed[f] = true
+	}
+	var filtered []diff.FileDiff
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if changed[path] {
+			filtered = append(filtered, d)
 		}
 	}
 	return filtered
