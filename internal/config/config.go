@@ -106,7 +106,7 @@ type Config struct {
 	// CI auto-detected.
 	CIProjectID      string
 	CIMergeRequestID string
-	CIDiffBaseSHA    string
+	CIDiffBaseSHA    string // Reserved: loaded from CI_MERGE_REQUEST_DIFF_BASE_SHA for future incremental review.
 
 	// Exclusions.
 	ExcludedPatterns []string

@@ -6,15 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	botMarker    = "<!-- code-reviewer -->"
-	apiRateDelay = 100 * time.Millisecond
+	botMarker      = "<!-- code-reviewer -->"
+	apiRateDelay   = 100 * time.Millisecond
+	maxRetries     = 3
+	defaultRetryMs = 1000
 )
 
 // Client is an HTTP client for the GitLab REST API v4.
@@ -22,6 +26,7 @@ type Client struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+	retryBaseMs int // default retry delay in ms; 0 uses defaultRetryMs. Overridable for tests.
 }
 
 // NewClient creates a new GitLab API client.
@@ -96,7 +101,14 @@ func (c *Client) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]N
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
 	var allNotes []Note
-	if err := c.getPaginated(ctx, initialURL, &allNotes); err != nil {
+	if err := c.getPaginated(ctx, initialURL, func(raw json.RawMessage) error {
+		var page []Note
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return err
+		}
+		allNotes = append(allNotes, page...)
+		return nil
+	}); err != nil {
 		return nil, fmt.Errorf("listing notes: %w", err)
 	}
 
@@ -138,44 +150,76 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 }
 
 // getPaginated fetches all pages of a paginated GitLab API response.
-func (c *Client) getPaginated(ctx context.Context, initialURL string, out *[]Note) error {
+// The decode function is called with each page's raw JSON for type-safe decoding.
+// Uses doRaw internally, so paginated requests get the same 429 retry handling.
+func (c *Client) getPaginated(ctx context.Context, initialURL string, decode func(json.RawMessage) error) error {
 	nextURL := initialURL
 	for nextURL != "" {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, nextURL, nil)
+		raw, linkHeader, err := c.doRaw(ctx, http.MethodGet, nextURL)
 		if err != nil {
 			return err
 		}
-		req.Header.Set("PRIVATE-TOKEN", c.token)
 
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return fmt.Errorf("HTTP request failed: %w", err)
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-			_ = resp.Body.Close()
-			return fmt.Errorf("GitLab API error %d: %s", resp.StatusCode, string(body))
-		}
-
-		var page []Note
-		if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
-			_ = resp.Body.Close()
+		if err := decode(raw); err != nil {
 			return fmt.Errorf("decoding response: %w", err)
 		}
-		_ = resp.Body.Close()
-
-		*out = append(*out, page...)
 
 		// Validate the next URL stays on the same host to prevent SSRF.
-		// A malicious GitLab instance could return a Link header pointing to
-		// an attacker-controlled server, exfiltrating the PRIVATE-TOKEN.
-		nextURL = parseLinkNext(resp.Header.Get("Link"))
+		nextURL = parseLinkNext(linkHeader)
 		if nextURL != "" && !c.isSameOrigin(nextURL) {
 			return fmt.Errorf("pagination URL %q has a different origin than the configured GitLab host; refusing to follow (possible SSRF)", nextURL)
 		}
 	}
 	return nil
+}
+
+// doRaw performs a GET request with 429 retry and returns the raw response body and Link header.
+func (c *Client) doRaw(ctx context.Context, method, url string) ([]byte, string, error) {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, method, url, nil)
+		if err != nil {
+			return nil, "", err
+		}
+		req.Header.Set("PRIVATE-TOKEN", c.token)
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return nil, "", fmt.Errorf("HTTP request failed: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			_ = resp.Body.Close()
+			if attempt >= maxRetries {
+				return nil, "", fmt.Errorf("GitLab API rate limited after %d retries", maxRetries)
+			}
+			wait := c.retryDelay(resp.Header.Get("Retry-After"))
+			slog.Warn("GitLab rate limited, retrying",
+				"attempt", attempt+1,
+				"wait", wait,
+			)
+			select {
+			case <-time.After(wait):
+				continue
+			case <-ctx.Done():
+				return nil, "", ctx.Err()
+			}
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			_ = resp.Body.Close()
+			return nil, "", fmt.Errorf("GitLab API error %d: %s", resp.StatusCode, string(body))
+		}
+
+		linkHeader := resp.Header.Get("Link")
+		raw, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			return nil, "", fmt.Errorf("reading response: %w", err)
+		}
+		return raw, linkHeader, nil
+	}
+	return nil, "", fmt.Errorf("GitLab API rate limited after %d retries", maxRetries)
 }
 
 // isSameOrigin checks that a URL has the same scheme and host as the GitLab base URL.
@@ -244,22 +288,71 @@ func (c *Client) delete(ctx context.Context, url string) error {
 func (c *Client) do(req *http.Request, out interface{}) error {
 	req.Header.Set("PRIVATE-TOKEN", c.token)
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-		return fmt.Errorf("GitLab API error %d: %s", resp.StatusCode, string(body))
-	}
-
-	if out != nil {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return fmt.Errorf("decoding response: %w", err)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			// Clone the request for retry (body may have been consumed).
+			req = req.Clone(req.Context())
 		}
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("HTTP request failed: %w", err)
+		}
+
+		if resp.StatusCode == http.StatusTooManyRequests {
+			_ = resp.Body.Close()
+			if attempt >= maxRetries {
+				return fmt.Errorf("GitLab API rate limited after %d retries", maxRetries)
+			}
+			wait := c.retryDelay(resp.Header.Get("Retry-After"))
+			slog.Warn("GitLab rate limited, retrying",
+				"attempt", attempt+1,
+				"wait", wait,
+			)
+			select {
+			case <-time.After(wait):
+				continue
+			case <-req.Context().Done():
+				return req.Context().Err()
+			}
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			_ = resp.Body.Close()
+			return fmt.Errorf("GitLab API error %d: %s", resp.StatusCode, string(body))
+		}
+
+		defer func() { _ = resp.Body.Close() }()
+
+		if out != nil {
+			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+				return fmt.Errorf("decoding response: %w", err)
+			}
+		}
+
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("GitLab API rate limited after %d retries", maxRetries)
+}
+
+// retryDelay returns the delay before a 429 retry. Uses Retry-After header if valid,
+// otherwise falls back to c.retryBaseMs (or defaultRetryMs if unset).
+func (c *Client) retryDelay(retryAfter string) time.Duration {
+	baseMs := c.retryBaseMs
+	if baseMs <= 0 {
+		baseMs = defaultRetryMs
+	}
+	if retryAfter == "" {
+		return time.Duration(baseMs) * time.Millisecond
+	}
+	secs, err := strconv.Atoi(retryAfter)
+	if err != nil || secs <= 0 {
+		return time.Duration(baseMs) * time.Millisecond
+	}
+	if secs > 60 {
+		secs = 60 // Cap at 60s to avoid excessive waits.
+	}
+	return time.Duration(secs) * time.Second
 }

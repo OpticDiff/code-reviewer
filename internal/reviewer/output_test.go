@@ -1,9 +1,15 @@
 package reviewer
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/OpticDiff/code-reviewer/internal/config"
+	"github.com/OpticDiff/code-reviewer/internal/gitlab"
 	"github.com/OpticDiff/code-reviewer/internal/model"
 )
 
@@ -281,3 +287,169 @@ func TestTokenUsageRendering(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// outputMockVCS — flexible mock for PostToGitLab tests
+// ---------------------------------------------------------------------------
+
+type outputMockVCS struct {
+	mu sync.Mutex
+
+	// Call tracking.
+	postNoteCalls         int
+	createDiscussionCalls int
+	cleanCalls            int
+
+	// CreateDiscussion behavior: called with the current call index (0-based).
+	// Return nil for success, non-nil for failure.
+	createDiscussionFunc func(callIndex int) error
+
+	// Fixed responses.
+	postNoteErr error
+	cleanResult int
+	cleanErr    error
+}
+
+func (m *outputMockVCS) GetMRChanges(context.Context, string, string) (*gitlab.MRChangesResponse, error) {
+	return nil, nil
+}
+
+func (m *outputMockVCS) GetMRVersions(context.Context, string, string) ([]gitlab.DiffVersion, error) {
+	return nil, nil
+}
+
+func (m *outputMockVCS) PostNote(_ context.Context, _, _, _ string) (*gitlab.Note, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.postNoteCalls++
+	return &gitlab.Note{ID: m.postNoteCalls}, m.postNoteErr
+}
+
+func (m *outputMockVCS) CreateDiscussion(_ context.Context, _, _ string, _ gitlab.CreateDiscussionRequest) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.createDiscussionCalls
+	m.createDiscussionCalls++
+	if m.createDiscussionFunc != nil {
+		return m.createDiscussionFunc(idx)
+	}
+	return nil
+}
+
+func (m *outputMockVCS) ListBotNotes(context.Context, string, string) ([]gitlab.Note, error) {
+	return nil, nil
+}
+
+func (m *outputMockVCS) DeleteNote(context.Context, string, string, int) error {
+	return nil
+}
+
+func (m *outputMockVCS) CleanPreviousReviews(context.Context, string, string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cleanCalls++
+	return m.cleanResult, m.cleanErr
+}
+
+// Compile-time check that outputMockVCS implements VCSClient.
+var _ VCSClient = (*outputMockVCS)(nil)
+
+// ---------------------------------------------------------------------------
+// PostToGitLab tests
+// ---------------------------------------------------------------------------
+
+func TestPostToGitLab_DiscussionFallbackToNote(t *testing.T) {
+	discErr := errors.New("position not found in diff")
+
+	vcs := &outputMockVCS{
+		createDiscussionFunc: func(_ int) error {
+			return discErr // all discussions fail
+		},
+	}
+
+	cfg := &config.Config{
+		CommentMode:      config.CommentModeDiscussions,
+		CIProjectID:      "proj",
+		CIMergeRequestID: "1",
+	}
+
+	result := &model.ReviewResult{
+		Summary: "Found 1 issue.",
+		Findings: []model.Finding{
+			{File: "main.go", Line: 10, Severity: "HIGH", Title: "Bug", Body: "desc"},
+		},
+	}
+
+	version := &gitlab.DiffVersion{
+		ID:       1,
+		HeadSHA:  "head",
+		BaseSHA:  "base",
+		StartSHA: "start",
+	}
+
+	err := PostToGitLab(context.Background(), cfg, vcs, result, version)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// PostNote should be called twice:
+	// 1. Summary note
+	// 2. Fallback inline note (because CreateDiscussion failed)
+	if vcs.postNoteCalls != 2 {
+		t.Errorf("PostNote call count = %d, want 2 (summary + fallback)", vcs.postNoteCalls)
+	}
+
+	if vcs.createDiscussionCalls != 1 {
+		t.Errorf("CreateDiscussion call count = %d, want 1", vcs.createDiscussionCalls)
+	}
+}
+
+func TestPostToGitLab_PartialPostingCount(t *testing.T) {
+	// CreateDiscussion alternates: #0 succeeds, #1 fails, #2 succeeds.
+	vcs := &outputMockVCS{
+		createDiscussionFunc: func(callIndex int) error {
+			if callIndex == 1 {
+				return fmt.Errorf("position error")
+			}
+			return nil
+		},
+	}
+
+	cfg := &config.Config{
+		CommentMode:      config.CommentModeDiscussions,
+		CIProjectID:      "proj",
+		CIMergeRequestID: "1",
+	}
+
+	result := &model.ReviewResult{
+		Summary: "Found issues.",
+		Findings: []model.Finding{
+			{File: "a.go", Line: 1, Severity: "HIGH", Title: "F1", Body: "d1"},
+			{File: "b.go", Line: 2, Severity: "MEDIUM", Title: "F2", Body: "d2"},
+			{File: "c.go", Line: 3, Severity: "LOW", Title: "F3", Body: "d3"},
+		},
+	}
+
+	version := &gitlab.DiffVersion{
+		ID:       1,
+		HeadSHA:  "head",
+		BaseSHA:  "base",
+		StartSHA: "start",
+	}
+
+	err := PostToGitLab(context.Background(), cfg, vcs, result, version)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	// 3 CreateDiscussion attempts total.
+	if vcs.createDiscussionCalls != 3 {
+		t.Errorf("CreateDiscussion call count = %d, want 3", vcs.createDiscussionCalls)
+	}
+
+	// PostNote: 1 summary + 1 fallback for finding #2 = 2.
+	if vcs.postNoteCalls != 2 {
+		t.Errorf("PostNote call count = %d, want 2 (summary + 1 fallback)", vcs.postNoteCalls)
+	}
+}
+
