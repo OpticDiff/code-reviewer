@@ -92,6 +92,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	systemPrompt := model.BuildPromptWithCustom(r.cfg.CustomPrompt, r.cfg.Focus, r.cfg.ExtraRules)
 	var allFindings []model.Finding
 	var summary string
+	var totalUsage model.TokenUsage
 
 	for i, chunk := range chunks {
 		slog.Info(fmt.Sprintf("reviewing chunk %d/%d (%d files, ~%d tokens)",
@@ -109,6 +110,17 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			summary = result.Summary
 		}
 		allFindings = append(allFindings, result.Findings...)
+		totalUsage.InputTokens += result.Usage.InputTokens
+		totalUsage.OutputTokens += result.Usage.OutputTokens
+		totalUsage.TotalTokens += result.Usage.TotalTokens
+	}
+
+	if totalUsage.TotalTokens > 0 {
+		slog.Info("token usage",
+			"input", totalUsage.InputTokens,
+			"output", totalUsage.OutputTokens,
+			"total", totalUsage.TotalTokens,
+		)
 	}
 
 	// Step 5: Validate line references.
@@ -121,6 +133,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	result := &model.ReviewResult{
 		Summary:  summary,
 		Findings: allFindings,
+		Usage:    totalUsage,
 	}
 
 	// Step 7: Output.

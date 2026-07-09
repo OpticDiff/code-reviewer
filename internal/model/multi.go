@@ -162,9 +162,20 @@ func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
 		}
 	}
 
+	// Aggregate token usage across all models.
+	var totalUsage TokenUsage
+	for _, r := range results {
+		if r != nil {
+			totalUsage.InputTokens += r.Usage.InputTokens
+			totalUsage.OutputTokens += r.Usage.OutputTokens
+			totalUsage.TotalTokens += r.Usage.TotalTokens
+		}
+	}
+
 	return &ReviewResult{
 		Summary:  strings.Join(summaries, " "),
 		Findings: findings,
+		Usage:    totalUsage,
 	}
 }
 

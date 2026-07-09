@@ -213,3 +213,32 @@ func TestFormatInlineComment_WithSuggestion(t *testing.T) {
 		t.Error("expected suggestion content")
 	}
 }
+
+func TestColorTerminalOutput_TokenUsage(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary:  "Review done.",
+		Findings: []model.Finding{{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "test", Body: "body"}},
+		Usage:    model.TokenUsage{InputTokens: 1500, OutputTokens: 200, TotalTokens: 1700},
+	}
+	out := ColorTerminalOutput(result, true)
+	if !strings.Contains(out, "1500") {
+		t.Error("expected input token count in output")
+	}
+	if !strings.Contains(out, "200") {
+		t.Error("expected output token count in output")
+	}
+	if !strings.Contains(out, "1700") {
+		t.Error("expected total token count in output")
+	}
+}
+
+func TestColorTerminalOutput_NoTokenUsage(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary:  "Review done.",
+		Findings: nil,
+	}
+	out := ColorTerminalOutput(result, true)
+	if strings.Contains(out, "Tokens:") {
+		t.Error("should not show token line when usage is zero")
+	}
+}

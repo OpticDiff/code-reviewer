@@ -11,10 +11,18 @@ import (
 	"google.golang.org/genai"
 )
 
+// TokenUsage tracks input/output token counts for cost visibility.
+type TokenUsage struct {
+	InputTokens  int32 `json:"input_tokens"`
+	OutputTokens int32 `json:"output_tokens"`
+	TotalTokens  int32 `json:"total_tokens"`
+}
+
 // ReviewResult is the structured output from the model.
 type ReviewResult struct {
-	Summary  string    `json:"summary"`
-	Findings []Finding `json:"findings"`
+	Summary  string     `json:"summary"`
+	Findings []Finding  `json:"findings"`
+	Usage    TokenUsage `json:"usage,omitempty"`
 }
 
 // Finding is a single review comment from the model.
@@ -99,6 +107,15 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 	review, err := parseReviewJSON(text)
 	if err != nil {
 		return nil, fmt.Errorf("parsing model response: %w (raw: %s)", err, truncate(text, 500))
+	}
+
+	// Capture token usage from the response.
+	if result.UsageMetadata != nil {
+		review.Usage = TokenUsage{
+			InputTokens:  result.UsageMetadata.PromptTokenCount,
+			OutputTokens: result.UsageMetadata.CandidatesTokenCount,
+			TotalTokens:  result.UsageMetadata.TotalTokenCount,
+		}
 	}
 
 	return review, nil
