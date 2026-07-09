@@ -318,6 +318,10 @@ func (m *outputMockVCS) GetMRVersions(context.Context, string, string) ([]gitlab
 	return nil, nil
 }
 
+func (m *outputMockVCS) CompareCommits(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
+}
+
 func (m *outputMockVCS) PostNote(_ context.Context, _, _, _ string) (*gitlab.Note, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

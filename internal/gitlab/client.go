@@ -50,6 +50,35 @@ func NewClient(baseURL, token string) *Client {
 	}
 }
 
+// CompareCommits returns the list of files changed between two commits.
+// Uses straight comparison (from..to) and checks for compare_timeout.
+func (c *Client) CompareCommits(ctx context.Context, projectID, from, to string) ([]string, error) {
+	apiURL := fmt.Sprintf("%s/projects/%s/repository/compare?from=%s&to=%s&straight=true",
+		c.baseURL, url.PathEscape(projectID), url.QueryEscape(from), url.QueryEscape(to))
+	var resp struct {
+		CompareTimeout bool `json:"compare_timeout"`
+		Diffs          []struct {
+			NewPath  string `json:"new_path"`
+			Collapsed bool  `json:"collapsed"`
+			TooLarge  bool  `json:"too_large"`
+		} `json:"diffs"`
+	}
+	if err := c.get(ctx, apiURL, &resp); err != nil {
+		return nil, fmt.Errorf("comparing commits: %w", err)
+	}
+	if resp.CompareTimeout {
+		return nil, fmt.Errorf("GitLab compare timed out; cannot determine changed files")
+	}
+	files := make([]string, 0, len(resp.Diffs))
+	for _, d := range resp.Diffs {
+		if d.Collapsed || d.TooLarge {
+			return nil, fmt.Errorf("GitLab compare returned incomplete diffs (collapsed/too_large); cannot determine changed files")
+		}
+		files = append(files, d.NewPath)
+	}
+	return files, nil
+}
+
 // GetMRChanges fetches the file changes for a merge request.
 func (c *Client) GetMRChanges(ctx context.Context, projectID, mrIID string) (*MRChangesResponse, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/changes", c.baseURL, url.PathEscape(projectID), mrIID)
