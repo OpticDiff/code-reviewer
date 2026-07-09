@@ -15,20 +15,18 @@ reviews:
     - "!vendor/**"
     - "!*.pb.go"
     - "!flake.lock"
-
-path_instructions:
-  - path: "internal/**"
-    instructions: |
-      Focus on error handling, context propagation, and interface design.
-      Flag any use of exec.Command with user-controlled input.
-      Ensure all HTTP clients validate redirect/pagination URLs.
-  - path: "**/*_test.go"
-    instructions: |
-      Verify table-driven tests, proper cleanup, and race condition safety.
-
-tools:
-  golangci-lint:
-    enabled: true
+  path_instructions:
+    - path: "internal/**"
+      instructions: |
+        Focus on error handling, context propagation, and interface design.
+        Flag any use of exec.Command with user-controlled input.
+        Ensure all HTTP clients validate redirect/pagination URLs.
+    - path: "**/*_test.go"
+      instructions: |
+        Verify table-driven tests, proper cleanup, and race condition safety.
+  tools:
+    golangci-lint:
+      enabled: true
 
 chat:
   auto_reply: true
