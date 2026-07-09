@@ -66,7 +66,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	slog.Info(fmt.Sprintf("review split into %d chunk(s)", len(chunks)))
 
 	// Step 4: Build prompt and call model for each chunk.
-	systemPrompt := model.BuildPrompt(r.cfg.Focus, r.cfg.ExtraRules)
+	systemPrompt := model.BuildPromptWithCustom(r.cfg.CustomPrompt, r.cfg.Focus, r.cfg.ExtraRules)
 	var allFindings []model.Finding
 	var summary string
 

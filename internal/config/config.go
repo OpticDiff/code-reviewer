@@ -85,9 +85,10 @@ type Config struct {
 	ChunkStrategy ChunkStrategy
 
 	// Review settings.
-	Focus       []string
-	MinSeverity Severity
-	ExtraRules  string
+	Focus        []string
+	MinSeverity  Severity
+	ExtraRules   string
+	CustomPrompt string // Path to custom system prompt file.
 
 	// Output settings.
 	CommentMode CommentMode
@@ -118,6 +119,7 @@ type repoConfig struct {
 	ExcludedPatterns []string `yaml:"excluded_patterns"`
 	ExtraRules       string   `yaml:"extra_rules"`
 	OutputJSON       bool     `yaml:"output_json"`
+	CustomPrompt     string   `yaml:"custom_prompt"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -231,6 +233,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.OutputJSON {
 		c.OutputJSON = true
 	}
+	if rc.CustomPrompt != "" {
+		c.CustomPrompt = rc.CustomPrompt
+	}
 	return nil
 }
 
@@ -276,6 +281,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("REVIEW_OUTPUT_JSON"); strings.EqualFold(v, "true") {
 		c.OutputJSON = true
 	}
+	if v := os.Getenv("REVIEW_CUSTOM_PROMPT"); v != "" {
+		c.CustomPrompt = v
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -294,6 +302,7 @@ func (c *Config) loadFlags() error {
 	dryRun := fs.Bool("dry-run", false, "Run analysis but don't post to GitLab")
 	outputJSON := fs.Bool("json", false, "Output results as JSON to stdout")
 	_ = fs.Bool("version", false, "Print version and exit") // Handled in main() before config.Load().
+	customPrompt := fs.String("custom-prompt", "", "Path to a custom system prompt file")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -337,6 +346,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *outputJSON {
 		c.OutputJSON = true
+	}
+	if *customPrompt != "" {
+		c.CustomPrompt = *customPrompt
 	}
 
 	return nil

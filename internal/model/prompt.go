@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -116,9 +117,30 @@ Concentrate on documentation quality:
 }
 
 // BuildPrompt constructs the full system prompt for a review call.
+// Uses the built-in basePrompt as the system prompt.
 func BuildPrompt(focusModes []string, extraRules string) string {
+	return BuildPromptWithCustom("", focusModes, extraRules)
+}
+
+// BuildPromptWithCustom constructs the system prompt, optionally loading a custom
+// prompt from disk. If customPromptPath is non-empty, its contents replace the
+// built-in base prompt. Focus overlays and extra rules are always appended.
+func BuildPromptWithCustom(customPromptPath string, focusModes []string, extraRules string) string {
 	var sb strings.Builder
-	sb.WriteString(basePrompt)
+
+	// Base prompt: custom file or built-in.
+	if customPromptPath != "" {
+		data, err := os.ReadFile(customPromptPath)
+		if err != nil {
+			// Log warning and fall back to built-in prompt.
+			fmt.Fprintf(os.Stderr, "warning: could not read custom prompt %q: %v (using default)\n", customPromptPath, err)
+			sb.WriteString(basePrompt)
+		} else {
+			sb.WriteString(strings.TrimSpace(string(data)))
+		}
+	} else {
+		sb.WriteString(basePrompt)
+	}
 
 	// Apply focus overlays.
 	if len(focusModes) == 0 || (len(focusModes) == 1 && focusModes[0] == "all") {

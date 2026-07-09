@@ -33,8 +33,18 @@ excluded_patterns:
   - "*.pb.go"
   - "generated/*"
 
+# Custom system prompt file (replaces the built-in default prompt).
+# Focus overlays and extra_rules are still appended.
+# See examples/prompts/ for ready-to-use alternatives:
+#   security-audit.md — AppSec specialist with OWASP/CWE focus
+#   strict.md         — Pre-release gate, catches everything
+#   quick.md          — Only merge-blocking bugs
+#   architecture.md   — System design and coupling review
+# custom_prompt: .review-prompts/our-team.md
+
 # Additional review rules appended to the AI prompt.
 # Use this for team-specific or repo-specific conventions.
+# Works with both the default and any custom prompt.
 extra_rules: |
   Always flag raw SQL string concatenation.
   Ensure all gRPC handlers propagate context.
