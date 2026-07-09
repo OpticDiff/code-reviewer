@@ -293,6 +293,7 @@ func (c *Config) loadFlags() error {
 	extraRules := fs.String("extra-rules", "", "Additional review rules appended to prompt")
 	dryRun := fs.Bool("dry-run", false, "Run analysis but don't post to GitLab")
 	outputJSON := fs.Bool("json", false, "Output results as JSON to stdout")
+	_ = fs.Bool("version", false, "Print version and exit") // Handled in main() before config.Load().
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err

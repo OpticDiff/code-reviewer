@@ -147,12 +147,12 @@ func Parse(r io.Reader) ([]FileDiff, error) {
 			}
 			current.Hunks = append(current.Hunks, *hunk)
 		case len(current.Hunks) > 0:
-			h := &current.Hunks[len(current.Hunks)-1]
-			dl := parseDiffLine(line, h)
+			// "\ No newline at end of file" — skip, don't track.
 			if strings.HasPrefix(line, "\\") {
-				// "\ No newline at end of file" — skip, don't track.
 				continue
 			}
+			h := &current.Hunks[len(current.Hunks)-1]
+			dl := parseDiffLine(line, h)
 			h.Lines = append(h.Lines, dl)
 			// Advance running counters for O(1) line number tracking.
 			switch dl.Type {
