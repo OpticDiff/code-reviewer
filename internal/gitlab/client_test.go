@@ -588,24 +588,29 @@ func TestIsSameOrigin(t *testing.T) {
 	}
 }
 
-func TestRetryAfterDuration(t *testing.T) {
+func TestRetryDelay(t *testing.T) {
+	client := NewClient("https://gitlab.example.com", "test")
+
 	tests := []struct {
-		name   string
-		header string
-		want   time.Duration
+		name       string
+		retryBase  int
+		header     string
+		want       time.Duration
 	}{
-		{"empty header", "", time.Duration(defaultRetryMs) * time.Millisecond},
-		{"valid seconds", "2", 2 * time.Second},
-		{"invalid string", "abc", time.Duration(defaultRetryMs) * time.Millisecond},
-		{"zero", "0", time.Duration(defaultRetryMs) * time.Millisecond},
-		{"negative", "-1", time.Duration(defaultRetryMs) * time.Millisecond},
-		{"capped at 60", "120", 60 * time.Second},
+		{"empty header, default base", 0, "", time.Duration(defaultRetryMs) * time.Millisecond},
+		{"empty header, custom base", 50, "", 50 * time.Millisecond},
+		{"valid seconds", 0, "2", 2 * time.Second},
+		{"invalid string", 0, "abc", time.Duration(defaultRetryMs) * time.Millisecond},
+		{"zero", 0, "0", time.Duration(defaultRetryMs) * time.Millisecond},
+		{"negative", 0, "-1", time.Duration(defaultRetryMs) * time.Millisecond},
+		{"capped at 60", 0, "120", 60 * time.Second},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := retryAfterDuration(tt.header)
+			client.retryBaseMs = tt.retryBase
+			got := client.retryDelay(tt.header)
 			if got != tt.want {
-				t.Errorf("retryAfterDuration(%q) = %v, want %v", tt.header, got, tt.want)
+				t.Errorf("retryDelay(%q) = %v, want %v", tt.header, got, tt.want)
 			}
 		})
 	}
@@ -616,7 +621,7 @@ func TestDo_Retries429WithRetryAfter(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
 		if attempts <= 2 {
-			w.Header().Set("Retry-After", "0") // will use default (1s), but we override below
+			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
@@ -625,9 +630,8 @@ func TestDo_Retries429WithRetryAfter(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Override defaultRetryMs for fast test — use a client with short timeout.
 	client := NewClient(server.URL, "test-token")
-	client.httpClient.Timeout = 5 * time.Second
+	client.retryBaseMs = 1 // 1ms for fast test
 
 	ctx := context.Background()
 	var result map[string]int
@@ -645,12 +649,13 @@ func TestDo_429ExhaustsRetries(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		attempts++
-		w.Header().Set("Retry-After", "0")
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, "test-token")
+	client.retryBaseMs = 1 // 1ms for fast test
+
 	ctx := context.Background()
 	err := client.get(ctx, server.URL+"/api/v4/test", nil)
 

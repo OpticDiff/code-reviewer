@@ -84,6 +84,10 @@ func PostToGitLab(ctx context.Context, cfg *config.Config, client VCSClient, res
 		inlinePosted := 0
 		fallbackPosted := 0
 		for _, f := range result.Findings {
+			if err := ctx.Err(); err != nil {
+				slog.Warn("context canceled, stopping inline comment posting", "error", err)
+				break
+			}
 			newLine := f.Line
 			req := gitlab.CreateDiscussionRequest{
 				Body: formatInlineComment(f),
