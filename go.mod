@@ -3,6 +3,7 @@ module github.com/OpticDiff/code-reviewer
 go 1.26.1
 
 require (
+	golang.org/x/term v0.30.0
 	google.golang.org/genai v1.52.0
 	gopkg.in/yaml.v3 v3.0.1
 )

@@ -94,6 +94,7 @@ type Config struct {
 	CommentMode CommentMode
 	DryRun      bool
 	OutputJSON  bool
+	NoColor     bool // Disable ANSI color output.
 
 	// GitLab settings.
 	GitLabToken   string
@@ -284,6 +285,10 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("REVIEW_CUSTOM_PROMPT"); v != "" {
 		c.CustomPrompt = v
 	}
+	// Respect the NO_COLOR standard (https://no-color.org/).
+	if _, ok := os.LookupEnv("NO_COLOR"); ok {
+		c.NoColor = true
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -303,6 +308,7 @@ func (c *Config) loadFlags() error {
 	outputJSON := fs.Bool("json", false, "Output results as JSON to stdout")
 	_ = fs.Bool("version", false, "Print version and exit") // Handled in main() before config.Load().
 	customPrompt := fs.String("custom-prompt", "", "Path to a custom system prompt file")
+	noColor := fs.Bool("no-color", false, "Disable ANSI color output")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -349,6 +355,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *customPrompt != "" {
 		c.CustomPrompt = *customPrompt
+	}
+	if *noColor {
+		c.NoColor = true
 	}
 
 	return nil

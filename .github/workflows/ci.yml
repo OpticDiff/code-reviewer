@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,15 +24,35 @@ jobs:
           go-version: '1.26'
 
       - name: Build
-        run: go build ./...
+        run: go build -v ./...
 
       - name: Vet
         run: go vet ./...
 
-      - name: Test
-        run: go test ./... -v -count=1 -race
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Test with coverage
+        run: go test ./... -v -count=1 -race -coverprofile=coverage.out -covermode=atomic
+
+      - name: Coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.out
 
   lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

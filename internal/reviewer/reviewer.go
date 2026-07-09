@@ -109,7 +109,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			}
 			fmt.Println(string(jsonOut))
 		} else {
-			fmt.Print(TerminalOutput(result))
+			useColor := !r.cfg.NoColor && isTTY()
+			fmt.Print(ColorTerminalOutput(result, useColor))
 		}
 	} else {
 		// Post to GitLab.
