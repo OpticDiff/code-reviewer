@@ -292,14 +292,7 @@ func (c *Config) loadEnv() {
 		c.NoColor = true
 	}
 	if v := os.Getenv("REVIEW_MODELS"); v != "" {
-		var models []string
-		for _, m := range strings.Split(v, ",") {
-			m = strings.TrimSpace(m)
-			if m != "" {
-				models = append(models, m)
-			}
-		}
-		c.Models = models
+		c.Models = splitAndTrim(v)
 	}
 }
 
@@ -374,14 +367,7 @@ func (c *Config) loadFlags() error {
 		c.NoColor = true
 	}
 	if *models != "" {
-		var parsed []string
-		for _, m := range strings.Split(*models, ",") {
-			m = strings.TrimSpace(m)
-			if m != "" {
-				parsed = append(parsed, m)
-			}
-		}
-		c.Models = parsed
+		c.Models = splitAndTrim(*models)
 	}
 	if *consensusThreshold > 0 {
 		c.ConsensusThreshold = *consensusThreshold
@@ -471,4 +457,16 @@ func (c *Config) Mode() string {
 	default:
 		return "unknown"
 	}
+}
+
+// splitAndTrim splits a comma-separated string, trims whitespace, and drops empty entries.
+func splitAndTrim(s string) []string {
+	var result []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }

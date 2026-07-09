@@ -9,11 +9,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// ReviewProvider is a single model that can review code. Extracted as an
+// interface so MultiProvider can be tested with mocks.
+type ReviewProvider interface {
+	Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error)
+	Close()
+}
+
 // MultiProvider runs multiple models in parallel and deduplicates findings
 // using a consensus threshold. Only findings that appear in >= threshold
 // model results are kept, reducing false positives.
 type MultiProvider struct {
-	providers []*Provider
+	providers []ReviewProvider
 	threshold int
 }
 
@@ -31,7 +38,7 @@ func NewMultiProvider(ctx context.Context, project, location string, models []st
 		threshold = len(models)
 	}
 
-	providers := make([]*Provider, 0, len(models))
+	providers := make([]ReviewProvider, 0, len(models))
 	for _, m := range models {
 		p, err := NewProvider(ctx, project, location, m)
 		if err != nil {
@@ -50,6 +57,18 @@ func NewMultiProvider(ctx context.Context, project, location string, models []st
 	}, nil
 }
 
+// NewMultiProviderFromReviewers creates a MultiProvider from pre-built
+// ReviewProvider instances. Useful for testing with mocks.
+func NewMultiProviderFromReviewers(providers []ReviewProvider, threshold int) *MultiProvider {
+	if threshold < 1 {
+		threshold = 1
+	}
+	return &MultiProvider{
+		providers: providers,
+		threshold: threshold,
+	}
+}
+
 // Review runs all models concurrently, collects findings, deduplicates them
 // by file+line proximity+category, and returns only findings that meet the
 // consensus threshold.
@@ -63,7 +82,7 @@ func (m *MultiProvider) Review(ctx context.Context, systemPrompt, userPrompt str
 		g.Go(func() error {
 			result, err := p.Review(ctx, systemPrompt, userPrompt)
 			if err != nil {
-				return fmt.Errorf("model %q: %w", p.modelName, err)
+				return fmt.Errorf("model provider %d: %w", i, err)
 			}
 			mu.Lock()
 			results[i] = result
@@ -90,7 +109,8 @@ func (m *MultiProvider) Close() {
 // consensus threshold.
 func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
 	type findingGroup struct {
-		canonical Finding
+		anchor    Finding // Fixed comparison point — never changes after group creation.
+		canonical Finding // Best finding to display (longest body).
 		count     int
 	}
 
@@ -104,7 +124,7 @@ func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
 			// Check if we have an existing group this finding matches.
 			matched := false
 			for _, g := range groups {
-				if findingsMatch(f, g.canonical) {
+				if findingsMatch(f, g.anchor) {
 					g.count++
 					// Keep the finding with the longest body as canonical.
 					if len(f.Body) > len(g.canonical.Body) {
@@ -116,6 +136,7 @@ func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
 			}
 			if !matched {
 				groups = append(groups, &findingGroup{
+					anchor:    f,
 					canonical: f,
 					count:     1,
 				})
