@@ -175,11 +175,17 @@ func (r *Reviewer) getLocalDiffs() ([]diff.FileDiff, string, string, error) {
 		ref = "origin/HEAD"
 	}
 
-	cmd := exec.Command("git", "diff", "-U5", "--merge-base", ref)
+	// Prevent command injection: reject refs that look like flags.
+	if strings.HasPrefix(ref, "-") {
+		return nil, "", "", fmt.Errorf("invalid diff ref %q: must not start with '-'", ref)
+	}
+
+	// Use '--' to terminate flag parsing, preventing ref from being interpreted as a git option.
+	cmd := exec.Command("git", "diff", "-U5", "--merge-base", ref, "--")
 	output, err := cmd.Output()
 	if err != nil {
 		// Fallback: try without --merge-base.
-		cmd = exec.Command("git", "diff", "-U5", ref)
+		cmd = exec.Command("git", "diff", "-U5", ref, "--")
 		output, err = cmd.Output()
 		if err != nil {
 			return nil, "", "", fmt.Errorf("running git diff: %w", err)
@@ -195,6 +201,13 @@ func (r *Reviewer) getLocalDiffs() ([]diff.FileDiff, string, string, error) {
 }
 
 func (r *Reviewer) getFileDiffs() ([]diff.FileDiff, string, string, error) {
+	// Validate file paths: reject any that look like flags.
+	for _, f := range r.cfg.Files {
+		if strings.HasPrefix(f, "-") {
+			return nil, "", "", fmt.Errorf("invalid file path %q: must not start with '-'", f)
+		}
+	}
+
 	args := append([]string{"diff", "-U5", "HEAD", "--"}, r.cfg.Files...)
 	cmd := exec.Command("git", args...)
 	output, err := cmd.Output()

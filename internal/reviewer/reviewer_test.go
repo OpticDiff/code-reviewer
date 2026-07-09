@@ -328,3 +328,73 @@ func TestMockModel_ImplementsInterface(t *testing.T) {
 	// Compile-time check that mockModel implements ModelReviewer.
 	var _ ModelReviewer = (*mockModel)(nil)
 }
+
+// ---------------------------------------------------------------------------
+// Security: Command injection prevention
+// ---------------------------------------------------------------------------
+
+func TestGetLocalDiffs_RejectsFlagRef(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  string
+	}{
+		{"double-dash flag", "--output=/tmp/evil"},
+		{"single-dash flag", "-p"},
+		{"flag with equals", "--format=email"},
+		{"no-index flag", "--no-index"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &Reviewer{
+				cfg: &config.Config{
+					DiffMode: true,
+					DiffRef:  tt.ref,
+				},
+			}
+			_, _, _, err := r.getLocalDiffs()
+			if err == nil {
+				t.Errorf("expected error for flag-like ref %q, got nil", tt.ref)
+			}
+			if err != nil && !strings.Contains(err.Error(), "must not start with '-'") {
+				t.Errorf("expected flag rejection error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestGetLocalDiffs_AcceptsValidRef(t *testing.T) {
+	// Valid refs should not be rejected (they may still fail because of
+	// git state, but should not be rejected by our validation).
+	validRefs := []string{"main", "origin/HEAD", "HEAD~3", "v1.0.0", "abc123"}
+	for _, ref := range validRefs {
+		t.Run(ref, func(t *testing.T) {
+			r := &Reviewer{
+				cfg: &config.Config{
+					DiffMode: true,
+					DiffRef:  ref,
+				},
+			}
+			_, _, _, err := r.getLocalDiffs()
+			// May fail because of git state, but must NOT fail with "must not start with '-'"
+			if err != nil && strings.Contains(err.Error(), "must not start with '-'") {
+				t.Errorf("valid ref %q was incorrectly rejected", ref)
+			}
+		})
+	}
+}
+
+func TestGetFileDiffs_RejectsFlagPath(t *testing.T) {
+	r := &Reviewer{
+		cfg: &config.Config{
+			Files: []string{"good.go", "--output=/tmp/evil"},
+		},
+	}
+	_, _, _, err := r.getFileDiffs()
+	if err == nil {
+		t.Error("expected error for flag-like file path, got nil")
+	}
+	if err != nil && !strings.Contains(err.Error(), "must not start with '-'") {
+		t.Errorf("expected flag rejection error, got: %v", err)
+	}
+}
