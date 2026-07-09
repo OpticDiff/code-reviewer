@@ -21,7 +21,7 @@ docker pull gcr.io/$PROJECT/code-reviewer:latest
 
 ## Features
 
-- **Multi-model consensus** — Run multiple models in parallel (e.g. Gemini + Claude), only keep findings both models agree on
+- **Multi-model consensus** — Run multiple models in parallel (e.g. Gemini + Claude), only keep findings that meet the configured consensus threshold
 - **Custom prompts** — Bring your own system prompt for specialized reviews (security audits, architecture checks)
 - **Focus modes** — `bugs`, `security`, `performance`, `style`, `docs`, or `all`
 - **Severity filtering** — `low` (default), `medium`, `high`, `critical`
@@ -103,7 +103,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--files f1,f2` | Review specific files | — |
 | `--model` | Vertex AI model ID | `gemini-2.5-flash` |
 | `--models` | Comma-separated models for multi-model consensus | — |
-| `--consensus-threshold` | Min models that must agree on a finding | `2` |
+| `--consensus-threshold` | Min models that must agree on a finding | `2` (when `--models` is set) |
 | `--focus` | Review focus (comma-separated) | `all` |
 | `--min-severity` | Minimum severity to report | `low` |
 | `--comment-mode` | `notes` or `discussions` | `notes` |
