@@ -107,11 +107,11 @@ func ColorTerminalOutput(result *model.ReviewResult, useColor bool) string {
 		for _, f := range byFile[file] {
 			sevColor := severityColor(f.Severity)
 			sevLabel := strings.ToUpper(f.Severity)
-			sb.WriteString(fmt.Sprintf("\n  L%-4d %s%s%-8s%s  %s%s%s\n",
+			fmt.Fprintf(&sb, "\n  L%-4d %s%s%-8s%s  %s%s%s\n",
 				f.Line,
 				sevColor, ansiBold, sevLabel, ansiReset,
 				ansiBold, f.Title, ansiReset,
-			))
+			)
 
 			// Body — indented with dim pipe.
 			for _, line := range strings.Split(f.Body, "\n") {
