@@ -213,3 +213,71 @@ func TestFormatInlineComment_WithSuggestion(t *testing.T) {
 		t.Error("expected suggestion content")
 	}
 }
+
+func TestTokenUsageRendering(t *testing.T) {
+	finding := model.Finding{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "test", Body: "body"}
+
+	tests := []struct {
+		name         string
+		findings     []model.Finding
+		usage        *model.TokenUsage
+		wantContains []string // substrings that must appear
+		wantAbsent   []string // substrings that must not appear
+	}{
+		{
+			name:         "with findings and usage",
+			findings:     []model.Finding{finding},
+			usage:        &model.TokenUsage{InputTokens: 1500, OutputTokens: 200, TotalTokens: 1700},
+			wantContains: []string{"1500", "200", "1700"},
+		},
+		{
+			name:       "nil usage hidden",
+			findings:   nil,
+			usage:      nil,
+			wantAbsent: []string{"Tokens:"},
+		},
+		{
+			name:         "no findings but usage shown",
+			findings:     nil,
+			usage:        &model.TokenUsage{InputTokens: 3000, OutputTokens: 100, TotalTokens: 3100},
+			wantContains: []string{"3000", "3100"},
+		},
+		{
+			name:       "findings present but nil usage hidden",
+			findings:   []model.Finding{finding},
+			usage:      nil,
+			wantAbsent: []string{"Tokens:"},
+		},
+	}
+
+	renderers := []struct {
+		name   string
+		render func(*model.ReviewResult) string
+	}{
+		{"PlainText", func(r *model.ReviewResult) string { return TerminalOutput(r) }},
+		{"Color", func(r *model.ReviewResult) string { return ColorTerminalOutput(r, true) }},
+	}
+
+	for _, tt := range tests {
+		for _, renderer := range renderers {
+			t.Run(renderer.name+"/"+tt.name, func(t *testing.T) {
+				result := &model.ReviewResult{
+					Summary:  "Review.",
+					Findings: tt.findings,
+					Usage:    tt.usage,
+				}
+				out := renderer.render(result)
+				for _, s := range tt.wantContains {
+					if !strings.Contains(out, s) {
+						t.Errorf("expected %q in output, got:\n%s", s, out)
+					}
+				}
+				for _, s := range tt.wantAbsent {
+					if strings.Contains(out, s) {
+						t.Errorf("unexpected %q in output, got:\n%s", s, out)
+					}
+				}
+			})
+		}
+	}
+}

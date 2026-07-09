@@ -80,6 +80,18 @@ func ColorTerminalOutput(result *model.ReviewResult, useColor bool) string {
 		sb.WriteString(ansiBold + ansiCyan + "│" + ansiReset + ansiDim + countsPadded + ansiBold + ansiCyan + "│" + ansiReset + "\n")
 	}
 
+	// Token usage line (if available).
+	if result.Usage != nil && result.Usage.TotalTokens > 0 {
+		usageLine := fmt.Sprintf("  Tokens: %d in / %d out / %d total",
+			result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.TotalTokens)
+		usagePadLen := 53 - len(usageLine)
+		if usagePadLen < 0 {
+			usagePadLen = 0
+		}
+		usagePadded := usageLine + strings.Repeat(" ", usagePadLen)
+		sb.WriteString(ansiBold + ansiCyan + "│" + ansiReset + ansiDim + usagePadded + ansiBold + ansiCyan + "│" + ansiReset + "\n")
+	}
+
 	sb.WriteString(ansiBold + ansiCyan + "└─────────────────────────────────────────────────────┘" + ansiReset + "\n")
 
 	// Summary text.
