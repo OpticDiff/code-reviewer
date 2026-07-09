@@ -1,6 +1,8 @@
 package model
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -92,3 +94,45 @@ func TestBuildUserPrompt_NoMetadata(t *testing.T) {
 		t.Error("user prompt missing diff block")
 	}
 }
+
+func TestBuildPromptWithCustom_ValidFile(t *testing.T) {
+	dir := t.TempDir()
+	promptFile := filepath.Join(dir, "custom.md")
+	if err := os.WriteFile(promptFile, []byte("You are a Go specialist."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	prompt := BuildPromptWithCustom(promptFile, []string{"security"}, "Flag raw SQL.")
+	if !strings.Contains(prompt, "You are a Go specialist.") {
+		t.Error("prompt should contain custom prompt content")
+	}
+	if strings.Contains(prompt, "Principal Software Engineer") {
+		t.Error("prompt should NOT contain built-in base prompt when custom is provided")
+	}
+	if !strings.Contains(prompt, "Security Review") {
+		t.Error("focus overlays should still be appended to custom prompt")
+	}
+	if !strings.Contains(prompt, "Flag raw SQL.") {
+		t.Error("extra rules should still be appended to custom prompt")
+	}
+}
+
+func TestBuildPromptWithCustom_MissingFile(t *testing.T) {
+	prompt := BuildPromptWithCustom("/nonexistent/path/prompt.md", []string{"all"}, "")
+	// Should fall back to built-in prompt.
+	if !strings.Contains(prompt, "Principal Software Engineer") {
+		t.Error("missing custom prompt file should fall back to built-in base prompt")
+	}
+}
+
+func TestBuildPromptWithCustom_EmptyPath(t *testing.T) {
+	prompt := BuildPromptWithCustom("", []string{"bugs"}, "")
+	// Empty path = use built-in prompt (same as BuildPrompt).
+	if !strings.Contains(prompt, "Principal Software Engineer") {
+		t.Error("empty custom prompt path should use built-in base prompt")
+	}
+	if !strings.Contains(prompt, "Bug Detection") {
+		t.Error("focus overlays should be applied")
+	}
+}
+
