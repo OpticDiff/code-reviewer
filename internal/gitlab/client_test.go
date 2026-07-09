@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -731,3 +732,89 @@ func TestCleanPreviousReviews_ContinuesOnDeleteError(t *testing.T) {
 	}
 }
 
+func TestCompareCommits_Timeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"compare_timeout": true, "diffs": []}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	_, err := client.CompareCommits(context.Background(), "proj", "abc123", "def456")
+	if err == nil {
+		t.Fatal("expected error for compare timeout, got nil")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("expected error containing 'timed out', got: %v", err)
+	}
+}
+
+func TestCompareCommits_Success(t *testing.T) {
+	var gotQuery url.Values
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"compare_timeout": false, "diffs": [{"new_path": "a.go"}, {"new_path": "b.go"}]}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	files, err := client.CompareCommits(context.Background(), "proj", "abc123", "def456")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got := gotQuery.Get("straight"); got != "true" {
+		t.Errorf("straight = %q, want %q", got, "true")
+	}
+	if got := gotQuery.Get("from"); got != "abc123" {
+		t.Errorf("from = %q, want %q", got, "abc123")
+	}
+	if got := gotQuery.Get("to"); got != "def456" {
+		t.Errorf("to = %q, want %q", got, "def456")
+	}
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+	if files[0] != "a.go" {
+		t.Errorf("files[0] = %q, want %q", files[0], "a.go")
+	}
+	if files[1] != "b.go" {
+		t.Errorf("files[1] = %q, want %q", files[1], "b.go")
+	}
+}
+
+func TestCompareCommits_CollapsedDiff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"compare_timeout": false, "diffs": [{"new_path": "a.go"}, {"new_path": "big.go", "collapsed": true}]}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	_, err := client.CompareCommits(context.Background(), "proj", "abc", "def")
+	if err == nil {
+		t.Fatal("expected error for collapsed diff, got nil")
+	}
+	if !strings.Contains(err.Error(), "collapsed/too_large") {
+		t.Errorf("expected error containing 'collapsed/too_large', got: %v", err)
+	}
+}
+
+func TestCompareCommits_TooLargeDiff(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"compare_timeout": false, "diffs": [{"new_path": "a.go", "too_large": true}]}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	_, err := client.CompareCommits(context.Background(), "proj", "abc", "def")
+	if err == nil {
+		t.Fatal("expected error for too_large diff, got nil")
+	}
+	if !strings.Contains(err.Error(), "collapsed/too_large") {
+		t.Errorf("expected error containing 'collapsed/too_large', got: %v", err)
+	}
+}
