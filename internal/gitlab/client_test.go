@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestNewClient_URLNormalization(t *testing.T) {
@@ -586,3 +587,142 @@ func TestIsSameOrigin(t *testing.T) {
 		})
 	}
 }
+
+func TestRetryAfterDuration(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		want   time.Duration
+	}{
+		{"empty header", "", time.Duration(defaultRetryMs) * time.Millisecond},
+		{"valid seconds", "2", 2 * time.Second},
+		{"invalid string", "abc", time.Duration(defaultRetryMs) * time.Millisecond},
+		{"zero", "0", time.Duration(defaultRetryMs) * time.Millisecond},
+		{"negative", "-1", time.Duration(defaultRetryMs) * time.Millisecond},
+		{"capped at 60", "120", 60 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := retryAfterDuration(tt.header)
+			if got != tt.want {
+				t.Errorf("retryAfterDuration(%q) = %v, want %v", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDo_Retries429WithRetryAfter(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts <= 2 {
+			w.Header().Set("Retry-After", "0") // will use default (1s), but we override below
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id": 1}`))
+	}))
+	defer server.Close()
+
+	// Override defaultRetryMs for fast test — use a client with short timeout.
+	client := NewClient(server.URL, "test-token")
+	client.httpClient.Timeout = 5 * time.Second
+
+	ctx := context.Background()
+	var result map[string]int
+	err := client.get(ctx, server.URL+"/api/v4/test", &result)
+
+	if err != nil {
+		t.Fatalf("expected success after retries, got: %v", err)
+	}
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestDo_429ExhaustsRetries(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.Header().Set("Retry-After", "0")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "test-token")
+	ctx := context.Background()
+	err := client.get(ctx, server.URL+"/api/v4/test", nil)
+
+	if err == nil {
+		t.Fatal("expected error after exhausting retries")
+	}
+	if !strings.Contains(err.Error(), "rate limited") {
+		t.Errorf("expected rate limited error, got: %v", err)
+	}
+	// maxRetries+1 attempts (0..maxRetries)
+	if attempts != maxRetries+1 {
+		t.Errorf("expected %d attempts, got %d", maxRetries+1, attempts)
+	}
+}
+
+func TestCleanPreviousReviews_ContinuesOnDeleteError(t *testing.T) {
+	// 3 bot notes; DELETE for note 2 returns 403, notes 1 and 3 return 204.
+	listNotes := []Note{
+		{ID: 1, Body: "bot1\n" + botMarker},
+		{ID: 2, Body: "bot2\n" + botMarker},
+		{ID: 3, Body: "bot3\n" + botMarker},
+	}
+
+	var mu sync.Mutex
+	deleteAttempts := make(map[string]bool)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(listNotes); err != nil {
+				t.Errorf("encoding: %v", err)
+			}
+		case http.MethodDelete:
+			parts := strings.Split(r.URL.Path, "/")
+			noteID := parts[len(parts)-1]
+
+			mu.Lock()
+			deleteAttempts[noteID] = true
+			mu.Unlock()
+
+			if noteID == "2" {
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = fmt.Fprint(w, `{"message":"403 Forbidden"}`)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	count, err := client.CleanPreviousReviews(context.Background(), "proj", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Only notes 1 and 3 should count as deleted.
+	if count != 2 {
+		t.Errorf("deleted count = %d, want 2", count)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// All 3 deletes should have been attempted.
+	for _, id := range []string{"1", "2", "3"} {
+		if !deleteAttempts[id] {
+			t.Errorf("expected DELETE attempt for note %s", id)
+		}
+	}
+}
+

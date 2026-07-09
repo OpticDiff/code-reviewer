@@ -81,7 +81,8 @@ func PostToGitLab(ctx context.Context, cfg *config.Config, client VCSClient, res
 
 	// In discussions mode, also post inline comments.
 	if cfg.CommentMode == config.CommentModeDiscussions && version != nil {
-		posted := 0
+		inlinePosted := 0
+		fallbackPosted := 0
 		for _, f := range result.Findings {
 			newLine := f.Line
 			req := gitlab.CreateDiscussionRequest{
@@ -107,14 +108,20 @@ func PostToGitLab(ctx context.Context, cfg *config.Config, client VCSClient, res
 				noteBody := fmt.Sprintf("**%s:%d** — %s", f.File, f.Line, formatInlineComment(f))
 				if _, err := client.PostNote(ctx, projectID, mrIID, noteBody); err != nil {
 					slog.Error("failed to post fallback note", "error", err)
+				} else {
+					fallbackPosted++
 				}
 			} else {
-				posted++
+				inlinePosted++
 			}
 
 			time.Sleep(100 * time.Millisecond) // Rate limit.
 		}
-		slog.Info(fmt.Sprintf("posted %d inline discussion(s)", posted))
+		slog.Info("posted inline comments",
+			"discussions", inlinePosted,
+			"fallback_notes", fallbackPosted,
+			"total_findings", len(result.Findings),
+		)
 	}
 
 	return nil
