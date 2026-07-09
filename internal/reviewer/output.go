@@ -20,6 +20,10 @@ func TerminalOutput(result *model.ReviewResult) string {
 
 	if len(result.Findings) == 0 {
 		sb.WriteString("✅ No issues found. Code looks clean and ready to merge.\n")
+		if result.Usage != nil && result.Usage.TotalTokens > 0 {
+			fmt.Fprintf(&sb, "---\nTokens: %d in / %d out / %d total\n",
+				result.Usage.InputTokens, result.Usage.OutputTokens, result.Usage.TotalTokens)
+		}
 		return sb.String()
 	}
 

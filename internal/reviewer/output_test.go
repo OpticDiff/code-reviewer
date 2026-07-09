@@ -268,3 +268,33 @@ func TestTerminalOutput_PlainText_NoTokenUsage(t *testing.T) {
 		t.Error("should not show token line when usage is nil")
 	}
 }
+
+func TestTerminalOutput_PlainText_UsageWithNoFindings(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary:  "Clean.",
+		Findings: nil,
+		Usage:    &model.TokenUsage{InputTokens: 3000, OutputTokens: 100, TotalTokens: 3100},
+	}
+	out := TerminalOutput(result)
+	if !strings.Contains(out, "3000") {
+		t.Error("expected token usage even with no findings")
+	}
+	if !strings.Contains(out, "3100") {
+		t.Error("expected total tokens even with no findings")
+	}
+}
+
+func TestColorTerminalOutput_UsageWithNoFindings(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary:  "Clean.",
+		Findings: nil,
+		Usage:    &model.TokenUsage{InputTokens: 4000, OutputTokens: 150, TotalTokens: 4150},
+	}
+	out := ColorTerminalOutput(result, true)
+	if !strings.Contains(out, "4000") {
+		t.Error("expected token usage in colored output even with no findings")
+	}
+	if !strings.Contains(out, "4150") {
+		t.Error("expected total tokens in colored output even with no findings")
+	}
+}
