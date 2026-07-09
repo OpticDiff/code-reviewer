@@ -17,13 +17,15 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockModel struct {
-	result *model.ReviewResult
-	err    error
-	calls  int
+	result         *model.ReviewResult
+	err            error
+	calls          int
+	lastUserPrompt string
 }
 
 func (m *mockModel) Review(ctx context.Context, systemPrompt, userPrompt string) (*model.ReviewResult, error) {
 	m.calls++
+	m.lastUserPrompt = userPrompt
 	return m.result, m.err
 }
 
@@ -1095,6 +1097,16 @@ func TestRun_IncrementalReview(t *testing.T) {
 	}
 	if mm.calls != 1 {
 		t.Errorf("expected 1 model call, got %d", mm.calls)
+	}
+	// Verify only the filtered file reached the model.
+	if !strings.Contains(mm.lastUserPrompt, "main.go") {
+		t.Error("expected model prompt to contain 'main.go'")
+	}
+	if strings.Contains(mm.lastUserPrompt, "util.go") {
+		t.Error("expected model prompt to NOT contain 'util.go' (should be filtered)")
+	}
+	if strings.Contains(mm.lastUserPrompt, "docs.go") {
+		t.Error("expected model prompt to NOT contain 'docs.go' (should be filtered)")
 	}
 	if vcs.compareCommitsCalls != 1 {
 		t.Errorf("expected 1 CompareCommits call, got %d", vcs.compareCommitsCalls)
