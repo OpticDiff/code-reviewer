@@ -10,8 +10,23 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
+        version = if (self ? shortRev) then self.shortRev else "dev";
       in
       {
+        packages.default = pkgs.buildGoModule {
+          pname = "code-reviewer";
+          inherit version;
+          src = self;
+          vendorHash = "sha256-LF+xzVfp+oD5G13kT8Mme51vGC5TvHOvLcvN+0PwuYg=";
+          subPackages = [ "cmd/code-reviewer" ];
+          ldflags = [ "-s" "-w" "-X main.version=${version}" ];
+          meta = {
+            description = "AI-powered code review CLI";
+            homepage = "https://github.com/OpticDiff/code-reviewer";
+            mainProgram = "code-reviewer";
+          };
+        };
+
         devShells.default = pkgs.mkShell {
           buildInputs = with pkgs; [
             go
