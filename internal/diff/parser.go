@@ -63,6 +63,8 @@ type Hunk struct {
 	NewStart int
 	NewCount int
 	Lines    []DiffLine
+	nextOld  int // running counter for O(1) line tracking
+	nextNew  int // running counter for O(1) line tracking
 }
 
 // LineType indicates whether a diff line is added, removed, or context.
@@ -147,7 +149,21 @@ func Parse(r io.Reader) ([]FileDiff, error) {
 		case len(current.Hunks) > 0:
 			h := &current.Hunks[len(current.Hunks)-1]
 			dl := parseDiffLine(line, h)
+			if strings.HasPrefix(line, "\\") {
+				// "\ No newline at end of file" — skip, don't track.
+				continue
+			}
 			h.Lines = append(h.Lines, dl)
+			// Advance running counters for O(1) line number tracking.
+			switch dl.Type {
+			case LineContext:
+				h.nextOld++
+				h.nextNew++
+			case LineAdded:
+				h.nextNew++
+			case LineRemoved:
+				h.nextOld++
+			}
 		}
 	}
 
@@ -191,6 +207,8 @@ func parseHunkHeader(line string) (*Hunk, error) {
 	if err != nil {
 		return nil, fmt.Errorf("new range: %w", err)
 	}
+	h.nextOld = h.OldStart
+	h.nextNew = h.NewStart
 
 	return h, nil
 }
@@ -215,20 +233,9 @@ func parseRange(s string) (start, count int, err error) {
 func parseDiffLine(line string, h *Hunk) DiffLine {
 	dl := DiffLine{}
 
-	// Track current position in hunk.
-	oldLine := h.OldStart
-	newLine := h.NewStart
-	for _, existing := range h.Lines {
-		switch existing.Type {
-		case LineContext:
-			oldLine++
-			newLine++
-		case LineAdded:
-			newLine++
-		case LineRemoved:
-			oldLine++
-		}
-	}
+	// Use running counters (O(1) instead of O(n)).
+	oldLine := h.nextOld
+	newLine := h.nextNew
 
 	if len(line) == 0 {
 		// Empty context line.

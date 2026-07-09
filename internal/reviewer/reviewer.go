@@ -4,6 +4,7 @@ package reviewer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os/exec"
@@ -18,12 +19,12 @@ import (
 // Reviewer orchestrates the full review pipeline.
 type Reviewer struct {
 	cfg      *config.Config
-	provider *model.Provider
-	glClient *gitlab.Client
+	provider ModelReviewer
+	glClient VCSClient
 }
 
 // New creates a new Reviewer.
-func New(cfg *config.Config, provider *model.Provider, glClient *gitlab.Client) *Reviewer {
+func New(cfg *config.Config, provider ModelReviewer, glClient VCSClient) *Reviewer {
 	return &Reviewer{
 		cfg:      cfg,
 		provider: provider,
@@ -101,8 +102,15 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Step 7: Output.
 	if r.cfg.DryRun || !r.cfg.CIMode {
-		// Terminal output.
-		fmt.Print(TerminalOutput(result))
+		if r.cfg.OutputJSON {
+			jsonOut, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				return 0, fmt.Errorf("marshaling JSON output: %w", err)
+			}
+			fmt.Println(string(jsonOut))
+		} else {
+			fmt.Print(TerminalOutput(result))
+		}
 	} else {
 		// Post to GitLab.
 		var version *gitlab.DiffVersion
