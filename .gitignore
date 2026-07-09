@@ -1,5 +1,5 @@
 # Binaries
-code-reviewer
+/code-reviewer
 *.exe
 *.dll
 *.so
