@@ -5,8 +5,10 @@ AI-powered code review CLI for GitLab merge requests. Uses Vertex AI (Gemini, Cl
 ## Features
 
 - **Multi-model** — Gemini 2.5 Flash (default), Pro, Claude, Mistral via single Vertex AI ADC credential
+- **Custom prompts** — Bring your own system prompt for specialized reviews (security audits, architecture checks)
 - **Focus modes** — `bugs`, `security`, `performance`, `style`, `docs`, or `all`
 - **Severity filtering** — `low` (default), `medium`, `high`, `critical`
+- **Rich terminal output** — ANSI-colored findings with severity badges, file grouping, and suggestion blocks
 - **GitLab integration** — Inline diff discussions or simple MR notes, with idempotent cleanup on re-push
 - **Context-aware** — Modular chunking strategies for large MRs
 - **Configurable** — CLI flags, env vars, or per-repo `.code-reviewer.yaml`
@@ -16,7 +18,7 @@ AI-powered code review CLI for GitLab merge requests. Uses Vertex AI (Gemini, Cl
 ### Local Usage
 
 ```bash
-# Review your branch against origin/HEAD
+# Review your branch against origin/HEAD (colored terminal output)
 export GOOGLE_CLOUD_PROJECT=my-gcp-project
 code-reviewer --diff
 
@@ -26,11 +28,17 @@ code-reviewer --diff HEAD~3
 # Review specific files
 code-reviewer --files internal/handler.go,internal/service.go
 
-# Security-focused review
-code-reviewer --diff --focus security
+# Security-focused review with a custom prompt
+code-reviewer --diff --focus security --custom-prompt examples/prompts/security-audit.md
 
 # Only show high/critical issues
 code-reviewer --diff --min-severity high
+
+# JSON output for tooling integration
+code-reviewer --diff --json
+
+# Disable colors (or set NO_COLOR env var)
+code-reviewer --diff --no-color
 ```
 
 ### GitLab CI
@@ -82,7 +90,10 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--comment-mode` | `notes` or `discussions` | `notes` |
 | `--chunk-strategy` | `fail` or `split` | `fail` |
 | `--extra-rules` | Additional prompt rules | — |
+| `--custom-prompt` | Path to custom system prompt file | — |
 | `--dry-run` | Analyze without posting | `false` |
+| `--json` | Output results as JSON | `false` |
+| `--no-color` | Disable ANSI color output | `false` |
 
 ### Environment Variables
 
@@ -97,7 +108,9 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_MIN_SEVERITY` | Min severity | `low` |
 | `REVIEW_COMMENT_MODE` | Comment mode | `notes` |
 | `REVIEW_CHUNK_STRATEGY` | Chunk strategy | `fail` |
+| `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
+| `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
 
 ### Per-Repo Config
 
@@ -108,6 +121,7 @@ model: gemini-2.5-flash
 focus: [bugs, security]
 min_severity: low
 comment_mode: discussions
+custom_prompt: prompts/team-rules.md
 excluded_patterns:
   - "*.pb.go"
   - "generated/*"
@@ -128,6 +142,37 @@ All models are accessed via Vertex AI using Application Default Credentials (ADC
 | Gemini 2.5 Pro | `gemini-2.5-pro` | Deep analysis |
 | Claude Sonnet 4 | `claude-sonnet-4` | Code-focused reviews |
 | Mistral Medium | `mistral-medium-3` | Alternative perspective |
+
+## Custom Prompts
+
+Replace the built-in system prompt with your own for specialized reviews:
+
+```bash
+code-reviewer --diff --custom-prompt path/to/my-prompt.md
+```
+
+The custom prompt replaces the built-in base prompt, but **focus overlays** (`--focus`) and **extra rules** (`--extra-rules`) are still appended automatically.
+
+### Example Prompts
+
+Four example prompts are included in [`examples/prompts/`](examples/prompts/):
+
+| Prompt | Use Case |
+|---|---|
+| [`security-audit.md`](examples/prompts/security-audit.md) | Deep security review: injection, auth, crypto, PII |
+| [`strict.md`](examples/prompts/strict.md) | Zero-tolerance review that flags everything |
+| [`quick.md`](examples/prompts/quick.md) | Fast review focused only on critical/high issues |
+| [`architecture.md`](examples/prompts/architecture.md) | Architecture and design pattern review |
+
+### Writing Custom Prompts
+
+A custom prompt is a Markdown file with instructions for the AI reviewer. It should include:
+
+1. **Persona** — who the reviewer should act as
+2. **Objective** — what to focus on
+3. **Output format** — must instruct the model to return JSON matching the findings schema
+
+See the [example prompts](examples/prompts/) for reference.
 
 ## Auth
 
@@ -158,6 +203,12 @@ Large MRs may exceed the model's context window. The `--chunk-strategy` flag con
 
 The chunker interface is modular — custom strategies can be added.
 
+## Security
+
+- **Input validation** — Diff refs and file paths are validated to prevent command injection via `git` arguments.
+- **SSRF protection** — GitLab pagination URLs are validated against the configured base URL to prevent token exfiltration.
+- **Prompt injection resistance** — The system prompt includes adversarial content detection instructions.
+
 ## Development
 
 ```bash
@@ -167,12 +218,14 @@ nix develop
 # Build
 go build ./cmd/code-reviewer
 
-# Test
-go test ./...
+# Test (104+ tests)
+go test ./... -race -count=1 -cover
 
 # Lint
 golangci-lint run
 ```
+
+CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https://coderabbit.ai) provides automated PR reviews on GitHub.
 
 ## License
 
