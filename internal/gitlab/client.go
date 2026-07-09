@@ -58,7 +58,9 @@ func (c *Client) CompareCommits(ctx context.Context, projectID, from, to string)
 	var resp struct {
 		CompareTimeout bool `json:"compare_timeout"`
 		Diffs          []struct {
-			NewPath string `json:"new_path"`
+			NewPath  string `json:"new_path"`
+			Collapsed bool  `json:"collapsed"`
+			TooLarge  bool  `json:"too_large"`
 		} `json:"diffs"`
 	}
 	if err := c.get(ctx, apiURL, &resp); err != nil {
@@ -69,6 +71,9 @@ func (c *Client) CompareCommits(ctx context.Context, projectID, from, to string)
 	}
 	files := make([]string, 0, len(resp.Diffs))
 	for _, d := range resp.Diffs {
+		if d.Collapsed || d.TooLarge {
+			return nil, fmt.Errorf("GitLab compare returned incomplete diffs (collapsed/too_large); cannot determine changed files")
+		}
 		files = append(files, d.NewPath)
 	}
 	return files, nil
