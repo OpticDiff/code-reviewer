@@ -79,10 +79,12 @@ type Config struct {
 	DiffMode bool // true if --diff was passed
 
 	// Model settings.
-	Model         string
-	GCPProject    string
-	GCPLocation   string
-	ChunkStrategy ChunkStrategy
+	Model              string
+	Models             []string // Multiple models for consensus mode.
+	ConsensusThreshold int      // Min models that must agree on a finding (default: 2).
+	GCPProject         string
+	GCPLocation        string
+	ChunkStrategy      ChunkStrategy
 
 	// Review settings.
 	Focus        []string
@@ -289,6 +291,9 @@ func (c *Config) loadEnv() {
 	if _, ok := os.LookupEnv("NO_COLOR"); ok {
 		c.NoColor = true
 	}
+	if v := os.Getenv("REVIEW_MODELS"); v != "" {
+		c.Models = splitAndTrim(v)
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -309,6 +314,8 @@ func (c *Config) loadFlags() error {
 	_ = fs.Bool("version", false, "Print version and exit") // Handled in main() before config.Load().
 	customPrompt := fs.String("custom-prompt", "", "Path to a custom system prompt file")
 	noColor := fs.Bool("no-color", false, "Disable ANSI color output")
+	models := fs.String("models", "", "Comma-separated list of models for consensus review")
+	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -358,6 +365,12 @@ func (c *Config) loadFlags() error {
 	}
 	if *noColor {
 		c.NoColor = true
+	}
+	if *models != "" {
+		c.Models = splitAndTrim(*models)
+	}
+	if *consensusThreshold > 0 {
+		c.ConsensusThreshold = *consensusThreshold
 	}
 
 	return nil
@@ -444,4 +457,16 @@ func (c *Config) Mode() string {
 	default:
 		return "unknown"
 	}
+}
+
+// splitAndTrim splits a comma-separated string, trims whitespace, and drops empty entries.
+func splitAndTrim(s string) []string {
+	var result []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
