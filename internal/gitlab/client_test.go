@@ -524,3 +524,65 @@ func TestDo_ErrorResponseBody(t *testing.T) {
 		t.Errorf("error should include response body content, got: %v", errMsg)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Security: SSRF prevention in pagination
+// ---------------------------------------------------------------------------
+
+func TestListBotNotes_RejectsCrossHostPagination(t *testing.T) {
+	// Attacker-controlled GitLab returns a Link header pointing to a different host.
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("SSRF: request was sent to attacker server — token exfiltrated!")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer attacker.Close()
+
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			// Return a Link header pointing to the attacker's server.
+			w.Header().Set("Link", fmt.Sprintf(`<%s/steal?token=X>; rel="next"`, attacker.URL))
+			_, _ = fmt.Fprint(w, `[{"id": 1, "body": "note <!-- code-reviewer -->"}]`)
+		} else {
+			_, _ = fmt.Fprint(w, `[]`)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "secret-token")
+	_, err := client.ListBotNotes(context.Background(), "proj", "1")
+	if err == nil {
+		t.Fatal("expected SSRF error, got nil")
+	}
+	if !strings.Contains(err.Error(), "different origin") {
+		t.Errorf("expected SSRF origin error, got: %v", err)
+	}
+}
+
+func TestIsSameOrigin(t *testing.T) {
+	client := NewClient("https://gitlab.example.com", "token")
+
+	tests := []struct {
+		name    string
+		url     string
+		allowed bool
+	}{
+		{"same host", "https://gitlab.example.com/api/v4/notes?page=2", true},
+		{"different host", "https://attacker.com/steal", false},
+		{"different scheme", "http://gitlab.example.com/api/v4/notes?page=2", false},
+		{"subdomain", "https://evil.gitlab.example.com/steal", false},
+		{"empty", "", false},
+		{"invalid url", "://bad", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := client.isSameOrigin(tt.url)
+			if got != tt.allowed {
+				t.Errorf("isSameOrigin(%q) = %v, want %v", tt.url, got, tt.allowed)
+			}
+		})
+	}
+}

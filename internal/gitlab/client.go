@@ -166,9 +166,29 @@ func (c *Client) getPaginated(ctx context.Context, initialURL string, out *[]Not
 		_ = resp.Body.Close()
 
 		*out = append(*out, page...)
+
+		// Validate the next URL stays on the same host to prevent SSRF.
+		// A malicious GitLab instance could return a Link header pointing to
+		// an attacker-controlled server, exfiltrating the PRIVATE-TOKEN.
 		nextURL = parseLinkNext(resp.Header.Get("Link"))
+		if nextURL != "" && !c.isSameOrigin(nextURL) {
+			return fmt.Errorf("pagination URL %q has a different origin than the configured GitLab host; refusing to follow (possible SSRF)", nextURL)
+		}
 	}
 	return nil
+}
+
+// isSameOrigin checks that a URL has the same scheme and host as the GitLab base URL.
+func (c *Client) isSameOrigin(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	base, err := url.Parse(c.baseURL)
+	if err != nil {
+		return false
+	}
+	return parsed.Scheme == base.Scheme && parsed.Host == base.Host
 }
 
 // parseLinkNext extracts the "next" URL from a Link header.

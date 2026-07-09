@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+
+reviews:
+  profile: chill
+  auto_review:
+    enabled: true
+    drafts: false
+  high_level_summary: true
+  poem: false
+  path_filters:
+    - "!go.sum"
+    - "!go.mod"
+    - "!*.lock"
+    - "!vendor/**"
+    - "!*.pb.go"
+    - "!flake.lock"
+
+path_instructions:
+  - path: "internal/**"
+    instructions: |
+      Focus on error handling, context propagation, and interface design.
+      Flag any use of exec.Command with user-controlled input.
+      Ensure all HTTP clients validate redirect/pagination URLs.
+  - path: "**/*_test.go"
+    instructions: |
+      Verify table-driven tests, proper cleanup, and race condition safety.
+
+tools:
+  golangci-lint:
+    enabled: true
+
+chat:
+  auto_reply: true
