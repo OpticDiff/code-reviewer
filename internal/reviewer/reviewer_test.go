@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -398,3 +399,620 @@ func TestGetFileDiffs_RejectsFlagPath(t *testing.T) {
 		t.Errorf("expected flag rejection error, got: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// mockDiffSource
+// ---------------------------------------------------------------------------
+
+type mockDiffSource struct {
+	diffs   []diff.FileDiff
+	title   string
+	desc    string
+	err     error
+	calls   int
+}
+
+func (m *mockDiffSource) GetDiffs(ctx context.Context) ([]diff.FileDiff, string, string, error) {
+	m.calls++
+	return m.diffs, m.title, m.desc, m.err
+}
+
+// ---------------------------------------------------------------------------
+// Run() tests via DiffSource
+// ---------------------------------------------------------------------------
+
+func TestRun_EmptyDiffs(t *testing.T) {
+	cfg := &config.Config{
+		DiffMode:      true,
+		Model:         "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+		DryRun:        true,
+	}
+	mm := &mockModel{
+		result: &model.ReviewResult{Summary: "ok", Findings: nil},
+	}
+	ds := &mockDiffSource{diffs: nil}
+	r := NewWithDiffSource(cfg, mm, &mockVCS{}, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 findings, got %d", count)
+	}
+	if ds.calls != 1 {
+		t.Errorf("expected 1 DiffSource call, got %d", ds.calls)
+	}
+	// Model should not be called when there are no diffs.
+	if mm.calls != 0 {
+		t.Errorf("expected 0 model calls for empty diffs, got %d", mm.calls)
+	}
+}
+
+func TestRun_WithFindings(t *testing.T) {
+	testDiffs := []diff.FileDiff{
+		{
+			NewPath: "main.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,3 +1,4 @@",
+					NewStart: 1,
+					NewCount: 4,
+					OldStart: 1,
+					OldCount: 3,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineContext, Content: "package main", OldLineNo: 1, NewLineNo: 1},
+						{Type: diff.LineAdded, Content: "// added", OldLineNo: 0, NewLineNo: 2},
+						{Type: diff.LineContext, Content: "func main() {}", OldLineNo: 2, NewLineNo: 3},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		DiffMode:      true,
+		Model:         "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+		DryRun:        true,
+	}
+
+	findings := []model.Finding{
+		{File: "main.go", Line: 2, Severity: "HIGH", Category: "bug", Title: "issue1", Body: "details1"},
+		{File: "main.go", Line: 3, Severity: "LOW", Category: "style", Title: "issue2", Body: "details2"},
+	}
+	mm := &mockModel{
+		result: &model.ReviewResult{Summary: "found stuff", Findings: findings},
+	}
+	ds := &mockDiffSource{diffs: testDiffs, title: "Test MR", desc: "Test desc"}
+	r := NewWithDiffSource(cfg, mm, &mockVCS{}, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 findings, got %d", count)
+	}
+	if mm.calls != 1 {
+		t.Errorf("expected 1 model call, got %d", mm.calls)
+	}
+}
+
+func TestRun_SeverityFilter(t *testing.T) {
+	testDiffs := []diff.FileDiff{
+		{
+			NewPath: "main.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,2 +1,3 @@",
+					NewStart: 1,
+					NewCount: 3,
+					OldStart: 1,
+					OldCount: 2,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineContext, Content: "package main", OldLineNo: 1, NewLineNo: 1},
+						{Type: diff.LineAdded, Content: "// new", OldLineNo: 0, NewLineNo: 2},
+						{Type: diff.LineContext, Content: "func main() {}", OldLineNo: 2, NewLineNo: 3},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		DiffMode:      true,
+		Model:         "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityHigh,
+		DryRun:        true,
+	}
+
+	findings := []model.Finding{
+		{File: "main.go", Line: 2, Severity: "HIGH", Category: "bug", Title: "high", Body: "high issue"},
+		{File: "main.go", Line: 2, Severity: "LOW", Category: "style", Title: "low", Body: "low issue"},
+		{File: "main.go", Line: 2, Severity: "CRITICAL", Category: "security", Title: "crit", Body: "critical issue"},
+	}
+	mm := &mockModel{
+		result: &model.ReviewResult{Summary: "mixed", Findings: findings},
+	}
+	ds := &mockDiffSource{diffs: testDiffs}
+	r := NewWithDiffSource(cfg, mm, &mockVCS{}, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Only HIGH and CRITICAL should remain (LOW filtered out).
+	if count != 2 {
+		t.Errorf("expected 2 findings after severity filter, got %d", count)
+	}
+}
+
+func TestRun_ModelError(t *testing.T) {
+	testDiffs := []diff.FileDiff{
+		{
+			NewPath: "main.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,1 +1,2 @@",
+					NewStart: 1,
+					NewCount: 2,
+					OldStart: 1,
+					OldCount: 1,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineAdded, Content: "hello", OldLineNo: 0, NewLineNo: 1},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		DiffMode:      true,
+		Model:         "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+		DryRun:        true,
+	}
+
+	mm := &mockModel{
+		err: fmt.Errorf("model unavailable"),
+	}
+	ds := &mockDiffSource{diffs: testDiffs}
+	r := NewWithDiffSource(cfg, mm, &mockVCS{}, ds)
+
+	_, err := r.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from model, got nil")
+	}
+	if !strings.Contains(err.Error(), "model unavailable") {
+		t.Errorf("expected model error to be propagated, got: %v", err)
+	}
+}
+
+func TestRun_DiffSourceError(t *testing.T) {
+	cfg := &config.Config{
+		DiffMode:      true,
+		Model:         "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+		DryRun:        true,
+	}
+	mm := &mockModel{}
+	ds := &mockDiffSource{err: fmt.Errorf("diff fetch failed")}
+	r := NewWithDiffSource(cfg, mm, &mockVCS{}, ds)
+
+	_, err := r.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error from DiffSource, got nil")
+	}
+	if !strings.Contains(err.Error(), "diff fetch failed") {
+		t.Errorf("expected diff source error to be propagated, got: %v", err)
+	}
+}
+
+func TestRun_JSONOutput(t *testing.T) {
+	testDiffs := []diff.FileDiff{
+		{
+			NewPath: "main.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,1 +1,2 @@",
+					NewStart: 1,
+					NewCount: 2,
+					OldStart: 1,
+					OldCount: 1,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineAdded, Content: "new code", OldLineNo: 0, NewLineNo: 1},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		DiffMode:      true,
+		Model:         "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+		DryRun:        true,
+		OutputJSON:    true,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "json test",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
+		},
+	}
+	ds := &mockDiffSource{diffs: testDiffs}
+	r := NewWithDiffSource(cfg, mm, &mockVCS{}, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// filterBySeverity — additional table-driven tests
+// ---------------------------------------------------------------------------
+
+func TestFilterBySeverity_EmptyFindings(t *testing.T) {
+	got := filterBySeverity(nil, config.SeverityLow)
+	if got != nil {
+		t.Errorf("expected nil for empty findings, got %v", got)
+	}
+}
+
+func TestFilterBySeverity_AllSeverityLevels(t *testing.T) {
+	findings := []model.Finding{
+		{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "l", Body: "l"},
+		{File: "b.go", Line: 2, Severity: "MEDIUM", Category: "style", Title: "m", Body: "m"},
+		{File: "c.go", Line: 3, Severity: "HIGH", Category: "bug", Title: "h", Body: "h"},
+		{File: "d.go", Line: 4, Severity: "CRITICAL", Category: "security", Title: "c", Body: "c"},
+	}
+
+	tests := []struct {
+		name        string
+		minSeverity config.Severity
+		wantFiles   []string
+	}{
+		{"low keeps all", config.SeverityLow, []string{"a.go", "b.go", "c.go", "d.go"}},
+		{"medium filters low", config.SeverityMedium, []string{"b.go", "c.go", "d.go"}},
+		{"high filters low+medium", config.SeverityHigh, []string{"c.go", "d.go"}},
+		{"critical filters all but critical", config.SeverityCritical, []string{"d.go"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filterBySeverity(findings, tt.minSeverity)
+			if len(got) != len(tt.wantFiles) {
+				t.Fatalf("filterBySeverity(%s): got %d findings, want %d", tt.minSeverity, len(got), len(tt.wantFiles))
+			}
+			for i, f := range got {
+				if f.File != tt.wantFiles[i] {
+					t.Errorf("finding[%d].File = %s, want %s", i, f.File, tt.wantFiles[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFilterBySeverity_MixedUnknownSeverity(t *testing.T) {
+	findings := []model.Finding{
+		{File: "a.go", Line: 1, Severity: "INVALID", Category: "x", Title: "unknown", Body: "?"},
+		{File: "b.go", Line: 2, Severity: "HIGH", Category: "x", Title: "high", Body: "!"},
+		{File: "c.go", Line: 3, Severity: "LOW", Category: "x", Title: "low", Body: "."},
+	}
+
+	got := filterBySeverity(findings, config.SeverityHigh)
+	// INVALID should be included (unknown severities are kept), HIGH kept, LOW filtered.
+	if len(got) != 2 {
+		t.Errorf("expected 2 findings (INVALID+HIGH), got %d", len(got))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// buildNumberedDiff — additional tests
+// ---------------------------------------------------------------------------
+
+func TestBuildNumberedDiff_MultiplFiles(t *testing.T) {
+	diffs := []diff.FileDiff{
+		{
+			NewPath: "file1.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,1 +1,2 @@",
+					NewStart: 1,
+					NewCount: 2,
+					OldStart: 1,
+					OldCount: 1,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineContext, Content: "package file1", OldLineNo: 1, NewLineNo: 1},
+						{Type: diff.LineAdded, Content: "// new", OldLineNo: 0, NewLineNo: 2},
+					},
+				},
+			},
+		},
+		{
+			NewPath: "file2.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -5,2 +5,2 @@",
+					NewStart: 5,
+					NewCount: 2,
+					OldStart: 5,
+					OldCount: 2,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineRemoved, Content: "old func", OldLineNo: 5, NewLineNo: 0},
+						{Type: diff.LineAdded, Content: "new func", OldLineNo: 0, NewLineNo: 5},
+					},
+				},
+			},
+		},
+	}
+
+	result := buildNumberedDiff(diffs)
+
+	if !strings.Contains(result, "=== File: file1.go ===") {
+		t.Error("expected file1.go header")
+	}
+	if !strings.Contains(result, "=== File: file2.go ===") {
+		t.Error("expected file2.go header")
+	}
+	if !strings.Contains(result, "+ // new") {
+		t.Error("expected added line in file1")
+	}
+	if !strings.Contains(result, "- old func") {
+		t.Error("expected removed line in file2")
+	}
+	if !strings.Contains(result, "+ new func") {
+		t.Error("expected added line in file2")
+	}
+}
+
+func TestBuildNumberedDiff_EmptyDiffs(t *testing.T) {
+	result := buildNumberedDiff(nil)
+	if result != "" {
+		t.Errorf("expected empty string for nil diffs, got %q", result)
+	}
+}
+
+func TestBuildNumberedDiff_OnlyRemovedLines(t *testing.T) {
+	diffs := []diff.FileDiff{
+		{
+			NewPath: "cleanup.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -10,3 +10,0 @@",
+					OldStart: 10,
+					OldCount: 3,
+					NewStart: 10,
+					NewCount: 0,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineRemoved, Content: "dead code 1", OldLineNo: 10, NewLineNo: 0},
+						{Type: diff.LineRemoved, Content: "dead code 2", OldLineNo: 11, NewLineNo: 0},
+						{Type: diff.LineRemoved, Content: "dead code 3", OldLineNo: 12, NewLineNo: 0},
+					},
+				},
+			},
+		},
+	}
+
+	result := buildNumberedDiff(diffs)
+	if !strings.Contains(result, "- dead code 1") {
+		t.Error("expected removed line 1")
+	}
+	if !strings.Contains(result, "  10 - dead code 1") {
+		t.Error("expected line number 10 for first removed line")
+	}
+	if !strings.Contains(result, "  12 - dead code 3") {
+		t.Error("expected line number 12 for third removed line")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// NewWithDiffSource constructor test
+// ---------------------------------------------------------------------------
+
+func TestNewWithDiffSource(t *testing.T) {
+	cfg := &config.Config{Model: "test"}
+	mm := &mockModel{}
+	vcs := &mockVCS{}
+	ds := &mockDiffSource{}
+
+	r := NewWithDiffSource(cfg, mm, vcs, ds)
+	if r.cfg != cfg {
+		t.Error("cfg not set")
+	}
+	if r.provider != mm {
+		t.Error("provider not set")
+	}
+	if r.glClient != vcs {
+		t.Error("glClient not set")
+	}
+	if r.diffSource != ds {
+		t.Error("diffSource not set")
+	}
+}
+
+func TestNew(t *testing.T) {
+	cfg := &config.Config{Model: "test"}
+	mm := &mockModel{}
+	vcs := &mockVCS{}
+
+	r := New(cfg, mm, vcs)
+	if r.cfg != cfg {
+		t.Error("cfg not set")
+	}
+	if r.provider != mm {
+		t.Error("provider not set")
+	}
+	if r.glClient != vcs {
+		t.Error("glClient not set")
+	}
+	if r.diffSource != nil {
+		t.Error("diffSource should be nil for New()")
+	}
+}
+
+func TestRun_TerminalOutput(t *testing.T) {
+	testDiffs := []diff.FileDiff{
+		{
+			NewPath: "main.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,1 +1,2 @@",
+					NewStart: 1,
+					NewCount: 2,
+					OldStart: 1,
+					OldCount: 1,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineAdded, Content: "new line", OldLineNo: 0, NewLineNo: 1},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		DiffMode:      true,
+		Model:         "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+		NoColor:       true,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "terminal test",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
+		},
+	}
+	ds := &mockDiffSource{diffs: testDiffs}
+	r := NewWithDiffSource(cfg, mm, &mockVCS{}, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+}
+
+func TestRun_CIModeNotes(t *testing.T) {
+	testDiffs := []diff.FileDiff{
+		{
+			NewPath: "main.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,1 +1,2 @@",
+					NewStart: 1,
+					NewCount: 2,
+					OldStart: 1,
+					OldCount: 1,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineAdded, Content: "code", OldLineNo: 0, NewLineNo: 1},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "CI test",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "HIGH", Category: "bug", Title: "ci-issue", Body: "details"}},
+		},
+	}
+	vcs := &mockVCS{}
+	ds := &mockDiffSource{diffs: testDiffs}
+	r := NewWithDiffSource(cfg, mm, vcs, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+	if vcs.postNoteCalls != 1 {
+		t.Errorf("expected 1 PostNote call, got %d", vcs.postNoteCalls)
+	}
+	if vcs.cleanCalls != 1 {
+		t.Errorf("expected 1 CleanPreviousReviews call, got %d", vcs.cleanCalls)
+	}
+}
+
+func TestRun_CIModeDiscussions(t *testing.T) {
+	testDiffs := []diff.FileDiff{
+		{
+			NewPath: "main.go",
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,1 +1,2 @@",
+					NewStart: 1,
+					NewCount: 2,
+					OldStart: 1,
+					OldCount: 1,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineAdded, Content: "code", OldLineNo: 0, NewLineNo: 1},
+					},
+				},
+			},
+		},
+	}
+
+	cfg := &config.Config{
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeDiscussions,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "CI disc test",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "HIGH", Category: "bug", Title: "disc-issue", Body: "details"}},
+		},
+	}
+	vcs := &mockVCS{
+		mrVersions: []gitlab.DiffVersion{{ID: 1, HeadSHA: "abc123", BaseSHA: "def456", StartSHA: "ghi789"}},
+	}
+	ds := &mockDiffSource{diffs: testDiffs}
+	r := NewWithDiffSource(cfg, mm, vcs, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+	if vcs.getMRVersionsCalls != 1 {
+		t.Errorf("expected 1 GetMRVersions call, got %d", vcs.getMRVersionsCalls)
+	}
+}
+

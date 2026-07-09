@@ -16,11 +16,17 @@ import (
 	"github.com/OpticDiff/code-reviewer/internal/model"
 )
 
+// DiffSource provides diffs for review. Extracted for testability.
+type DiffSource interface {
+	GetDiffs(ctx context.Context) ([]diff.FileDiff, string, string, error)
+}
+
 // Reviewer orchestrates the full review pipeline.
 type Reviewer struct {
-	cfg      *config.Config
-	provider ModelReviewer
-	glClient VCSClient
+	cfg        *config.Config
+	provider   ModelReviewer
+	glClient   VCSClient
+	diffSource DiffSource
 }
 
 // New creates a new Reviewer.
@@ -32,11 +38,28 @@ func New(cfg *config.Config, provider ModelReviewer, glClient VCSClient) *Review
 	}
 }
 
+// NewWithDiffSource creates a Reviewer with a custom DiffSource (useful for testing).
+func NewWithDiffSource(cfg *config.Config, provider ModelReviewer, glClient VCSClient, ds DiffSource) *Reviewer {
+	return &Reviewer{
+		cfg:        cfg,
+		provider:   provider,
+		glClient:   glClient,
+		diffSource: ds,
+	}
+}
+
 // Run executes the full review pipeline and returns the number of findings.
 func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Step 1: Get diffs.
 	slog.Info("fetching diffs", "mode", r.cfg.Mode())
-	diffs, mrTitle, mrDesc, err := r.getDiffs(ctx)
+	var diffs []diff.FileDiff
+	var mrTitle, mrDesc string
+	var err error
+	if r.diffSource != nil {
+		diffs, mrTitle, mrDesc, err = r.diffSource.GetDiffs(ctx)
+	} else {
+		diffs, mrTitle, mrDesc, err = r.getDiffs(ctx)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("getting diffs: %w", err)
 	}
