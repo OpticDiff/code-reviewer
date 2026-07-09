@@ -109,7 +109,7 @@ type Config struct {
 	CIProjectID      string
 	CIMergeRequestID string
 	CIDiffBaseSHA      string // Reserved: loaded from CI_MERGE_REQUEST_DIFF_BASE_SHA for future incremental review.
-	CICommitBeforeSHA  string // The SHA before the push (from CI_COMMIT_BEFORE_SHA).
+	CICommitBeforeSHA  string // Loaded from CI env; reserved for future use.
 
 	// Exclusions.
 	ExcludedPatterns []string

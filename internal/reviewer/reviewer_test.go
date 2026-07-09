@@ -38,15 +38,22 @@ type mockVCS struct {
 	deleteNoteCalls       int
 	getMRChangesCalls     int
 	getMRVersionsCalls    int
+	compareCommitsCalls   int
+
+	// Captured args.
+	compareFromSHA string
+	compareToSHA   string
 
 	// Configure responses.
-	mrChanges    *gitlab.MRChangesResponse
-	mrChangesErr error
-	mrVersions   []gitlab.DiffVersion
-	mrVersionErr error
-	postNoteErr  error
-	cleanResult  int
-	cleanErr     error
+	mrChanges       *gitlab.MRChangesResponse
+	mrChangesErr    error
+	mrVersions      []gitlab.DiffVersion
+	mrVersionErr    error
+	postNoteErr     error
+	cleanResult     int
+	cleanErr        error
+	compareFiles    []string
+	compareFilesErr error
 }
 
 func (m *mockVCS) GetMRChanges(ctx context.Context, projectID, mrIID string) (*gitlab.MRChangesResponse, error) {
@@ -57,6 +64,13 @@ func (m *mockVCS) GetMRChanges(ctx context.Context, projectID, mrIID string) (*g
 func (m *mockVCS) GetMRVersions(ctx context.Context, projectID, mrIID string) ([]gitlab.DiffVersion, error) {
 	m.getMRVersionsCalls++
 	return m.mrVersions, m.mrVersionErr
+}
+
+func (m *mockVCS) CompareCommits(ctx context.Context, projectID, from, to string) ([]string, error) {
+	m.compareCommitsCalls++
+	m.compareFromSHA = from
+	m.compareToSHA = to
+	return m.compareFiles, m.compareFilesErr
 }
 
 func (m *mockVCS) PostNote(ctx context.Context, projectID, mrIID, body string) (*gitlab.Note, error) {
@@ -1016,3 +1030,212 @@ func TestRun_CIModeDiscussions(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Incremental review tests
+// ---------------------------------------------------------------------------
+
+func makeTestDiffs(files ...string) []diff.FileDiff {
+	var diffs []diff.FileDiff
+	for _, f := range files {
+		diffs = append(diffs, diff.FileDiff{
+			NewPath: f,
+			Hunks: []diff.Hunk{
+				{
+					Header:   "@@ -1,1 +1,2 @@",
+					NewStart: 1,
+					NewCount: 2,
+					OldStart: 1,
+					OldCount: 1,
+					Lines: []diff.DiffLine{
+						{Type: diff.LineAdded, Content: "change in " + f, OldLineNo: 0, NewLineNo: 1},
+					},
+				},
+			},
+		})
+	}
+	return diffs
+}
+
+func TestRun_IncrementalReview(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go", "util.go", "docs.go")
+
+	cfg := &config.Config{
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		Incremental:      true,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "incremental",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
+		},
+	}
+	vcs := &mockVCS{
+		mrVersions: []gitlab.DiffVersion{
+			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
+			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
+		},
+		compareFiles: []string{"main.go"}, // Only main.go changed in latest push.
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, vcs, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+	if mm.calls != 1 {
+		t.Errorf("expected 1 model call, got %d", mm.calls)
+	}
+	if vcs.compareCommitsCalls != 1 {
+		t.Errorf("expected 1 CompareCommits call, got %d", vcs.compareCommitsCalls)
+	}
+	if vcs.compareFromSHA != "old-head" {
+		t.Errorf("expected from SHA 'old-head', got %q", vcs.compareFromSHA)
+	}
+	if vcs.compareToSHA != "new-head" {
+		t.Errorf("expected to SHA 'new-head', got %q", vcs.compareToSHA)
+	}
+}
+
+func TestRun_IncrementalReview_FirstPush(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go")
+
+	cfg := &config.Config{
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		Incremental:      true,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "first push",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
+		},
+	}
+	vcs := &mockVCS{
+		mrVersions: []gitlab.DiffVersion{
+			{ID: 1, HeadSHA: "first-head", BaseSHA: "base", StartSHA: "start"},
+		},
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, vcs, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+	if vcs.getMRVersionsCalls != 1 {
+		t.Errorf("expected 1 GetMRVersions call, got %d", vcs.getMRVersionsCalls)
+	}
+	// CompareCommits should NOT be called for first push (only 1 version).
+	if vcs.compareCommitsCalls != 0 {
+		t.Errorf("expected 0 CompareCommits calls for first push, got %d", vcs.compareCommitsCalls)
+	}
+}
+
+func TestRun_IncrementalReview_VersionErrorFallback(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go")
+
+	cfg := &config.Config{
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		Incremental:      true,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "fallback",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
+		},
+	}
+	vcs := &mockVCS{
+		mrVersionErr: fmt.Errorf("versions API error"),
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, vcs, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Model should still be called (full review fallback).
+	if mm.calls != 1 {
+		t.Errorf("expected 1 model call (full review fallback), got %d", mm.calls)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+	// CompareCommits should NOT be called when versions fail.
+	if vcs.compareCommitsCalls != 0 {
+		t.Errorf("expected 0 CompareCommits calls, got %d", vcs.compareCommitsCalls)
+	}
+}
+
+func TestRun_IncrementalReview_CompareErrorFallback(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go", "util.go")
+
+	cfg := &config.Config{
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		Incremental:      true,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary: "compare fallback",
+			Findings: []model.Finding{
+				{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t1", Body: "b1"},
+				{File: "util.go", Line: 1, Severity: "LOW", Category: "style", Title: "t2", Body: "b2"},
+			},
+		},
+	}
+	vcs := &mockVCS{
+		mrVersions: []gitlab.DiffVersion{
+			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
+			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
+		},
+		compareFilesErr: fmt.Errorf("compare API error"),
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, vcs, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Model should still be called with all files (full review fallback).
+	if mm.calls != 1 {
+		t.Errorf("expected 1 model call (full review fallback), got %d", mm.calls)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 findings (all files reviewed), got %d", count)
+	}
+}

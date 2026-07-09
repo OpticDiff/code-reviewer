@@ -55,6 +55,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var diffs []diff.FileDiff
 	var mrTitle, mrDesc string
 	var err error
+	var cachedVersions []gitlab.DiffVersion
 	if r.diffSource != nil {
 		diffs, mrTitle, mrDesc, err = r.diffSource.GetDiffs(ctx)
 	} else {
@@ -78,6 +79,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Step 2b: Incremental review — filter to only files changed in latest push.
 	if r.cfg.Incremental && r.cfg.CIMode && r.glClient != nil {
 		versions, verr := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
+		if verr == nil {
+			cachedVersions = versions
+		}
 		if verr != nil {
 			slog.Warn("failed to get MR versions for incremental review, falling back to full review", "error", verr)
 		} else if len(versions) > 1 {
@@ -172,7 +176,16 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		result.Usage = &totalUsage
 	}
 
-	// Step 7: Output.
+	// Step 7a: Write SARIF if requested (before posting to GitLab so it's not
+	// skipped when PostToGitLab fails).
+	if r.cfg.SARIFOutput != "" {
+		if err := WriteSARIF(r.cfg.SARIFOutput, result); err != nil {
+			return len(allFindings), fmt.Errorf("writing SARIF: %w", err)
+		}
+		slog.Info("SARIF output written", "path", r.cfg.SARIFOutput)
+	}
+
+	// Step 7b: Output.
 	if r.cfg.DryRun || !r.cfg.CIMode {
 		if r.cfg.OutputJSON {
 			jsonOut, err := json.MarshalIndent(result, "", "  ")
@@ -188,25 +201,21 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		// Post to GitLab.
 		var version *gitlab.DiffVersion
 		if r.cfg.CommentMode == config.CommentModeDiscussions {
-			versions, err := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
-			if err != nil {
-				slog.Warn("could not fetch MR versions, inline comments may fail", "error", err)
-			} else if len(versions) > 0 {
-				version = &versions[0]
+			if len(cachedVersions) > 0 {
+				version = &cachedVersions[0]
+			} else {
+				versions, err := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
+				if err != nil {
+					slog.Warn("could not fetch MR versions, inline comments may fail", "error", err)
+				} else if len(versions) > 0 {
+					version = &versions[0]
+				}
 			}
 		}
 
 		if err := PostToGitLab(ctx, r.cfg, r.glClient, result, version); err != nil {
 			return len(allFindings), fmt.Errorf("posting to GitLab: %w", err)
 		}
-	}
-
-	// Write SARIF if requested.
-	if r.cfg.SARIFOutput != "" {
-		if err := WriteSARIF(r.cfg.SARIFOutput, result); err != nil {
-			return 0, fmt.Errorf("writing SARIF: %w", err)
-		}
-		slog.Info("SARIF output written", "path", r.cfg.SARIFOutput)
 	}
 
 	return len(allFindings), nil
