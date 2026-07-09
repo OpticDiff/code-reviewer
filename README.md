@@ -109,6 +109,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_COMMENT_MODE` | Comment mode | `notes` |
 | `REVIEW_CHUNK_STRATEGY` | Chunk strategy | `fail` |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
+| `REVIEW_OUTPUT_JSON` | Output results as JSON (`true`/`false`) | `false` |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
 | `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
 
