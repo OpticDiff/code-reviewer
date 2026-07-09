@@ -2,9 +2,26 @@
 
 AI-powered code review CLI for GitLab merge requests. Uses Vertex AI (Gemini, Claude, Mistral) to analyze diffs and post actionable findings as inline comments or summary notes.
 
+## Install
+
+```bash
+# Go install
+go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@latest
+
+# Or download a pre-built binary from GitHub Releases
+# https://github.com/OpticDiff/code-reviewer/releases
+
+# Or build from source
+git clone https://github.com/OpticDiff/code-reviewer.git
+cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
+
+# Or Docker
+docker pull gcr.io/$PROJECT/code-reviewer:latest
+```
+
 ## Features
 
-- **Multi-model** — Gemini 2.5 Flash (default), Pro, Claude, Mistral via single Vertex AI ADC credential
+- **Multi-model consensus** — Run multiple models in parallel (e.g. Gemini + Claude), only keep findings that meet the configured consensus threshold
 - **Custom prompts** — Bring your own system prompt for specialized reviews (security audits, architecture checks)
 - **Focus modes** — `bugs`, `security`, `performance`, `style`, `docs`, or `all`
 - **Severity filtering** — `low` (default), `medium`, `high`, `critical`
@@ -85,6 +102,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--diff [ref]` | Review local git diff | `origin/HEAD` |
 | `--files f1,f2` | Review specific files | — |
 | `--model` | Vertex AI model ID | `gemini-2.5-flash` |
+| `--models` | Comma-separated models for multi-model consensus | — |
+| `--consensus-threshold` | Min models that must agree on a finding | `2` (when `--models` is set) |
 | `--focus` | Review focus (comma-separated) | `all` |
 | `--min-severity` | Minimum severity to report | `low` |
 | `--comment-mode` | `notes` or `discussions` | `notes` |
@@ -94,6 +113,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--dry-run` | Analyze without posting | `false` |
 | `--json` | Output results as JSON | `false` |
 | `--no-color` | Disable ANSI color output | `false` |
+| `--version` | Print version and exit | — |
 
 ### Environment Variables
 
@@ -104,6 +124,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `GITLAB_TOKEN` | GitLab API token | Required in CI |
 | `GITLAB_BASE_URL` | GitLab API base URL | `https://gitlab.com` |
 | `REVIEW_MODEL` | Model ID | `gemini-2.5-flash` |
+| `REVIEW_MODELS` | Comma-separated models for consensus | — |
 | `REVIEW_FOCUS` | Focus areas | `all` |
 | `REVIEW_MIN_SEVERITY` | Min severity | `low` |
 | `REVIEW_COMMENT_MODE` | Comment mode | `notes` |
@@ -143,6 +164,20 @@ All models are accessed via Vertex AI using Application Default Credentials (ADC
 | Gemini 2.5 Pro | `gemini-2.5-pro` | Deep analysis |
 | Claude Sonnet 4 | `claude-sonnet-4` | Code-focused reviews |
 | Mistral Medium | `mistral-medium-3` | Alternative perspective |
+
+### Multi-Model Consensus
+
+Run multiple models in parallel and only keep findings that multiple models agree on — dramatically reducing false positives:
+
+```bash
+# Run Gemini + Claude, keep findings both agree on
+code-reviewer --diff --models gemini-2.5-flash,claude-sonnet-4
+
+# Require all 3 models to agree
+code-reviewer --diff --models gemini-2.5-flash,gemini-2.5-pro,claude-sonnet-4 --consensus-threshold 3
+```
+
+Findings are deduplicated by file + category + line proximity (±3 lines). The finding with the most detailed explanation is kept as the canonical result.
 
 ## Custom Prompts
 
@@ -219,14 +254,27 @@ nix develop
 # Build
 go build ./cmd/code-reviewer
 
-# Test (104+ tests)
+# Test (145 tests)
 go test ./... -race -count=1 -cover
 
 # Lint
 golangci-lint run
+
+# Check version
+./code-reviewer --version
 ```
 
 CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https://coderabbit.ai) provides automated PR reviews on GitHub.
+
+### Releasing
+
+Releases are automated via [Goreleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
+
+```bash
+git tag v0.2.1
+git push origin v0.2.1
+# → GitHub Actions: test → build 6 binaries → publish to Releases
+```
 
 ## License
 
