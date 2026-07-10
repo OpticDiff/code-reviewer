@@ -5,22 +5,28 @@ AI-powered code review CLI for GitLab merge requests. Uses Vertex AI (Gemini, Cl
 ## Install
 
 ```bash
-# Go install
+# Nix
+nix run github:OpticDiff/code-reviewer
+nix profile install github:OpticDiff/code-reviewer
+
+# mise
+mise use -g ubi:OpticDiff/code-reviewer
+
+# Go
 go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@latest
 
-# Or download a pre-built binary from GitHub Releases
+# Pre-built binary from GitHub Releases
 # https://github.com/OpticDiff/code-reviewer/releases
 
-# Or build from source
+# Build from source
 git clone https://github.com/OpticDiff/code-reviewer.git
 cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
-
-# Or Docker
-docker pull gcr.io/$PROJECT/code-reviewer:latest
 ```
 
 ## Features
 
+- **Incremental review** — Only review files changed in the latest push, not the entire MR (v0.3.0)
+- **SARIF output** — Write findings in SARIF 2.1.0 format for CI security tabs (v0.3.0)
 - **Multi-model consensus** — Run multiple models in parallel (e.g. Gemini + Claude), only keep findings that meet the configured consensus threshold
 - **Custom prompts** — Bring your own system prompt for specialized reviews (security audits, architecture checks)
 - **Focus modes** — `bugs`, `security`, `performance`, `style`, `docs`, or `all`
@@ -54,6 +60,9 @@ code-reviewer --diff --min-severity high
 # JSON output for tooling integration
 code-reviewer --diff --json
 
+# SARIF output for CI security tabs (GitLab, GitHub)
+code-reviewer --diff --sarif results.sarif
+
 # Disable colors (or set NO_COLOR env var)
 code-reviewer --diff --no-color
 ```
@@ -73,8 +82,12 @@ code-review:
     GITLAB_TOKEN: $CI_JOB_TOKEN
     REVIEW_COMMENT_MODE: "notes"
   script:
-    - code-reviewer --ci
+    - code-reviewer --ci --incremental
   allow_failure: true
+  artifacts:
+    reports:
+      sast: results.sarif
+    when: always
 ```
 
 For inline diff-anchored comments, use a [Project Access Token](https://docs.gitlab.com/ee/user/project/settings/project_access_tokens.html) with `api` scope:
@@ -112,7 +125,9 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--custom-prompt` | Path to custom system prompt file | — |
 | `--dry-run` | Analyze without posting | `false` |
 | `--json` | Output results as JSON | `false` |
+| `--sarif` | Write SARIF 2.1.0 output to file | — |
 | `--no-color` | Disable ANSI color output | `false` |
+| `--incremental` | Only review files changed in latest push (CI mode) | `false` |
 | `--version` | Print version and exit | — |
 
 ### Environment Variables
@@ -131,6 +146,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_CHUNK_STRATEGY` | Chunk strategy | `fail` |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `REVIEW_OUTPUT_JSON` | Output results as JSON (`true`/`false`) | `false` |
+| `SARIF_OUTPUT` | Write SARIF output to this file path | — |
+| `REVIEW_INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
 | `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
 
@@ -268,11 +285,11 @@ CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https
 
 ### Releasing
 
-Releases are automated via [Goreleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
+Releases are automated via [GoReleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
 
 ```bash
-git tag v0.2.1
-git push origin v0.2.1
+git tag -a v0.3.0 -m "v0.3.0"
+git push origin v0.3.0
 # → GitHub Actions: test → build 6 binaries → publish to Releases
 ```
 
