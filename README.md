@@ -81,6 +81,7 @@ code-review:
   variables:
     GITLAB_TOKEN: $CI_JOB_TOKEN
     REVIEW_COMMENT_MODE: "notes"
+    SARIF_OUTPUT: "results.sarif"
   script:
     - code-reviewer --ci --incremental
   allow_failure: true
@@ -147,7 +148,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `REVIEW_OUTPUT_JSON` | Output results as JSON (`true`/`false`) | `false` |
 | `SARIF_OUTPUT` | Write SARIF output to this file path | — |
-| `REVIEW_INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
+| `INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
 | `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
 
