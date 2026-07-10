@@ -9,10 +9,10 @@ code-review:
     GITLAB_TOKEN: $CI_JOB_TOKEN
     REVIEW_COMMENT_MODE: "notes"
   script:
-    - code-reviewer --ci
+    - code-reviewer --ci --incremental
   allow_failure: true
 
-# === Option B: Full-featured with PAT (inline diff comments) ===
+# === Option B: Full-featured with PAT (inline diff comments + SARIF) ===
 # Requires: Project Access Token with 'api' scope, stored as CODE_REVIEWER_TOKEN.
 #
 # To create:
@@ -21,6 +21,7 @@ code-review:
 #   3. Add CODE_REVIEWER_TOKEN as a masked CI/CD variable
 
 # Security gate — blocks MR on high/critical findings.
+# SARIF output appears in GitLab's Security tab.
 security-review:
   stage: review
   image: gcr.io/$PROJECT/code-reviewer:latest
@@ -32,9 +33,14 @@ security-review:
     REVIEW_FOCUS: "security"
     REVIEW_MIN_SEVERITY: "high"
     REVIEW_COMMENT_MODE: "discussions"
+    SARIF_OUTPUT: "gl-sast-report.json"
   script:
-    - code-reviewer --ci
+    - code-reviewer --ci --incremental
   allow_failure: false
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+    when: always
 
 # General review — advisory, non-blocking.
 code-review-full:
@@ -46,5 +52,5 @@ code-review-full:
     GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
     REVIEW_COMMENT_MODE: "discussions"
   script:
-    - code-reviewer --ci
+    - code-reviewer --ci --incremental
   allow_failure: true
