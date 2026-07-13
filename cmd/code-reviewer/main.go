@@ -60,6 +60,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 		"min_severity", cfg.MinSeverity.String(),
 		"chunk_strategy", cfg.ChunkStrategy,
 		"dry_run", cfg.DryRun,
+		"proxy_url", cfg.ProxyURL,
 	)
 
 	// Create model provider(s).
@@ -74,13 +75,13 @@ func run(ctx, initCtx context.Context) (int, error) {
 			"models", cfg.Models,
 			"threshold", threshold,
 		)
-		mp, err := model.NewMultiProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold)
+		mp, err := model.NewMultiProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold, cfg.ProxyURL)
 		if err != nil {
 			return 0, wrapProviderError(err)
 		}
 		modelProvider = mp
 	} else {
-		provider, err := model.NewProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Model)
+		provider, err := model.NewProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Model, cfg.ProxyURL)
 		if err != nil {
 			return 0, wrapProviderError(err)
 		}

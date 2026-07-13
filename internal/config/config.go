@@ -99,6 +99,7 @@ type Config struct {
 	OutputJSON  bool
 	NoColor     bool   // Disable ANSI color output.
 	SARIFOutput string // Path to write SARIF 2.1.0 output file.
+	ProxyURL    string // Optional: LLM proxy URL for observability (e.g., Candela).
 
 	// GitLab settings.
 	GitLabToken   string
@@ -303,6 +304,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("INCREMENTAL"); strings.EqualFold(v, "true") {
 		c.Incremental = true
 	}
+	if v := os.Getenv("REVIEW_PROXY_URL"); v != "" {
+		c.ProxyURL = v
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -327,6 +331,7 @@ func (c *Config) loadFlags() error {
 	models := fs.String("models", "", "Comma-separated list of models for consensus review")
 	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
 	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
+	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -388,6 +393,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *incremental {
 		c.Incremental = true
+	}
+	if *proxyURL != "" {
+		c.ProxyURL = *proxyURL
 	}
 
 	return nil

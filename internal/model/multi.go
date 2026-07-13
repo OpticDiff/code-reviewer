@@ -27,7 +27,8 @@ type MultiProvider struct {
 // NewMultiProvider creates a provider that runs multiple models concurrently.
 // The threshold controls how many models must agree on a finding for it to be
 // included (default: 2, minimum: 1).
-func NewMultiProvider(ctx context.Context, project, location string, models []string, threshold int) (*MultiProvider, error) {
+// If proxyURL is non-empty, all model calls are routed through that URL.
+func NewMultiProvider(ctx context.Context, project, location string, models []string, threshold int, proxyURL string) (*MultiProvider, error) {
 	if len(models) == 0 {
 		return nil, fmt.Errorf("at least one model is required")
 	}
@@ -40,7 +41,7 @@ func NewMultiProvider(ctx context.Context, project, location string, models []st
 
 	providers := make([]ReviewProvider, 0, len(models))
 	for _, m := range models {
-		p, err := NewProvider(ctx, project, location, m)
+		p, err := NewProvider(ctx, project, location, m, proxyURL)
 		if err != nil {
 			// Close already-created providers on failure.
 			for _, existing := range providers {
