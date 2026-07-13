@@ -60,7 +60,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 		"min_severity", cfg.MinSeverity.String(),
 		"chunk_strategy", cfg.ChunkStrategy,
 		"dry_run", cfg.DryRun,
-		"proxy_url", cfg.ProxyURL,
+		"proxy_enabled", cfg.ProxyURL != "",
 	)
 
 	// Create model provider(s).

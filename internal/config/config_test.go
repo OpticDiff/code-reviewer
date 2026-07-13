@@ -321,6 +321,7 @@ func TestLoad_YAMLConfig(t *testing.T) {
 	t.Setenv("REVIEW_FOCUS", "")
 	t.Setenv("REVIEW_MIN_SEVERITY", "")
 	t.Setenv("REVIEW_EXTRA_RULES", "")
+	t.Setenv("REVIEW_PROXY_URL", "")
 
 	tmpDir := t.TempDir()
 	yamlContent := []byte(`model: yaml-model
@@ -330,6 +331,7 @@ focus:
 min_severity: medium
 extra_rules: "always check for nil"
 output_json: true
+proxy_url: http://yaml-proxy:8181/proxy/google/
 `)
 	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), yamlContent, 0o644); err != nil {
 		t.Fatalf("writing yaml: %v", err)
@@ -363,6 +365,9 @@ output_json: true
 	}
 	if !cfg.OutputJSON {
 		t.Error("OutputJSON = false, want true")
+	}
+	if cfg.ProxyURL != "http://yaml-proxy:8181/proxy/google/" {
+		t.Errorf("ProxyURL = %q, want %q", cfg.ProxyURL, "http://yaml-proxy:8181/proxy/google/")
 	}
 }
 

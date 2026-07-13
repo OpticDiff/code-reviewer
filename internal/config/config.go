@@ -127,6 +127,7 @@ type repoConfig struct {
 	ExtraRules       string   `yaml:"extra_rules"`
 	OutputJSON       bool     `yaml:"output_json"`
 	CustomPrompt     string   `yaml:"custom_prompt"`
+	ProxyURL         string   `yaml:"proxy_url"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -242,6 +243,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	}
 	if rc.CustomPrompt != "" {
 		c.CustomPrompt = rc.CustomPrompt
+	}
+	if rc.ProxyURL != "" {
+		c.ProxyURL = rc.ProxyURL
 	}
 	return nil
 }
