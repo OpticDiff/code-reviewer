@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.1 — Core functionality complete** (Phase 1 done)
+Current status: **v0.3.0 — Production-ready with incremental review, SARIF, and multi-model consensus**
 
 ## ✅ v0.1 — Foundation (Done)
 
@@ -15,44 +15,48 @@ Current status: **v0.1 — Core functionality complete** (Phase 1 done)
 - Idempotent bot comments with cleanup on re-push
 - Clear error messages for missing credentials/config
 
-## 🔜 v0.2 — Production Hardening
+## ✅ v0.2 — Production Hardening (Done)
 
-- [ ] **Retry with backoff** — Exponential backoff + jitter for Vertex AI rate limits (429/503)
-- [ ] **`--json` output** — Machine-readable output for downstream tooling
-- [ ] **Config validation tests** — Unit tests for flags > env > yaml precedence
+- [x] **Retry with backoff** — Exponential backoff + jitter for Vertex AI rate limits (429/503)
+- [x] **`--json` output** — Machine-readable output for downstream tooling
+- [x] **Multi-model consensus** — Run multiple models in parallel, deduplicate by file+category+line proximity
+- [x] **Goreleaser** — Multi-platform binary releases via GitHub Actions
+- [ ] **Config validation tests** — Unit tests for flags > env > yaml precedence (partially covered)
 - [ ] **Integration tests** — Mock model responses → verify GitLab API payloads
-- [ ] **Goreleaser** — Multi-platform binary releases via GitHub Actions
 
-## 🔮 v0.3 — Reviewer Powers
+## ✅ v0.3 — Reviewer Powers (Done)
 
-- [ ] **Auto-approve / block MR** — Add `Approve()`/`Unapprove()` to GitLab client + `--approve-mode` flag. Enables security gating ("changes requested" workflow)
-- [ ] **Incremental review** — Track last-reviewed commit SHA. Only review new changes since last run (avoid re-reviewing entire MR on every push)
-- [ ] **Cost/token tracking** — Log input/output tokens per call. Aggregate in CI job output for budget visibility
+- [x] **Incremental review** — Only review files changed in latest push via MR versions API (`--incremental`)
+- [x] **SARIF output** — Write findings in SARIF 2.1.0 format for CI security tabs (`--sarif`)
+- [x] **Cost/token tracking** — Log input/output tokens per call in terminal, JSON, and CI output
+- [x] **GitLab hardening** — 429 retry for pagination, generic callback-based pagination, SSRF protection, context cancellation
+- [x] **Custom prompts** — `--custom-prompt` for full prompt override (security audit, architecture, etc.)
 
-## 🌱 v0.4 — Platform Expansion
+## 🔜 v0.4 — Platform Expansion & Observability
 
+- [x] **LLM proxy support** — `--proxy-url` / `REVIEW_PROXY_URL` for routing model calls through observability proxies (e.g., Candela)
+- [ ] **VCS interface abstraction** — Platform-agnostic `internal/vcs` types, enabling GitHub/Bitbucket support
 - [ ] **GitHub support** — New `internal/github/` client implementing same posting interface. Core engine unchanged
 - [ ] **GitHub Actions integration** — Native `action.yml` for GitHub-hosted repos
-- [ ] **Bitbucket support** — PR comments via Bitbucket REST API
+- [ ] **Auto-approve / block MR** — Add `Approve()`/`Unapprove()` to GitLab client + `--approve-mode` flag
 
 ## 🧠 v0.5 — Smarter Reviews
 
 - [ ] **Advanced chunk strategies** — Semantic chunking (group related files), AST-aware splitting, dependency-ordered review
 - [ ] **Reply to bot comments** — Monitor MR note webhooks, respond to follow-up questions ("why is this a problem?")
 - [ ] **Caching** — Hash file diffs, skip re-review of unchanged files across pushes
-- [ ] **Custom model prompts** — Allow full prompt override via config for teams with specialized review needs
 - [ ] **Multi-pass review** — First pass with Flash (fast/cheap), escalate flagged files to Pro (deep analysis)
 
 ## 💡 Ideas (Unplanned)
 
 These are ideas we might explore, not committed:
 
-- **Proto output schema** — Define `ReviewResult` as `.proto`, use `protojson` for serialization
 - **VS Code extension** — Review current branch diff inline in the editor
 - **Slack/Teams notifications** — Post review summaries to team channels
 - **Metrics dashboard** — Track review coverage, common issue categories, team trends
 - **Fine-tuned models** — Train on team-specific review patterns for higher-quality feedback
 - **Test generation** — Suggest missing test cases for changed code paths
+- **Bitbucket support** — PR comments via Bitbucket REST API
 
 ---
 

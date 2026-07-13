@@ -49,3 +49,8 @@ extra_rules: |
   Always flag raw SQL string concatenation.
   Ensure all gRPC handlers propagate context.
   Check that zerolog is used instead of log/fmt for logging.
+
+# LLM proxy URL for observability and cost tracking.
+# Routes all Vertex AI model calls through the proxy.
+# Supports Candela (https://github.com/candelahq/candela) or any compatible proxy.
+# proxy_url: http://localhost:8181/proxy/google/

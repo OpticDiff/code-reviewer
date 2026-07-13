@@ -321,6 +321,7 @@ func TestLoad_YAMLConfig(t *testing.T) {
 	t.Setenv("REVIEW_FOCUS", "")
 	t.Setenv("REVIEW_MIN_SEVERITY", "")
 	t.Setenv("REVIEW_EXTRA_RULES", "")
+	t.Setenv("REVIEW_PROXY_URL", "")
 
 	tmpDir := t.TempDir()
 	yamlContent := []byte(`model: yaml-model
@@ -330,6 +331,7 @@ focus:
 min_severity: medium
 extra_rules: "always check for nil"
 output_json: true
+proxy_url: http://yaml-proxy:8181/proxy/google/
 `)
 	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), yamlContent, 0o644); err != nil {
 		t.Fatalf("writing yaml: %v", err)
@@ -364,6 +366,9 @@ output_json: true
 	if !cfg.OutputJSON {
 		t.Error("OutputJSON = false, want true")
 	}
+	if cfg.ProxyURL != "http://yaml-proxy:8181/proxy/google/" {
+		t.Errorf("ProxyURL = %q, want %q", cfg.ProxyURL, "http://yaml-proxy:8181/proxy/google/")
+	}
 }
 
 // TestLoad_VersionFlag verifies that --version is accepted as a known flag and
@@ -397,6 +402,64 @@ func TestLoad_JSONFlag(t *testing.T) {
 
 	if !cfg.OutputJSON {
 		t.Error("OutputJSON = false, want true (--json flag should set it)")
+	}
+}
+
+// TestLoad_ProxyURLFlag verifies that the --proxy-url flag sets ProxyURL.
+func TestLoad_ProxyURLFlag(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--proxy-url", "http://localhost:8181/proxy/google/"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_PROXY_URL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.ProxyURL != "http://localhost:8181/proxy/google/" {
+		t.Errorf("ProxyURL = %q, want %q", cfg.ProxyURL, "http://localhost:8181/proxy/google/")
+	}
+}
+
+// TestLoad_ProxyURLEnv verifies that REVIEW_PROXY_URL env var sets ProxyURL.
+func TestLoad_ProxyURLEnv(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_PROXY_URL", "https://candela.example.com/proxy/google/")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.ProxyURL != "https://candela.example.com/proxy/google/" {
+		t.Errorf("ProxyURL = %q, want %q", cfg.ProxyURL, "https://candela.example.com/proxy/google/")
+	}
+}
+
+// TestLoad_ProxyURLFlagOverridesEnv verifies that --proxy-url flag overrides
+// REVIEW_PROXY_URL env var.
+func TestLoad_ProxyURLFlagOverridesEnv(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--proxy-url", "http://flag-proxy/"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_PROXY_URL", "http://env-proxy/")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.ProxyURL != "http://flag-proxy/" {
+		t.Errorf("ProxyURL = %q, want %q (flag should override env)", cfg.ProxyURL, "http://flag-proxy/")
 	}
 }
 

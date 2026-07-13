@@ -43,12 +43,19 @@ type Provider struct {
 }
 
 // NewProvider creates a new model provider using Vertex AI with ADC.
-func NewProvider(ctx context.Context, project, location, modelName string) (*Provider, error) {
-	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+// If proxyURL is non-empty, model calls are routed through that URL
+// (e.g., a Candela observability proxy).
+func NewProvider(ctx context.Context, project, location, modelName, proxyURL string) (*Provider, error) {
+	clientCfg := &genai.ClientConfig{
 		Project:  project,
 		Location: location,
 		Backend:  genai.BackendVertexAI,
-	})
+	}
+	if proxyURL != "" {
+		clientCfg.HTTPOptions = genai.HTTPOptions{BaseURL: proxyURL}
+	}
+
+	client, err := genai.NewClient(ctx, clientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating genai client: %w", err)
 	}
