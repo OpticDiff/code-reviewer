@@ -803,3 +803,43 @@ func TestTreeSitterExtractor_PathTraversal(t *testing.T) {
 		t.Errorf("path traversal should be blocked, but got %d symbols", len(symbols))
 	}
 }
+
+func TestTreeSitterExtractor_SymlinkEscape(t *testing.T) {
+	repoRoot := t.TempDir()
+	outsideDir := t.TempDir()
+
+	// Create a Go file outside the repo.
+	outsideFile := filepath.Join(outsideDir, "secret.go")
+	if err := os.WriteFile(outsideFile, []byte("package secret\nfunc LeakData() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink inside the repo pointing outside.
+	linkPath := filepath.Join(repoRoot, "linked.go")
+	if err := os.Symlink(outsideFile, linkPath); err != nil {
+		t.Skipf("symlinks not supported: %v", err)
+	}
+
+	diffs := []diff.FileDiff{
+		{
+			NewPath: "linked.go",
+			Hunks: []diff.Hunk{
+				{
+					Lines: []diff.DiffLine{
+						{Type: diff.LineAdded, NewLineNo: 2, Content: "func LeakData() {}"},
+					},
+				},
+			},
+		},
+	}
+
+	extractor := NewTreeSitterExtractor()
+	symbols, err := extractor.Extract(diffs, repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(symbols) != 0 {
+		t.Errorf("symlink escape should be blocked, but got %d symbols", len(symbols))
+	}
+}

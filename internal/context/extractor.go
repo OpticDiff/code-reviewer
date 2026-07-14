@@ -57,9 +57,20 @@ func (e *TreeSitterExtractor) Extract(diffs []diff.FileDiff, repoRoot string) ([
 		// Read the current file from disk.
 		fullPath := filepath.Join(repoRoot, path)
 
-		// Guard against path traversal (e.g. "../../etc/passwd").
-		resolvedRoot, _ := filepath.Abs(repoRoot)
-		resolvedPath, _ := filepath.Abs(fullPath)
+		// Guard against path traversal and symlink escapes.
+		// EvalSymlinks resolves both ".." segments and symlinks to their real paths.
+		resolvedRoot, err := filepath.EvalSymlinks(repoRoot)
+		if err != nil {
+			slog.Debug("context: could not resolve repo root, skipping",
+				"path", path, "error", err)
+			continue
+		}
+		resolvedPath, err := filepath.EvalSymlinks(fullPath)
+		if err != nil {
+			slog.Debug("context: could not resolve file path, skipping",
+				"path", path, "error", err)
+			continue
+		}
 		if !strings.HasPrefix(resolvedPath, resolvedRoot+string(filepath.Separator)) {
 			slog.Warn("context: path escapes repo root, skipping",
 				"path", path, "resolved", resolvedPath)
