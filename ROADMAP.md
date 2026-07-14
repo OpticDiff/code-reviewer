@@ -21,7 +21,7 @@ Current status: **v0.3.0 — Production-ready with incremental review, SARIF, an
 - [x] **`--json` output** — Machine-readable output for downstream tooling
 - [x] **Multi-model consensus** — Run multiple models in parallel, deduplicate by file+category+line proximity
 - [x] **Goreleaser** — Multi-platform binary releases via GitHub Actions
-- [ ] **Config validation tests** — Unit tests for flags > env > yaml precedence (partially covered)
+- [x] **Config validation tests** — Unit tests for flags > env > yaml precedence, table-driven flag/env coverage
 - [ ] **Integration tests** — Mock model responses → verify GitLab API payloads
 
 ## ✅ v0.3 — Reviewer Powers (Done)
@@ -35,7 +35,7 @@ Current status: **v0.3.0 — Production-ready with incremental review, SARIF, an
 ## 🔜 v0.4 — Platform Expansion & Observability
 
 - [x] **LLM proxy support** — `--proxy-url` / `REVIEW_PROXY_URL` for routing model calls through observability proxies (e.g., Candela)
-- [ ] **VCS interface abstraction** — Platform-agnostic `internal/vcs` types, enabling GitHub/Bitbucket support
+- [x] **VCS interface abstraction** — Platform-agnostic `internal/vcs` types, enabling GitHub/Bitbucket support
 - [ ] **GitHub support** — New `internal/github/` client implementing same posting interface. Core engine unchanged
 - [ ] **GitHub Actions integration** — Native `action.yml` for GitHub-hosted repos
 - [ ] **Auto-approve / block MR** — Add `Approve()`/`Unapprove()` to GitLab client + `--approve-mode` flag
