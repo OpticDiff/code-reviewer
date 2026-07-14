@@ -5,6 +5,9 @@ AI-powered code review CLI for GitLab merge requests. Uses Vertex AI (Gemini, Cl
 ## Install
 
 ```bash
+# Homebrew
+brew install OpticDiff/tap/code-reviewer
+
 # Nix
 nix run github:OpticDiff/code-reviewer
 nix profile install github:OpticDiff/code-reviewer

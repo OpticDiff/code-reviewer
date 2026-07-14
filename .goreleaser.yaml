@@ -25,6 +25,19 @@ archives:
       - goos: windows
         format: zip
 
+brews:
+  - repository:
+      owner: OpticDiff
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/OpticDiff/code-reviewer
+    description: "AI-powered code review CLI for GitLab and GitHub. Uses Vertex AI (Gemini, Claude, Mistral) to analyze diffs and post actionable findings."
+    license: Apache-2.0
+    install: |
+      bin.install "code-reviewer"
+    test: |
+      system "#{bin}/code-reviewer", "--version"
+
 checksum:
   name_template: checksums.txt
 
