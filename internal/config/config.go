@@ -114,6 +114,9 @@ type Config struct {
 
 	// Exclusions.
 	ExcludedPatterns []string
+
+	// Context discovery.
+	DisableContext bool // Skip repo-aware context discovery (--no-context).
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -336,6 +339,7 @@ func (c *Config) loadFlags() error {
 	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
 	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
 	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
+	noContext := fs.Bool("no-context", false, "Disable repo-aware context discovery")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -400,6 +404,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *proxyURL != "" {
 		c.ProxyURL = *proxyURL
+	}
+	if *noContext {
+		c.DisableContext = true
 	}
 
 	return nil

@@ -4,6 +4,7 @@ go 1.26.1
 
 require (
 	github.com/google/go-cmp v0.7.0
+	github.com/odvcencio/gotreesitter v0.36.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/term v0.30.0
 	google.golang.org/genai v1.52.0
@@ -18,6 +19,7 @@ require (
 	github.com/google/s2a-go v0.1.8 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.4 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.38.0 // indirect

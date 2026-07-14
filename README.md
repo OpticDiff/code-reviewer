@@ -34,7 +34,9 @@ cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
 - **Rich terminal output** — ANSI-colored findings with severity badges, file grouping, and suggestion blocks
 - **GitLab integration** — Inline diff discussions or simple MR notes, with idempotent cleanup on re-push
 - **Context-aware** — Modular chunking strategies for large MRs
-- **Configurable** — CLI flags, env vars, or per-repo `.code-reviewer.yaml`
+- **Repo-aware context** — Tree-sitter extracts changed symbols from diffs; grep finds usages in unchanged files to give the reviewer cross-file awareness
+- **REVIEW.md** — Drop a `REVIEW.md` in your repo root to inject team-specific review instructions at the highest priority
+- **Configurable** — CLI flags, env vars, per-repo `.code-reviewer.yaml`, or `REVIEW.md`
 
 ## Quick Start
 
@@ -128,7 +130,9 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--json` | Output results as JSON | `false` |
 | `--sarif` | Write SARIF 2.1.0 output to file | — |
 | `--no-color` | Disable ANSI color output | `false` |
+| `--no-context` | Disable repo-aware cross-file context injection | `false` |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
+| `--proxy-url` | Route model calls through an LLM proxy (e.g. Candela) | — |
 | `--version` | Print version and exit | — |
 
 ### Environment Variables
@@ -171,6 +175,34 @@ extra_rules: |
 ```
 
 See [`.code-reviewer.example.yaml`](.code-reviewer.example.yaml) for all options.
+
+### REVIEW.md
+
+Create a `REVIEW.md` in your repo root to inject team-specific review instructions. Its contents are treated as the **highest priority** instruction in the system prompt — above the built-in rules, focus overlays, and extra rules.
+
+```markdown
+## Our Review Standards
+
+- All exported functions MUST have doc comments.
+- Never use `fmt.Errorf` without `%w` for wrapping.
+- Prefer table-driven tests over sequential assertions.
+- Flag any use of `context.TODO()` — replace with a real context.
+```
+
+The file is discovered by walking up from the working directory, the same way `.code-reviewer.yaml` is found. Presence is logged at startup (`review_md=true`).
+
+### Repo-Aware Context
+
+By default, code-reviewer uses [Tree-sitter](https://tree-sitter.github.io/) (pure-Go, no CGo) to extract symbols defined or modified in the diff, then searches the rest of the repo for usages of those symbols in unchanged files. The matched snippets are injected into the prompt as **Related Unchanged Code**, giving the model cross-file awareness without sending the entire repo.
+
+Supported languages: **Go**, **Kotlin**, **Java**, **Python**, **TypeScript**.
+
+Noise mitigation is built in:
+- Symbol names shorter than 4 characters are skipped.
+- If a symbol appears in more than 20 files, it is treated as too common and excluded.
+- Import statements and comments are filtered out.
+
+Disable with `--no-context` or the `disable_context: true` config field.
 
 ## Models
 
@@ -272,7 +304,7 @@ nix develop
 # Build
 go build ./cmd/code-reviewer
 
-# Test (145 tests)
+# Test
 go test ./... -race -count=1 -cover
 
 # Lint

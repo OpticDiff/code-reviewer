@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
+	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
 	"github.com/OpticDiff/code-reviewer/internal/vcs"
@@ -23,10 +26,11 @@ type DiffSource interface {
 
 // Reviewer orchestrates the full review pipeline.
 type Reviewer struct {
-	cfg        *config.Config
-	provider   ModelReviewer
-	glClient   VCSClient
-	diffSource DiffSource
+	cfg             *config.Config
+	provider        ModelReviewer
+	glClient        VCSClient
+	diffSource      DiffSource
+	contextProvider ctxpkg.Provider
 }
 
 // New creates a new Reviewer.
@@ -35,6 +39,16 @@ func New(cfg *config.Config, provider ModelReviewer, glClient VCSClient) *Review
 		cfg:      cfg,
 		provider: provider,
 		glClient: glClient,
+	}
+}
+
+// NewWithContext creates a Reviewer with a context provider for repo-aware reviews.
+func NewWithContext(cfg *config.Config, provider ModelReviewer, glClient VCSClient, cp ctxpkg.Provider) *Reviewer {
+	return &Reviewer{
+		cfg:             cfg,
+		provider:        provider,
+		glClient:        glClient,
+		contextProvider: cp,
 	}
 }
 
@@ -124,6 +138,28 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 	slog.Info(fmt.Sprintf("review split into %d chunk(s)", len(chunks)))
 
+	// Step 3b: Discover related code context.
+	var contextSnippets []model.ContextSnippet
+	if r.contextProvider != nil {
+		repoRoot := findRepoRoot()
+		if repoRoot != "" {
+			raw, cerr := r.contextProvider.FindRelatedCode(ctx, repoRoot, diffs)
+			if cerr != nil {
+				slog.Warn("context discovery failed, continuing without context", "error", cerr)
+			} else if len(raw) > 0 {
+				for _, s := range raw {
+					contextSnippets = append(contextSnippets, model.ContextSnippet{
+						File:    s.File,
+						Line:    s.Line,
+						Content: s.Content,
+						Symbol:  s.Symbol,
+					})
+				}
+				slog.Info(fmt.Sprintf("found %d related code snippet(s)", len(contextSnippets)))
+			}
+		}
+	}
+
 	// Step 4: Build prompt and call model for each chunk.
 	systemPrompt := model.BuildPromptWithCustom(r.cfg.CustomPrompt, r.cfg.Focus, r.cfg.ExtraRules)
 	var allFindings []model.Finding
@@ -135,7 +171,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			i+1, len(chunks), len(chunk), diff.EstimateTokens(chunk)))
 
 		numberedDiff := buildNumberedDiff(chunk)
-		userPrompt := model.BuildUserPrompt(mrTitle, mrDesc, numberedDiff)
+		userPrompt := model.BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff, contextSnippets)
 
 		result, err := r.provider.Review(ctx, systemPrompt, userPrompt)
 		if err != nil {
@@ -386,4 +422,22 @@ func filterByFiles(diffs []diff.FileDiff, changedFiles []string) []diff.FileDiff
 		}
 	}
 	return filtered
+}
+
+// findRepoRoot walks up from cwd to find the git repository root.
+func findRepoRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }
