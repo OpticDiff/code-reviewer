@@ -61,6 +61,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 		"chunk_strategy", cfg.ChunkStrategy,
 		"dry_run", cfg.DryRun,
 		"proxy_enabled", cfg.ProxyURL != "",
+		"review_md", cfg.ReviewMD != "",
 	)
 
 	// Create model provider(s).

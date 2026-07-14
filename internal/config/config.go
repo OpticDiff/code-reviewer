@@ -92,6 +92,7 @@ type Config struct {
 	ExtraRules   string
 	CustomPrompt string // Path to custom system prompt file.
 	Incremental  bool   // Only review files changed in the latest push (CI mode).
+	ReviewMD     string // Contents of REVIEW.md (repo-level review instructions).
 
 	// Output settings.
 	CommentMode CommentMode
@@ -179,25 +180,48 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) loadRepoConfig() error {
-	// Walk up from cwd to find .code-reviewer.yaml.
+	// Walk up from cwd to find .code-reviewer.yaml and REVIEW.md.
 	dir, err := os.Getwd()
 	if err != nil {
 		return nil // Non-fatal: skip yaml config.
 	}
 
+	var foundYAML bool
 	for {
-		path := filepath.Join(dir, ".code-reviewer.yaml")
-		data, err := os.ReadFile(path)
-		if err == nil {
-			return c.applyRepoConfig(data)
-		}
-		// Also check .yml extension.
-		path = filepath.Join(dir, ".code-reviewer.yml")
-		data, err = os.ReadFile(path)
-		if err == nil {
-			return c.applyRepoConfig(data)
+		// Try to load .code-reviewer.yaml/.yml (stop walking after first match).
+		if !foundYAML {
+			path := filepath.Join(dir, ".code-reviewer.yaml")
+			data, err := os.ReadFile(path)
+			if err == nil {
+				if err := c.applyRepoConfig(data); err != nil {
+					return err
+				}
+				foundYAML = true
+			} else {
+				path = filepath.Join(dir, ".code-reviewer.yml")
+				data, err = os.ReadFile(path)
+				if err == nil {
+					if err := c.applyRepoConfig(data); err != nil {
+						return err
+					}
+					foundYAML = true
+				}
+			}
 		}
 
+		// Try to load REVIEW.md (only if not already found).
+		if c.ReviewMD == "" {
+			path := filepath.Join(dir, "REVIEW.md")
+			data, err := os.ReadFile(path)
+			if err == nil {
+				c.ReviewMD = strings.TrimSpace(string(data))
+			}
+		}
+
+		// Stop if both found or reached root.
+		if foundYAML && c.ReviewMD != "" {
+			break
+		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			break // Reached filesystem root.

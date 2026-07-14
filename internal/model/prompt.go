@@ -119,13 +119,23 @@ Concentrate on documentation quality:
 // BuildPrompt constructs the full system prompt for a review call.
 // Uses the built-in basePrompt as the system prompt.
 func BuildPrompt(focusModes []string, extraRules string) string {
-	return BuildPromptWithCustom("", focusModes, extraRules)
+	return BuildPromptFull("", "", focusModes, extraRules)
 }
 
 // BuildPromptWithCustom constructs the system prompt, optionally loading a custom
 // prompt from disk. If customPromptPath is non-empty, its contents replace the
 // built-in base prompt. Focus overlays and extra rules are always appended.
 func BuildPromptWithCustom(customPromptPath string, focusModes []string, extraRules string) string {
+	return BuildPromptFull(customPromptPath, "", focusModes, extraRules)
+}
+
+// BuildPromptFull constructs the complete system prompt with all layers.
+// Priority (highest last, due to LLM recency bias):
+//   1. Base prompt (or custom prompt file)
+//   2. Focus overlays
+//   3. Extra rules
+//   4. REVIEW.md instructions (highest priority)
+func BuildPromptFull(customPromptPath, reviewMD string, focusModes []string, extraRules string) string {
 	var sb strings.Builder
 
 	// Base prompt: custom file or built-in.
@@ -165,6 +175,15 @@ func BuildPromptWithCustom(customPromptPath string, focusModes []string, extraRu
 	if extraRules != "" {
 		sb.WriteString("\n\n## ADDITIONAL RULES\n\n")
 		sb.WriteString(extraRules)
+	}
+
+	// Append REVIEW.md instructions (highest priority — placed last so LLMs
+	// attend to it most strongly due to recency bias).
+	if reviewMD != "" {
+		sb.WriteString("\n\n## REVIEW INSTRUCTIONS (HIGHEST PRIORITY)\n\n")
+		sb.WriteString("The following are repository-specific review instructions from REVIEW.md. ")
+		sb.WriteString("They take precedence over all other guidance.\n\n")
+		sb.WriteString(reviewMD)
 	}
 
 	return sb.String()
