@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
 const (
@@ -80,28 +82,32 @@ func (c *Client) CompareCommits(ctx context.Context, projectID, from, to string)
 }
 
 // GetMRChanges fetches the file changes for a merge request.
-func (c *Client) GetMRChanges(ctx context.Context, projectID, mrIID string) (*MRChangesResponse, error) {
+func (c *Client) GetMRChanges(ctx context.Context, projectID, mrIID string) (*vcs.MRChanges, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/changes", c.baseURL, url.PathEscape(projectID), mrIID)
 	var resp MRChangesResponse
 	if err := c.get(ctx, url, &resp); err != nil {
 		return nil, fmt.Errorf("fetching MR changes: %w", err)
 	}
-	return &resp, nil
+	return resp.toVCS(), nil
 }
 
 // GetMRVersions fetches the diff versions for a merge request.
 // Returns versions sorted by creation time (most recent first).
-func (c *Client) GetMRVersions(ctx context.Context, projectID, mrIID string) ([]DiffVersion, error) {
+func (c *Client) GetMRVersions(ctx context.Context, projectID, mrIID string) ([]vcs.DiffVersion, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/versions", c.baseURL, url.PathEscape(projectID), mrIID)
 	var versions []DiffVersion
 	if err := c.get(ctx, url, &versions); err != nil {
 		return nil, fmt.Errorf("fetching MR versions: %w", err)
 	}
-	return versions, nil
+	result := make([]vcs.DiffVersion, len(versions))
+	for i, v := range versions {
+		result[i] = v.toVCS()
+	}
+	return result, nil
 }
 
 // PostNote creates a simple note (comment) on a merge request.
-func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string) (*Note, error) {
+func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/notes", c.baseURL, url.PathEscape(projectID), mrIID)
 	req := CreateNoteRequest{Body: body + "\n" + botMarker}
 
@@ -109,15 +115,31 @@ func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string) (*
 	if err := c.post(ctx, url, req, &note); err != nil {
 		return nil, fmt.Errorf("posting note: %w", err)
 	}
-	return &note, nil
+	return note.toVCS(), nil
 }
 
 // CreateDiscussion creates an inline discussion (diff-anchored comment) on a merge request.
-func (c *Client) CreateDiscussion(ctx context.Context, projectID, mrIID string, req CreateDiscussionRequest) error {
+func (c *Client) CreateDiscussion(ctx context.Context, projectID, mrIID string, req vcs.InlineCommentRequest) error {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/discussions", c.baseURL, url.PathEscape(projectID), mrIID)
-	req.Body = req.Body + "\n" + botMarker
 
-	if err := c.post(ctx, url, req, nil); err != nil {
+	// Convert vcs.InlineCommentRequest to GitLab-specific API request.
+	glReq := CreateDiscussionRequest{
+		Body: req.Body + "\n" + botMarker,
+	}
+	if req.Position != nil {
+		glReq.Position = &DiscussionPosition{
+			PositionType: "text",
+			BaseSHA:      req.Position.BaseSHA,
+			HeadSHA:      req.Position.HeadSHA,
+			StartSHA:     req.Position.StartSHA,
+			OldPath:      req.Position.OldPath,
+			NewPath:      req.Position.NewPath,
+			OldLine:      req.Position.OldLine,
+			NewLine:      req.Position.NewLine,
+		}
+	}
+
+	if err := c.post(ctx, url, glReq, nil); err != nil {
 		return fmt.Errorf("creating discussion: %w", err)
 	}
 	return nil
@@ -125,7 +147,7 @@ func (c *Client) CreateDiscussion(ctx context.Context, projectID, mrIID string, 
 
 // ListBotNotes returns all notes on an MR that were posted by this tool.
 // Follows Link header pagination to handle MRs with >100 notes.
-func (c *Client) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]Note, error) {
+func (c *Client) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]vcs.Comment, error) {
 	initialURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s/notes?per_page=100&sort=asc",
 		c.baseURL, url.PathEscape(projectID), mrIID)
 
@@ -141,10 +163,10 @@ func (c *Client) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]N
 		return nil, fmt.Errorf("listing notes: %w", err)
 	}
 
-	var botNotes []Note
+	var botNotes []vcs.Comment
 	for _, n := range allNotes {
 		if strings.Contains(n.Body, botMarker) {
-			botNotes = append(botNotes, n)
+			botNotes = append(botNotes, *n.toVCS())
 		}
 	}
 	return botNotes, nil

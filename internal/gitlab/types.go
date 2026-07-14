@@ -2,7 +2,11 @@
 // focused on merge request operations needed for code review.
 package gitlab
 
-import "time"
+import (
+	"time"
+
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
+)
 
 // MRChangesResponse is the response from GET /projects/:id/merge_requests/:iid/changes.
 type MRChangesResponse struct {
@@ -13,6 +17,30 @@ type MRChangesResponse struct {
 	State       string      `json:"state"`
 	Draft       bool        `json:"draft"`
 	Changes     []DiffEntry `json:"changes"`
+}
+
+// toVCS converts a GitLab MR response to the platform-agnostic type.
+func (r *MRChangesResponse) toVCS() *vcs.MRChanges {
+	changes := make([]vcs.DiffEntry, len(r.Changes))
+	for i, c := range r.Changes {
+		changes[i] = vcs.DiffEntry{
+			OldPath:     c.OldPath,
+			NewPath:     c.NewPath,
+			Diff:        c.Diff,
+			NewFile:     c.NewFile,
+			RenamedFile: c.RenamedFile,
+			DeletedFile: c.DeletedFile,
+		}
+	}
+	return &vcs.MRChanges{
+		ID:          r.ID,
+		IID:         r.IID,
+		Title:       r.Title,
+		Description: r.Description,
+		State:       r.State,
+		Draft:       r.Draft,
+		Changes:     changes,
+	}
 }
 
 // DiffEntry represents a single file change in an MR.
@@ -34,6 +62,17 @@ type DiffVersion struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// toVCS converts a GitLab diff version to the platform-agnostic type.
+func (v *DiffVersion) toVCS() vcs.DiffVersion {
+	return vcs.DiffVersion{
+		ID:        v.ID,
+		HeadSHA:   v.HeadSHA,
+		BaseSHA:   v.BaseSHA,
+		StartSHA:  v.StartSHA,
+		CreatedAt: v.CreatedAt,
+	}
+}
+
 // Note represents a comment on an MR.
 type Note struct {
 	ID        int       `json:"id"`
@@ -41,6 +80,17 @@ type Note struct {
 	Author    Author    `json:"author"`
 	System    bool      `json:"system"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// toVCS converts a GitLab note to the platform-agnostic type.
+func (n *Note) toVCS() *vcs.Comment {
+	return &vcs.Comment{
+		ID:        n.ID,
+		Body:      n.Body,
+		Author:    n.Author.Username,
+		System:    n.System,
+		CreatedAt: n.CreatedAt,
+	}
 }
 
 // Author represents a GitLab user.
@@ -72,3 +122,4 @@ type CreateDiscussionRequest struct {
 type CreateNoteRequest struct {
 	Body string `json:"body"`
 }
+

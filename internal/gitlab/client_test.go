@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
 func TestNewClient_URLNormalization(t *testing.T) {
@@ -197,7 +199,7 @@ func TestCreateDiscussion_BotMarker(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "token")
-	req := CreateDiscussionRequest{
+	req := vcs.InlineCommentRequest{
 		Body: "Consider refactoring this",
 	}
 	err := client.CreateDiscussion(context.Background(), "proj", "1", req)

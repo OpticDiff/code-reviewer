@@ -8,8 +8,8 @@ import (
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
-	"github.com/OpticDiff/code-reviewer/internal/gitlab"
 	"github.com/OpticDiff/code-reviewer/internal/model"
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
 // ---------------------------------------------------------------------------
@@ -47,9 +47,9 @@ type mockVCS struct {
 	compareToSHA   string
 
 	// Configure responses.
-	mrChanges       *gitlab.MRChangesResponse
+	mrChanges       *vcs.MRChanges
 	mrChangesErr    error
-	mrVersions      []gitlab.DiffVersion
+	mrVersions      []vcs.DiffVersion
 	mrVersionErr    error
 	postNoteErr     error
 	cleanResult     int
@@ -58,12 +58,12 @@ type mockVCS struct {
 	compareFilesErr error
 }
 
-func (m *mockVCS) GetMRChanges(ctx context.Context, projectID, mrIID string) (*gitlab.MRChangesResponse, error) {
+func (m *mockVCS) GetMRChanges(ctx context.Context, projectID, mrIID string) (*vcs.MRChanges, error) {
 	m.getMRChangesCalls++
 	return m.mrChanges, m.mrChangesErr
 }
 
-func (m *mockVCS) GetMRVersions(ctx context.Context, projectID, mrIID string) ([]gitlab.DiffVersion, error) {
+func (m *mockVCS) GetMRVersions(ctx context.Context, projectID, mrIID string) ([]vcs.DiffVersion, error) {
 	m.getMRVersionsCalls++
 	return m.mrVersions, m.mrVersionErr
 }
@@ -75,17 +75,17 @@ func (m *mockVCS) CompareCommits(ctx context.Context, projectID, from, to string
 	return m.compareFiles, m.compareFilesErr
 }
 
-func (m *mockVCS) PostNote(ctx context.Context, projectID, mrIID, body string) (*gitlab.Note, error) {
+func (m *mockVCS) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
 	m.postNoteCalls++
-	return &gitlab.Note{ID: m.postNoteCalls}, m.postNoteErr
+	return &vcs.Comment{ID: m.postNoteCalls}, m.postNoteErr
 }
 
-func (m *mockVCS) CreateDiscussion(ctx context.Context, projectID, mrIID string, req gitlab.CreateDiscussionRequest) error {
+func (m *mockVCS) CreateDiscussion(ctx context.Context, projectID, mrIID string, req vcs.InlineCommentRequest) error {
 	m.createDiscussionCalls++
 	return nil
 }
 
-func (m *mockVCS) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]gitlab.Note, error) {
+func (m *mockVCS) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]vcs.Comment, error) {
 	m.listBotNotesCalls++
 	return nil, nil
 }
@@ -842,17 +842,17 @@ func TestBuildNumberedDiff_OnlyRemovedLines(t *testing.T) {
 func TestNewWithDiffSource(t *testing.T) {
 	cfg := &config.Config{Model: "test"}
 	mm := &mockModel{}
-	vcs := &mockVCS{}
+	mockClient := &mockVCS{}
 	ds := &mockDiffSource{}
 
-	r := NewWithDiffSource(cfg, mm, vcs, ds)
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
 	if r.cfg != cfg {
 		t.Error("cfg not set")
 	}
 	if r.provider != mm {
 		t.Error("provider not set")
 	}
-	if r.glClient != vcs {
+	if r.glClient != mockClient {
 		t.Error("glClient not set")
 	}
 	if r.diffSource != ds {
@@ -863,16 +863,16 @@ func TestNewWithDiffSource(t *testing.T) {
 func TestNew(t *testing.T) {
 	cfg := &config.Config{Model: "test"}
 	mm := &mockModel{}
-	vcs := &mockVCS{}
+	mockClient := &mockVCS{}
 
-	r := New(cfg, mm, vcs)
+	r := New(cfg, mm, mockClient)
 	if r.cfg != cfg {
 		t.Error("cfg not set")
 	}
 	if r.provider != mm {
 		t.Error("provider not set")
 	}
-	if r.glClient != vcs {
+	if r.glClient != mockClient {
 		t.Error("glClient not set")
 	}
 	if r.diffSource != nil {
@@ -960,9 +960,9 @@ func TestRun_CIModeNotes(t *testing.T) {
 			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "HIGH", Category: "bug", Title: "ci-issue", Body: "details"}},
 		},
 	}
-	vcs := &mockVCS{}
+	mockClient := &mockVCS{}
 	ds := &mockDiffSource{diffs: testDiffs}
-	r := NewWithDiffSource(cfg, mm, vcs, ds)
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
 
 	count, err := r.Run(context.Background())
 	if err != nil {
@@ -971,11 +971,11 @@ func TestRun_CIModeNotes(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected 1 finding, got %d", count)
 	}
-	if vcs.postNoteCalls != 1 {
-		t.Errorf("expected 1 PostNote call, got %d", vcs.postNoteCalls)
+	if mockClient.postNoteCalls != 1 {
+		t.Errorf("expected 1 PostNote call, got %d", mockClient.postNoteCalls)
 	}
-	if vcs.cleanCalls != 1 {
-		t.Errorf("expected 1 CleanPreviousReviews call, got %d", vcs.cleanCalls)
+	if mockClient.cleanCalls != 1 {
+		t.Errorf("expected 1 CleanPreviousReviews call, got %d", mockClient.cleanCalls)
 	}
 }
 
@@ -1014,11 +1014,11 @@ func TestRun_CIModeDiscussions(t *testing.T) {
 			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "HIGH", Category: "bug", Title: "disc-issue", Body: "details"}},
 		},
 	}
-	vcs := &mockVCS{
-		mrVersions: []gitlab.DiffVersion{{ID: 1, HeadSHA: "abc123", BaseSHA: "def456", StartSHA: "ghi789"}},
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "abc123", BaseSHA: "def456", StartSHA: "ghi789"}},
 	}
 	ds := &mockDiffSource{diffs: testDiffs}
-	r := NewWithDiffSource(cfg, mm, vcs, ds)
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
 
 	count, err := r.Run(context.Background())
 	if err != nil {
@@ -1027,8 +1027,8 @@ func TestRun_CIModeDiscussions(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected 1 finding, got %d", count)
 	}
-	if vcs.getMRVersionsCalls != 1 {
-		t.Errorf("expected 1 GetMRVersions call, got %d", vcs.getMRVersionsCalls)
+	if mockClient.getMRVersionsCalls != 1 {
+		t.Errorf("expected 1 GetMRVersions call, got %d", mockClient.getMRVersionsCalls)
 	}
 }
 
@@ -1078,15 +1078,15 @@ func TestRun_IncrementalReview(t *testing.T) {
 			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
 		},
 	}
-	vcs := &mockVCS{
-		mrVersions: []gitlab.DiffVersion{
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{
 			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
 			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
 		},
 		compareFiles: []string{"main.go"}, // Only main.go changed in latest push.
 	}
 	ds := &mockDiffSource{diffs: allDiffs}
-	r := NewWithDiffSource(cfg, mm, vcs, ds)
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
 
 	count, err := r.Run(context.Background())
 	if err != nil {
@@ -1108,14 +1108,14 @@ func TestRun_IncrementalReview(t *testing.T) {
 	if strings.Contains(mm.lastUserPrompt, "docs.go") {
 		t.Error("expected model prompt to NOT contain 'docs.go' (should be filtered)")
 	}
-	if vcs.compareCommitsCalls != 1 {
-		t.Errorf("expected 1 CompareCommits call, got %d", vcs.compareCommitsCalls)
+	if mockClient.compareCommitsCalls != 1 {
+		t.Errorf("expected 1 CompareCommits call, got %d", mockClient.compareCommitsCalls)
 	}
-	if vcs.compareFromSHA != "old-head" {
-		t.Errorf("expected from SHA 'old-head', got %q", vcs.compareFromSHA)
+	if mockClient.compareFromSHA != "old-head" {
+		t.Errorf("expected from SHA 'old-head', got %q", mockClient.compareFromSHA)
 	}
-	if vcs.compareToSHA != "new-head" {
-		t.Errorf("expected to SHA 'new-head', got %q", vcs.compareToSHA)
+	if mockClient.compareToSHA != "new-head" {
+		t.Errorf("expected to SHA 'new-head', got %q", mockClient.compareToSHA)
 	}
 }
 
@@ -1139,13 +1139,13 @@ func TestRun_IncrementalReview_FirstPush(t *testing.T) {
 			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
 		},
 	}
-	vcs := &mockVCS{
-		mrVersions: []gitlab.DiffVersion{
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{
 			{ID: 1, HeadSHA: "first-head", BaseSHA: "base", StartSHA: "start"},
 		},
 	}
 	ds := &mockDiffSource{diffs: allDiffs}
-	r := NewWithDiffSource(cfg, mm, vcs, ds)
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
 
 	count, err := r.Run(context.Background())
 	if err != nil {
@@ -1154,12 +1154,12 @@ func TestRun_IncrementalReview_FirstPush(t *testing.T) {
 	if count != 1 {
 		t.Errorf("expected 1 finding, got %d", count)
 	}
-	if vcs.getMRVersionsCalls != 1 {
-		t.Errorf("expected 1 GetMRVersions call, got %d", vcs.getMRVersionsCalls)
+	if mockClient.getMRVersionsCalls != 1 {
+		t.Errorf("expected 1 GetMRVersions call, got %d", mockClient.getMRVersionsCalls)
 	}
 	// CompareCommits should NOT be called for first push (only 1 version).
-	if vcs.compareCommitsCalls != 0 {
-		t.Errorf("expected 0 CompareCommits calls for first push, got %d", vcs.compareCommitsCalls)
+	if mockClient.compareCommitsCalls != 0 {
+		t.Errorf("expected 0 CompareCommits calls for first push, got %d", mockClient.compareCommitsCalls)
 	}
 }
 
@@ -1183,11 +1183,11 @@ func TestRun_IncrementalReview_VersionErrorFallback(t *testing.T) {
 			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
 		},
 	}
-	vcs := &mockVCS{
+	mockClient := &mockVCS{
 		mrVersionErr: fmt.Errorf("versions API error"),
 	}
 	ds := &mockDiffSource{diffs: allDiffs}
-	r := NewWithDiffSource(cfg, mm, vcs, ds)
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
 
 	count, err := r.Run(context.Background())
 	if err != nil {
@@ -1201,8 +1201,8 @@ func TestRun_IncrementalReview_VersionErrorFallback(t *testing.T) {
 		t.Errorf("expected 1 finding, got %d", count)
 	}
 	// CompareCommits should NOT be called when versions fail.
-	if vcs.compareCommitsCalls != 0 {
-		t.Errorf("expected 0 CompareCommits calls, got %d", vcs.compareCommitsCalls)
+	if mockClient.compareCommitsCalls != 0 {
+		t.Errorf("expected 0 CompareCommits calls, got %d", mockClient.compareCommitsCalls)
 	}
 }
 
@@ -1229,15 +1229,15 @@ func TestRun_IncrementalReview_CompareErrorFallback(t *testing.T) {
 			},
 		},
 	}
-	vcs := &mockVCS{
-		mrVersions: []gitlab.DiffVersion{
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{
 			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
 			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
 		},
 		compareFilesErr: fmt.Errorf("compare API error"),
 	}
 	ds := &mockDiffSource{diffs: allDiffs}
-	r := NewWithDiffSource(cfg, mm, vcs, ds)
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
 
 	count, err := r.Run(context.Background())
 	if err != nil {
