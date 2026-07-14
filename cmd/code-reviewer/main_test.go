@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWrapProviderError_AuthErrors(t *testing.T) {
@@ -48,3 +51,48 @@ func TestWrapProviderError_AuthErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestRun_MissingGCPProject verifies that run() returns a config error when
+// GOOGLE_CLOUD_PROJECT is not set.
+func TestRun_MissingGCPProject(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
+
+	ctx := context.Background()
+	initCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := run(ctx, initCtx)
+	if err == nil {
+		t.Fatal("run() expected error for missing GOOGLE_CLOUD_PROJECT, got nil")
+	}
+	if !strings.Contains(err.Error(), "GOOGLE_CLOUD_PROJECT") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "GOOGLE_CLOUD_PROJECT")
+	}
+}
+
+// TestRun_NoInputMode verifies that run() returns a config error when no
+// input mode (--ci, --diff, --files) is specified.
+func TestRun_NoInputMode(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	ctx := context.Background()
+	initCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	_, err := run(ctx, initCtx)
+	if err == nil {
+		t.Fatal("run() expected error for no input mode, got nil")
+	}
+	if !strings.Contains(err.Error(), "must specify one of") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "must specify one of")
+	}
+}
+

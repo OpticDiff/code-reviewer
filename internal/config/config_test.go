@@ -463,6 +463,347 @@ func TestLoad_ProxyURLFlagOverridesEnv(t *testing.T) {
 	}
 }
 
+// TestLoad_FullPrecedenceChain verifies that all three config layers are
+// applied in the correct order: yaml < env < flag.
+func TestLoad_FullPrecedenceChain(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"code-reviewer",
+		"--diff",
+		"--model", "flag-model",
+		"--min-severity", "critical",
+	}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_MODEL", "env-model-should-lose-to-flag")
+	t.Setenv("REVIEW_MIN_SEVERITY", "medium")
+	t.Setenv("REVIEW_FOCUS", "")
+	t.Setenv("REVIEW_EXTRA_RULES", "")
+	t.Setenv("REVIEW_PROXY_URL", "")
+
+	// Write YAML with different values for everything.
+	tmpDir := t.TempDir()
+	yamlContent := []byte(`model: yaml-model-should-lose
+focus:
+  - docs
+min_severity: low
+extra_rules: "yaml-rule"
+`)
+	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), yamlContent, 0o644); err != nil {
+		t.Fatalf("writing yaml: %v", err)
+	}
+
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	defer os.Chdir(oldDir) //nolint:errcheck
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	// Flag wins over env and yaml.
+	if cfg.Model != "flag-model" {
+		t.Errorf("Model = %q, want %q (flag should win)", cfg.Model, "flag-model")
+	}
+	// Flag wins over env.
+	if cfg.MinSeverity != SeverityCritical {
+		t.Errorf("MinSeverity = %v, want SeverityCritical (flag should win over env)", cfg.MinSeverity)
+	}
+	// YAML wins when no env or flag set.
+	if len(cfg.Focus) != 1 || cfg.Focus[0] != "docs" {
+		t.Errorf("Focus = %v, want [docs] (yaml should apply when no env/flag)", cfg.Focus)
+	}
+	if cfg.ExtraRules != "yaml-rule" {
+		t.Errorf("ExtraRules = %q, want %q (yaml should apply when no env/flag)", cfg.ExtraRules, "yaml-rule")
+	}
+}
+
+// TestLoad_EnvOverridesYAML verifies that env vars override YAML config when
+// no flags are set.
+func TestLoad_EnvOverridesYAML(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_MODEL", "env-model")
+	t.Setenv("REVIEW_FOCUS", "security,bugs")
+	t.Setenv("REVIEW_EXTRA_RULES", "env-rule")
+	t.Setenv("REVIEW_PROXY_URL", "")
+
+	tmpDir := t.TempDir()
+	yamlContent := []byte(`model: yaml-model-should-lose
+focus:
+  - docs
+extra_rules: "yaml-rule-should-lose"
+`)
+	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), yamlContent, 0o644); err != nil {
+		t.Fatalf("writing yaml: %v", err)
+	}
+
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	defer os.Chdir(oldDir) //nolint:errcheck
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.Model != "env-model" {
+		t.Errorf("Model = %q, want %q (env should override yaml)", cfg.Model, "env-model")
+	}
+	if len(cfg.Focus) != 2 || cfg.Focus[0] != "security" || cfg.Focus[1] != "bugs" {
+		t.Errorf("Focus = %v, want [security bugs] (env should override yaml)", cfg.Focus)
+	}
+	if cfg.ExtraRules != "env-rule" {
+		t.Errorf("ExtraRules = %q, want %q (env should override yaml)", cfg.ExtraRules, "env-rule")
+	}
+}
+
+// TestLoad_IncrementalFlag verifies that --incremental sets Incremental.
+func TestLoad_IncrementalFlag(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--incremental"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("INCREMENTAL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if !cfg.Incremental {
+		t.Error("Incremental = false, want true")
+	}
+}
+
+// TestLoad_IncrementalEnv verifies that INCREMENTAL=true env var works.
+func TestLoad_IncrementalEnv(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("INCREMENTAL", "true")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if !cfg.Incremental {
+		t.Error("Incremental = false, want true")
+	}
+}
+
+// TestLoad_SARIFFlag verifies that --sarif sets SARIFOutput.
+func TestLoad_SARIFFlag(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--sarif", "results.sarif"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("SARIF_OUTPUT", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.SARIFOutput != "results.sarif" {
+		t.Errorf("SARIFOutput = %q, want %q", cfg.SARIFOutput, "results.sarif")
+	}
+}
+
+// TestLoad_SARIFEnv verifies that SARIF_OUTPUT env var works.
+func TestLoad_SARIFEnv(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("SARIF_OUTPUT", "env.sarif")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.SARIFOutput != "env.sarif" {
+		t.Errorf("SARIFOutput = %q, want %q", cfg.SARIFOutput, "env.sarif")
+	}
+}
+
+// TestLoad_ModelsConsensus verifies --models and --consensus-threshold flags.
+func TestLoad_ModelsConsensus(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{
+		"code-reviewer", "--diff",
+		"--models", "gemini-2.5-flash,claude-sonnet-4",
+		"--consensus-threshold", "2",
+	}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_MODELS", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if len(cfg.Models) != 2 || cfg.Models[0] != "gemini-2.5-flash" || cfg.Models[1] != "claude-sonnet-4" {
+		t.Errorf("Models = %v, want [gemini-2.5-flash claude-sonnet-4]", cfg.Models)
+	}
+	if cfg.ConsensusThreshold != 2 {
+		t.Errorf("ConsensusThreshold = %d, want 2", cfg.ConsensusThreshold)
+	}
+}
+
+// TestLoad_NoColorFlag verifies --no-color flag.
+func TestLoad_NoColorFlag(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--no-color"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if !cfg.NoColor {
+		t.Error("NoColor = false, want true")
+	}
+}
+
+// TestLoad_NoColorEnv verifies that NO_COLOR env var (https://no-color.org/) works.
+func TestLoad_NoColorEnv(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("NO_COLOR", "1")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if !cfg.NoColor {
+		t.Error("NoColor = false, want true (NO_COLOR env should set it)")
+	}
+}
+
+// TestLoad_CustomPromptFlag verifies --custom-prompt flag.
+func TestLoad_CustomPromptFlag(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--custom-prompt", "my-prompt.md"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_CUSTOM_PROMPT", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.CustomPrompt != "my-prompt.md" {
+		t.Errorf("CustomPrompt = %q, want %q", cfg.CustomPrompt, "my-prompt.md")
+	}
+}
+
+// TestLoad_InvalidCommentMode verifies that invalid comment-mode is rejected.
+func TestLoad_InvalidCommentMode(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--comment-mode", "invalid"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() expected error for invalid comment-mode, got nil")
+	}
+	if got := err.Error(); !contains(got, "invalid comment-mode") {
+		t.Errorf("error = %q, want substring %q", got, "invalid comment-mode")
+	}
+}
+
+// TestLoad_InvalidChunkStrategy verifies that invalid chunk-strategy is rejected.
+func TestLoad_InvalidChunkStrategy(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--chunk-strategy", "bogus"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() expected error for invalid chunk-strategy, got nil")
+	}
+	if got := err.Error(); !contains(got, "invalid chunk-strategy") {
+		t.Errorf("error = %q, want substring %q", got, "invalid chunk-strategy")
+	}
+}
+
+// TestLoad_DiffRef verifies that --diff <ref> sets DiffRef.
+func TestLoad_DiffRef(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "origin/develop"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.DiffRef != "origin/develop" {
+		t.Errorf("DiffRef = %q, want %q", cfg.DiffRef, "origin/develop")
+	}
+}
+
+// TestLoad_FilesMode verifies that --files sets Files and mode.
+func TestLoad_FilesMode(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--files", "main.go,utils.go"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.Mode() != "files" {
+		t.Errorf("Mode() = %q, want %q", cfg.Mode(), "files")
+	}
+	if len(cfg.Files) != 2 || cfg.Files[0] != "main.go" || cfg.Files[1] != "utils.go" {
+		t.Errorf("Files = %v, want [main.go utils.go]", cfg.Files)
+	}
+}
+
 // contains is a helper to check if s contains substr.
 func contains(s, substr string) bool {
 	return len(substr) > 0 && len(s) >= len(substr) && containsStr(s, substr)
