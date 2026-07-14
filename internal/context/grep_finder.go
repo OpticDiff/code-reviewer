@@ -135,14 +135,21 @@ func (g *GrepFinder) buildGrepArgs(symbol, repoRoot string) []string {
 func (g *GrepFinder) parseGrepOutput(output string, sym SymbolChange,
 	diffFiles map[string]bool, repoRoot string) ([]CodeSnippet, error) {
 
-	var snippets []CodeSnippet
-	fileMatchCount := make(map[string]int)
+	// First pass: count unique files to enforce frequency cap.
+	// This must scan ALL lines, not just the first MaxSnippetsPerSymbol,
+	// so the "too common" check works even when MaxFileMatches > MaxSnippetsPerSymbol.
+	type parsedLine struct {
+		relPath string
+		lineNo  int
+		content string
+	}
+	var parsed []parsedLine
+	uniqueFiles := make(map[string]bool)
 
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// Parse "file:line:content" format.
 		file, lineNo, content, ok := parseGrepLine(line)
 		if !ok {
 			continue
@@ -166,26 +173,29 @@ func (g *GrepFinder) parseGrepOutput(output string, sym SymbolChange,
 			continue
 		}
 
-		// Track per-file match count for frequency cap.
-		fileMatchCount[relPath]++
-
-		if len(snippets) >= g.MaxSnippetsPerSymbol {
-			break
-		}
-
-		snippets = append(snippets, CodeSnippet{
-			File:    relPath,
-			Line:    lineNo,
-			Content: strings.TrimSpace(content),
-			Symbol:  sym.Name,
-		})
+		uniqueFiles[relPath] = true
+		parsed = append(parsed, parsedLine{relPath, lineNo, content})
 	}
 
 	// If symbol matches too many files, it's too common — skip entirely.
-	if len(fileMatchCount) > g.MaxFileMatches {
+	if len(uniqueFiles) > g.MaxFileMatches {
 		slog.Debug("context: symbol too common, skipping",
-			"symbol", sym.Name, "file_matches", len(fileMatchCount))
+			"symbol", sym.Name, "file_matches", len(uniqueFiles))
 		return nil, nil
+	}
+
+	// Second pass: collect snippets up to the per-symbol limit.
+	var snippets []CodeSnippet
+	for _, p := range parsed {
+		if len(snippets) >= g.MaxSnippetsPerSymbol {
+			break
+		}
+		snippets = append(snippets, CodeSnippet{
+			File:    p.relPath,
+			Line:    p.lineNo,
+			Content: strings.TrimSpace(p.content),
+			Symbol:  sym.Name,
+		})
 	}
 
 	return snippets, nil

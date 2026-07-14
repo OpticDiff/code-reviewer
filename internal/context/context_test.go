@@ -1,6 +1,7 @@
 package context
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -595,7 +596,7 @@ func Check() {
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_ = middlewareFile
+
 
 	finder := NewGrepFinder()
 	diffFiles := map[string]bool{
@@ -643,7 +644,7 @@ func TestGrepFinder_FrequencyCap(t *testing.T) {
 
 	// Create multiple files that all reference the symbol.
 	for i := range 5 {
-		f := filepath.Join(repoRoot, filepath.Clean(filepath.Join(".", "file"+string(rune('a'+i))+".go")))
+		f := filepath.Join(repoRoot, fmt.Sprintf("file%c.go", 'a'+i))
 		if err := os.WriteFile(f, []byte("package x\nfunc f() { CommonSymbol() }\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -763,5 +764,42 @@ func TestDummyFilename(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("dummyFilename(%q) = %q, want %q", tt.lang, got, tt.want)
 		}
+	}
+}
+
+func TestTreeSitterExtractor_PathTraversal(t *testing.T) {
+	repoRoot := t.TempDir()
+
+	// Create a file outside the repo root.
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "secret.go")
+	if err := os.WriteFile(outsideFile, []byte("package secret\nfunc Steal() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Craft a diff with a path traversal.
+	relPath, _ := filepath.Rel(repoRoot, outsideFile)
+
+	diffs := []diff.FileDiff{
+		{
+			NewPath: relPath, // e.g., "../../tmp/secret.go"
+			Hunks: []diff.Hunk{
+				{
+					Lines: []diff.DiffLine{
+						{Type: diff.LineAdded, NewLineNo: 2, Content: "func Steal() {}"},
+					},
+				},
+			},
+		},
+	}
+
+	extractor := NewTreeSitterExtractor()
+	symbols, err := extractor.Extract(diffs, repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(symbols) != 0 {
+		t.Errorf("path traversal should be blocked, but got %d symbols", len(symbols))
 	}
 }
