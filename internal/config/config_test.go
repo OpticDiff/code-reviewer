@@ -239,6 +239,18 @@ func TestLoad_ValidationErrors(t *testing.T) {
 			env:     map[string]string{"GOOGLE_CLOUD_PROJECT": ""},
 			wantSub: "GOOGLE_CLOUD_PROJECT",
 		},
+		{
+			name:    "invalid_comment_mode",
+			args:    []string{"code-reviewer", "--diff", "--comment-mode", "invalid"},
+			env:     map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+			wantSub: "invalid comment-mode",
+		},
+		{
+			name:    "invalid_chunk_strategy",
+			args:    []string{"code-reviewer", "--diff", "--chunk-strategy", "bogus"},
+			env:     map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+			wantSub: "invalid chunk-strategy",
+		},
 	}
 
 	for _, tt := range tests {
@@ -573,234 +585,143 @@ extra_rules: "yaml-rule-should-lose"
 	}
 }
 
-// TestLoad_IncrementalFlag verifies that --incremental sets Incremental.
-func TestLoad_IncrementalFlag(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff", "--incremental"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-	t.Setenv("INCREMENTAL", "")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
+// TestLoad_FlagAndEnvOptions is a table-driven test consolidating all
+// individual flag and env-var option tests.
+func TestLoad_FlagAndEnvOptions(t *testing.T) {
+	tests := []struct {
+		name   string
+		args   []string
+		env    map[string]string
+		assert func(t *testing.T, cfg *Config)
+	}{
+		{
+			name: "incremental_flag",
+			args: []string{"code-reviewer", "--diff", "--incremental"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "INCREMENTAL": ""},
+			assert: func(t *testing.T, cfg *Config) {
+				if !cfg.Incremental {
+					t.Error("Incremental = false, want true")
+				}
+			},
+		},
+		{
+			name: "incremental_env",
+			args: []string{"code-reviewer", "--diff"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "INCREMENTAL": "true"},
+			assert: func(t *testing.T, cfg *Config) {
+				if !cfg.Incremental {
+					t.Error("Incremental = false, want true")
+				}
+			},
+		},
+		{
+			name: "sarif_flag",
+			args: []string{"code-reviewer", "--diff", "--sarif", "results.sarif"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "SARIF_OUTPUT": ""},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.SARIFOutput != "results.sarif" {
+					t.Errorf("SARIFOutput = %q, want %q", cfg.SARIFOutput, "results.sarif")
+				}
+			},
+		},
+		{
+			name: "sarif_env",
+			args: []string{"code-reviewer", "--diff"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "SARIF_OUTPUT": "env.sarif"},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.SARIFOutput != "env.sarif" {
+					t.Errorf("SARIFOutput = %q, want %q", cfg.SARIFOutput, "env.sarif")
+				}
+			},
+		},
+		{
+			name: "models_consensus",
+			args: []string{
+				"code-reviewer", "--diff",
+				"--models", "gemini-2.5-flash,claude-sonnet-4",
+				"--consensus-threshold", "2",
+			},
+			env: map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "REVIEW_MODELS": ""},
+			assert: func(t *testing.T, cfg *Config) {
+				if len(cfg.Models) != 2 || cfg.Models[0] != "gemini-2.5-flash" || cfg.Models[1] != "claude-sonnet-4" {
+					t.Errorf("Models = %v, want [gemini-2.5-flash claude-sonnet-4]", cfg.Models)
+				}
+				if cfg.ConsensusThreshold != 2 {
+					t.Errorf("ConsensusThreshold = %d, want 2", cfg.ConsensusThreshold)
+				}
+			},
+		},
+		{
+			name: "no_color_flag",
+			args: []string{"code-reviewer", "--diff", "--no-color"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+			assert: func(t *testing.T, cfg *Config) {
+				if !cfg.NoColor {
+					t.Error("NoColor = false, want true")
+				}
+			},
+		},
+		{
+			name: "no_color_env",
+			args: []string{"code-reviewer", "--diff"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "NO_COLOR": "1"},
+			assert: func(t *testing.T, cfg *Config) {
+				if !cfg.NoColor {
+					t.Error("NoColor = false, want true (NO_COLOR env should set it)")
+				}
+			},
+		},
+		{
+			name: "custom_prompt_flag",
+			args: []string{"code-reviewer", "--diff", "--custom-prompt", "my-prompt.md"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "REVIEW_CUSTOM_PROMPT": ""},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.CustomPrompt != "my-prompt.md" {
+					t.Errorf("CustomPrompt = %q, want %q", cfg.CustomPrompt, "my-prompt.md")
+				}
+			},
+		},
+		{
+			name: "diff_ref",
+			args: []string{"code-reviewer", "--diff", "origin/develop"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.DiffRef != "origin/develop" {
+					t.Errorf("DiffRef = %q, want %q", cfg.DiffRef, "origin/develop")
+				}
+			},
+		},
+		{
+			name: "files_mode",
+			args: []string{"code-reviewer", "--files", "main.go,utils.go"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.Mode() != "files" {
+					t.Errorf("Mode() = %q, want %q", cfg.Mode(), "files")
+				}
+				if len(cfg.Files) != 2 || cfg.Files[0] != "main.go" || cfg.Files[1] != "utils.go" {
+					t.Errorf("Files = %v, want [main.go utils.go]", cfg.Files)
+				}
+			},
+		},
 	}
 
-	if !cfg.Incremental {
-		t.Error("Incremental = false, want true")
-	}
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+			os.Args = tt.args
 
-// TestLoad_IncrementalEnv verifies that INCREMENTAL=true env var works.
-func TestLoad_IncrementalEnv(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff"}
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
 
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-	t.Setenv("INCREMENTAL", "true")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if !cfg.Incremental {
-		t.Error("Incremental = false, want true")
-	}
-}
-
-// TestLoad_SARIFFlag verifies that --sarif sets SARIFOutput.
-func TestLoad_SARIFFlag(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff", "--sarif", "results.sarif"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-	t.Setenv("SARIF_OUTPUT", "")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if cfg.SARIFOutput != "results.sarif" {
-		t.Errorf("SARIFOutput = %q, want %q", cfg.SARIFOutput, "results.sarif")
-	}
-}
-
-// TestLoad_SARIFEnv verifies that SARIF_OUTPUT env var works.
-func TestLoad_SARIFEnv(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-	t.Setenv("SARIF_OUTPUT", "env.sarif")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if cfg.SARIFOutput != "env.sarif" {
-		t.Errorf("SARIFOutput = %q, want %q", cfg.SARIFOutput, "env.sarif")
-	}
-}
-
-// TestLoad_ModelsConsensus verifies --models and --consensus-threshold flags.
-func TestLoad_ModelsConsensus(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{
-		"code-reviewer", "--diff",
-		"--models", "gemini-2.5-flash,claude-sonnet-4",
-		"--consensus-threshold", "2",
-	}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-	t.Setenv("REVIEW_MODELS", "")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if len(cfg.Models) != 2 || cfg.Models[0] != "gemini-2.5-flash" || cfg.Models[1] != "claude-sonnet-4" {
-		t.Errorf("Models = %v, want [gemini-2.5-flash claude-sonnet-4]", cfg.Models)
-	}
-	if cfg.ConsensusThreshold != 2 {
-		t.Errorf("ConsensusThreshold = %d, want 2", cfg.ConsensusThreshold)
-	}
-}
-
-// TestLoad_NoColorFlag verifies --no-color flag.
-func TestLoad_NoColorFlag(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff", "--no-color"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if !cfg.NoColor {
-		t.Error("NoColor = false, want true")
-	}
-}
-
-// TestLoad_NoColorEnv verifies that NO_COLOR env var (https://no-color.org/) works.
-func TestLoad_NoColorEnv(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-	t.Setenv("NO_COLOR", "1")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if !cfg.NoColor {
-		t.Error("NoColor = false, want true (NO_COLOR env should set it)")
-	}
-}
-
-// TestLoad_CustomPromptFlag verifies --custom-prompt flag.
-func TestLoad_CustomPromptFlag(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff", "--custom-prompt", "my-prompt.md"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-	t.Setenv("REVIEW_CUSTOM_PROMPT", "")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if cfg.CustomPrompt != "my-prompt.md" {
-		t.Errorf("CustomPrompt = %q, want %q", cfg.CustomPrompt, "my-prompt.md")
-	}
-}
-
-// TestLoad_InvalidCommentMode verifies that invalid comment-mode is rejected.
-func TestLoad_InvalidCommentMode(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff", "--comment-mode", "invalid"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() expected error for invalid comment-mode, got nil")
-	}
-	if got := err.Error(); !contains(got, "invalid comment-mode") {
-		t.Errorf("error = %q, want substring %q", got, "invalid comment-mode")
-	}
-}
-
-// TestLoad_InvalidChunkStrategy verifies that invalid chunk-strategy is rejected.
-func TestLoad_InvalidChunkStrategy(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff", "--chunk-strategy", "bogus"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-
-	_, err := Load()
-	if err == nil {
-		t.Fatal("Load() expected error for invalid chunk-strategy, got nil")
-	}
-	if got := err.Error(); !contains(got, "invalid chunk-strategy") {
-		t.Errorf("error = %q, want substring %q", got, "invalid chunk-strategy")
-	}
-}
-
-// TestLoad_DiffRef verifies that --diff <ref> sets DiffRef.
-func TestLoad_DiffRef(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--diff", "origin/develop"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if cfg.DiffRef != "origin/develop" {
-		t.Errorf("DiffRef = %q, want %q", cfg.DiffRef, "origin/develop")
-	}
-}
-
-// TestLoad_FilesMode verifies that --files sets Files and mode.
-func TestLoad_FilesMode(t *testing.T) {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"code-reviewer", "--files", "main.go,utils.go"}
-
-	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
-
-	cfg, err := Load()
-	if err != nil {
-		t.Fatalf("Load() unexpected error: %v", err)
-	}
-
-	if cfg.Mode() != "files" {
-		t.Errorf("Mode() = %q, want %q", cfg.Mode(), "files")
-	}
-	if len(cfg.Files) != 2 || cfg.Files[0] != "main.go" || cfg.Files[1] != "utils.go" {
-		t.Errorf("Files = %v, want [main.go utils.go]", cfg.Files)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() unexpected error: %v", err)
+			}
+			tt.assert(t, cfg)
+		})
 	}
 }
 

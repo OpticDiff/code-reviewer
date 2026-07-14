@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
-	"github.com/OpticDiff/code-reviewer/internal/gitlab"
 	"github.com/OpticDiff/code-reviewer/internal/model"
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
 // TerminalOutput formats findings as colored markdown for terminal display.
@@ -60,7 +60,7 @@ func TerminalOutput(result *model.ReviewResult) string {
 }
 
 // PostToGitLab posts review results to a GitLab merge request.
-func PostToGitLab(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *gitlab.DiffVersion) error {
+func PostToGitLab(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion) error {
 	projectID := cfg.CIProjectID
 	mrIID := cfg.CIMergeRequestID
 
@@ -89,16 +89,15 @@ func PostToGitLab(ctx context.Context, cfg *config.Config, client VCSClient, res
 				break
 			}
 			newLine := f.Line
-			req := gitlab.CreateDiscussionRequest{
+			req := vcs.InlineCommentRequest{
 				Body: formatInlineComment(f),
-				Position: &gitlab.DiscussionPosition{
-					PositionType: "text",
-					BaseSHA:      version.BaseSHA,
-					HeadSHA:      version.HeadSHA,
-					StartSHA:     version.StartSHA,
-					NewPath:      f.File,
-					OldPath:      f.File,
-					NewLine:      &newLine,
+				Position: &vcs.InlineCommentPosition{
+					BaseSHA:  version.BaseSHA,
+					HeadSHA:  version.HeadSHA,
+					StartSHA: version.StartSHA,
+					NewPath:  f.File,
+					OldPath:  f.File,
+					NewLine:  &newLine,
 				},
 			}
 

@@ -12,8 +12,8 @@ import (
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
-	"github.com/OpticDiff/code-reviewer/internal/gitlab"
 	"github.com/OpticDiff/code-reviewer/internal/model"
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
 // DiffSource provides diffs for review. Extracted for testability.
@@ -55,7 +55,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var diffs []diff.FileDiff
 	var mrTitle, mrDesc string
 	var err error
-	var cachedVersions []gitlab.DiffVersion
+	var cachedVersions []vcs.DiffVersion
 	if r.diffSource != nil {
 		diffs, mrTitle, mrDesc, err = r.diffSource.GetDiffs(ctx)
 	} else {
@@ -199,7 +199,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 	} else {
 		// Post to GitLab.
-		var version *gitlab.DiffVersion
+		var version *vcs.DiffVersion
 		if r.cfg.CommentMode == config.CommentModeDiscussions {
 			if len(cachedVersions) > 0 {
 				version = &cachedVersions[0]

@@ -8,8 +8,8 @@ import (
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
-	"github.com/OpticDiff/code-reviewer/internal/gitlab"
 	"github.com/OpticDiff/code-reviewer/internal/model"
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
 // ---------------------------------------------------------------------------
@@ -47,9 +47,9 @@ type mockVCS struct {
 	compareToSHA   string
 
 	// Configure responses.
-	mrChanges       *gitlab.MRChangesResponse
+	mrChanges       *vcs.MRChanges
 	mrChangesErr    error
-	mrVersions      []gitlab.DiffVersion
+	mrVersions      []vcs.DiffVersion
 	mrVersionErr    error
 	postNoteErr     error
 	cleanResult     int
@@ -58,12 +58,12 @@ type mockVCS struct {
 	compareFilesErr error
 }
 
-func (m *mockVCS) GetMRChanges(ctx context.Context, projectID, mrIID string) (*gitlab.MRChangesResponse, error) {
+func (m *mockVCS) GetMRChanges(ctx context.Context, projectID, mrIID string) (*vcs.MRChanges, error) {
 	m.getMRChangesCalls++
 	return m.mrChanges, m.mrChangesErr
 }
 
-func (m *mockVCS) GetMRVersions(ctx context.Context, projectID, mrIID string) ([]gitlab.DiffVersion, error) {
+func (m *mockVCS) GetMRVersions(ctx context.Context, projectID, mrIID string) ([]vcs.DiffVersion, error) {
 	m.getMRVersionsCalls++
 	return m.mrVersions, m.mrVersionErr
 }
@@ -75,17 +75,17 @@ func (m *mockVCS) CompareCommits(ctx context.Context, projectID, from, to string
 	return m.compareFiles, m.compareFilesErr
 }
 
-func (m *mockVCS) PostNote(ctx context.Context, projectID, mrIID, body string) (*gitlab.Note, error) {
+func (m *mockVCS) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
 	m.postNoteCalls++
-	return &gitlab.Note{ID: m.postNoteCalls}, m.postNoteErr
+	return &vcs.Comment{ID: m.postNoteCalls}, m.postNoteErr
 }
 
-func (m *mockVCS) CreateDiscussion(ctx context.Context, projectID, mrIID string, req gitlab.CreateDiscussionRequest) error {
+func (m *mockVCS) CreateDiscussion(ctx context.Context, projectID, mrIID string, req vcs.InlineCommentRequest) error {
 	m.createDiscussionCalls++
 	return nil
 }
 
-func (m *mockVCS) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]gitlab.Note, error) {
+func (m *mockVCS) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]vcs.Comment, error) {
 	m.listBotNotesCalls++
 	return nil, nil
 }
@@ -1015,7 +1015,7 @@ func TestRun_CIModeDiscussions(t *testing.T) {
 		},
 	}
 	vcs := &mockVCS{
-		mrVersions: []gitlab.DiffVersion{{ID: 1, HeadSHA: "abc123", BaseSHA: "def456", StartSHA: "ghi789"}},
+		mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "abc123", BaseSHA: "def456", StartSHA: "ghi789"}},
 	}
 	ds := &mockDiffSource{diffs: testDiffs}
 	r := NewWithDiffSource(cfg, mm, vcs, ds)
@@ -1079,7 +1079,7 @@ func TestRun_IncrementalReview(t *testing.T) {
 		},
 	}
 	vcs := &mockVCS{
-		mrVersions: []gitlab.DiffVersion{
+		mrVersions: []vcs.DiffVersion{
 			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
 			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
 		},
@@ -1140,7 +1140,7 @@ func TestRun_IncrementalReview_FirstPush(t *testing.T) {
 		},
 	}
 	vcs := &mockVCS{
-		mrVersions: []gitlab.DiffVersion{
+		mrVersions: []vcs.DiffVersion{
 			{ID: 1, HeadSHA: "first-head", BaseSHA: "base", StartSHA: "start"},
 		},
 	}
@@ -1230,7 +1230,7 @@ func TestRun_IncrementalReview_CompareErrorFallback(t *testing.T) {
 		},
 	}
 	vcs := &mockVCS{
-		mrVersions: []gitlab.DiffVersion{
+		mrVersions: []vcs.DiffVersion{
 			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
 			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
 		},
