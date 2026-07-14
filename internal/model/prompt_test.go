@@ -136,3 +136,45 @@ func TestBuildPromptWithCustom_EmptyPath(t *testing.T) {
 	}
 }
 
+func TestBuildUserPromptWithContext_WithSnippets(t *testing.T) {
+	snippets := []ContextSnippet{
+		{File: "handler.go", Line: 42, Content: "auth.ValidateSession(token)", Symbol: "ValidateSession"},
+		{File: "middleware.go", Line: 18, Content: "auth.ValidateSession(req.Token)", Symbol: "ValidateSession"},
+	}
+
+	prompt := BuildUserPromptWithContext("Fix auth", "Updated session validation", "diff content", snippets)
+
+	if !strings.Contains(prompt, "Related Unchanged Code") {
+		t.Error("should contain Related Unchanged Code section")
+	}
+	if !strings.Contains(prompt, "handler.go:42") {
+		t.Error("should contain handler.go:42 reference")
+	}
+	if !strings.Contains(prompt, "middleware.go:18") {
+		t.Error("should contain middleware.go:18 reference")
+	}
+	if !strings.Contains(prompt, "`ValidateSession`") {
+		t.Error("should contain symbol name")
+	}
+	if !strings.Contains(prompt, "auth.ValidateSession(token)") {
+		t.Error("should contain snippet content")
+	}
+}
+
+func TestBuildUserPromptWithContext_NoSnippets(t *testing.T) {
+	prompt := BuildUserPromptWithContext("Fix auth", "desc", "diff content", nil)
+	if strings.Contains(prompt, "Related Unchanged Code") {
+		t.Error("should not contain Related Unchanged Code when no snippets")
+	}
+	// Should still contain the normal diff.
+	if !strings.Contains(prompt, "diff content") {
+		t.Error("should contain diff content")
+	}
+}
+
+func TestBuildUserPromptWithContext_EmptySnippets(t *testing.T) {
+	prompt := BuildUserPromptWithContext("Fix auth", "desc", "diff content", []ContextSnippet{})
+	if strings.Contains(prompt, "Related Unchanged Code") {
+		t.Error("empty snippets should not inject the Related Unchanged Code section")
+	}
+}

@@ -188,3 +188,33 @@ func BuildUserPrompt(mrTitle, mrDescription string, numberedDiff string) string 
 
 	return sb.String()
 }
+
+// ContextSnippet is a code snippet from an unchanged file that references
+// a symbol modified in the diff. Defined here to avoid a circular import
+// with the context package.
+type ContextSnippet struct {
+	File    string
+	Line    int
+	Content string
+	Symbol  string
+}
+
+// BuildUserPromptWithContext constructs the user prompt with an additional
+// section showing unchanged code that references symbols from the diff.
+func BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff string, snippets []ContextSnippet) string {
+	prompt := BuildUserPrompt(mrTitle, mrDesc, numberedDiff)
+	if len(snippets) == 0 {
+		return prompt
+	}
+
+	var sb strings.Builder
+	sb.WriteString(prompt)
+	sb.WriteString("\n### Related Unchanged Code\n\n")
+	sb.WriteString("The following unchanged files reference symbols modified in this diff. ")
+	sb.WriteString("Report if any of these usages are now broken or need updating.\n\n")
+	for _, s := range snippets {
+		fmt.Fprintf(&sb, "**%s:%d** (references `%s`):\n```\n%s\n```\n\n",
+			s.File, s.Line, s.Symbol, s.Content)
+	}
+	return sb.String()
+}
