@@ -5,8 +5,10 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -322,9 +324,14 @@ func (c *Config) loadEnv() {
 		c.ProxyURL = v
 	}
 	if v := os.Getenv("REVIEW_MAX_TOKENS"); v != "" {
-		if n, err := fmt.Sscanf(v, "%d", &c.MaxTokens); n != 1 || err != nil {
-			c.MaxTokens = 0
+		n, err := strconv.Atoi(v)
+		if err == nil && n > 0 {
+			c.MaxTokens = n
+		} else if err != nil {
+			slog.Warn("ignoring invalid REVIEW_MAX_TOKENS", "value", v, "error", err)
 		}
+		// Zero and negative values are silently ignored — they don't override
+		// an existing cap from yaml config.
 	}
 }
 
@@ -421,9 +428,16 @@ func (c *Config) loadFlags() error {
 	if *noContext {
 		c.DisableContext = true
 	}
-	if *maxTokens > 0 {
-		c.MaxTokens = *maxTokens
-	}
+	// Detect if --max-tokens was explicitly set (including to 0 for unlimited).
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "max-tokens" {
+			if *maxTokens < 0 {
+				slog.Warn("ignoring negative --max-tokens", "value", *maxTokens)
+				return
+			}
+			c.MaxTokens = *maxTokens
+		}
+	})
 
 	return nil
 }

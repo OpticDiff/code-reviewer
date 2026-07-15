@@ -13,6 +13,10 @@ func TestFilePriority_SecurityFiles(t *testing.T) {
 		{".env", true},
 		{"internal/handler/list.go", false},
 		{"README.md", false},
+		// Negative cases — should NOT match despite containing security substrings.
+		{"pkg/monkey.go", false},        // contains "key" but is not security-related
+		{"docs/authors.md", false},      // contains "auth" but is not security-related
+		{"internal/tokenizer.go", false}, // contains "token" but is not security-related
 	}
 
 	for _, tt := range tests {

@@ -207,7 +207,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 
 		// Runtime budget safety net — stop if actual usage exceeds limit.
-		if r.cfg.MaxTokens > 0 && totalUsage.TotalTokens > int64(r.cfg.MaxTokens) {
+		if r.cfg.MaxTokens > 0 && totalUsage.TotalTokens >= int64(r.cfg.MaxTokens) {
 			slog.Warn("runtime token budget exceeded, stopping review",
 				"used", totalUsage.TotalTokens,
 				"limit", r.cfg.MaxTokens,

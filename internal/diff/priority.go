@@ -8,7 +8,7 @@ import (
 
 // securityPatterns are path substrings that indicate security-sensitive files.
 var securityPatterns = []string{
-	"auth", "session", "token", "secret", "password", "credential",
+	"auth", "session", "token", "secret", "secrets", "password", "credential",
 	"crypto", "security", "permission", "rbac", "acl", "oauth",
 	"saml", "jwt", "cert", "tls", "ssl", "key",
 }
@@ -68,14 +68,21 @@ func SortByPriority(diffs []FileDiff) {
 }
 
 func isSecuritySensitive(path string) bool {
-	for _, p := range securityPatterns {
-		if strings.Contains(path, p) {
-			return true
+	// Split into path components and check each against security patterns.
+	parts := strings.FieldsFunc(path, func(r rune) bool {
+		return r == '/' || r == '\\' || r == '_' || r == '-' || r == '.'
+	})
+	for _, part := range parts {
+		part = strings.ToLower(part)
+		for _, p := range securityPatterns {
+			if part == p {
+				return true
+			}
 		}
 	}
 	base := filepath.Base(path)
 	for _, f := range securityFiles {
-		if strings.Contains(base, f) {
+		if base == f || strings.HasPrefix(base, f) {
 			return true
 		}
 	}
