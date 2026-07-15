@@ -134,6 +134,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--sarif` | Write SARIF 2.1.0 output to file | — |
 | `--no-color` | Disable ANSI color output | `false` |
 | `--no-context` | Disable repo-aware cross-file context injection | `false` |
+| `--max-tokens` | Maximum total tokens per review (0 = unlimited) | `0` |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
 | `--proxy-url` | Route model calls through an LLM proxy (e.g. Candela) | — |
 | `--version` | Print version and exit | — |

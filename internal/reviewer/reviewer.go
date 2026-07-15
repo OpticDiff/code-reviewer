@@ -125,6 +125,24 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
+	// Step 2c: Sort files by review priority (security-sensitive first).
+	diff.SortByPriority(diffs)
+
+	// Step 2d: Pre-flight budget check.
+	var skippedFiles []string
+	estimate := EstimateCost(diffs)
+	if r.cfg.MaxTokens > 0 && estimate.TotalEstimate > r.cfg.MaxTokens {
+		diffs, skippedFiles = TrimToBudget(diffs, r.cfg.MaxTokens)
+		estimate = EstimateCost(diffs) // Recalculate after trim.
+	}
+	LogBudgetStatus(estimate, r.cfg.MaxTokens, skippedFiles)
+
+	if len(diffs) == 0 {
+		slog.Warn("all files trimmed by token budget")
+		fmt.Println("⚠️  Token budget too low to review any files. Increase --max-tokens.")
+		return 0, nil
+	}
+
 	// Step 3: Check context window / chunk.
 	tokenLimit := diff.TokenLimitForModel(r.cfg.Model)
 	chunker, err := diff.NewChunkStrategy(string(r.cfg.ChunkStrategy))
@@ -186,6 +204,16 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			totalUsage.InputTokens += result.Usage.InputTokens
 			totalUsage.OutputTokens += result.Usage.OutputTokens
 			totalUsage.TotalTokens += result.Usage.TotalTokens
+		}
+
+		// Runtime budget safety net — stop if actual usage exceeds limit.
+		if r.cfg.MaxTokens > 0 && totalUsage.TotalTokens > int64(r.cfg.MaxTokens) {
+			slog.Warn("runtime token budget exceeded, stopping review",
+				"used", totalUsage.TotalTokens,
+				"limit", r.cfg.MaxTokens,
+				"chunks_completed", i+1,
+				"chunks_total", len(chunks))
+			break
 		}
 	}
 

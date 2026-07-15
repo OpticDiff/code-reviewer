@@ -117,6 +117,9 @@ type Config struct {
 
 	// Context discovery.
 	DisableContext bool // Skip repo-aware context discovery (--no-context).
+
+	// Budget.
+	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -131,6 +134,7 @@ type repoConfig struct {
 	OutputJSON       bool     `yaml:"output_json"`
 	CustomPrompt     string   `yaml:"custom_prompt"`
 	ProxyURL         string   `yaml:"proxy_url"`
+	MaxTokens        int      `yaml:"max_tokens"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -250,6 +254,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.ProxyURL != "" {
 		c.ProxyURL = rc.ProxyURL
 	}
+	if rc.MaxTokens > 0 {
+		c.MaxTokens = rc.MaxTokens
+	}
 	return nil
 }
 
@@ -314,6 +321,11 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("REVIEW_PROXY_URL"); v != "" {
 		c.ProxyURL = v
 	}
+	if v := os.Getenv("REVIEW_MAX_TOKENS"); v != "" {
+		if n, err := fmt.Sscanf(v, "%d", &c.MaxTokens); n != 1 || err != nil {
+			c.MaxTokens = 0
+		}
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -340,6 +352,7 @@ func (c *Config) loadFlags() error {
 	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
 	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
 	noContext := fs.Bool("no-context", false, "Disable repo-aware context discovery")
+	maxTokens := fs.Int("max-tokens", 0, "Maximum total tokens (input+output) per review (0 = unlimited)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -407,6 +420,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *noContext {
 		c.DisableContext = true
+	}
+	if *maxTokens > 0 {
+		c.MaxTokens = *maxTokens
 	}
 
 	return nil
