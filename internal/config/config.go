@@ -5,8 +5,10 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -117,6 +119,9 @@ type Config struct {
 
 	// Context discovery.
 	DisableContext bool // Skip repo-aware context discovery (--no-context).
+
+	// Budget.
+	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -131,6 +136,7 @@ type repoConfig struct {
 	OutputJSON       bool     `yaml:"output_json"`
 	CustomPrompt     string   `yaml:"custom_prompt"`
 	ProxyURL         string   `yaml:"proxy_url"`
+	MaxTokens        int      `yaml:"max_tokens"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -250,6 +256,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.ProxyURL != "" {
 		c.ProxyURL = rc.ProxyURL
 	}
+	if rc.MaxTokens > 0 {
+		c.MaxTokens = rc.MaxTokens
+	}
 	return nil
 }
 
@@ -314,6 +323,17 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("REVIEW_PROXY_URL"); v != "" {
 		c.ProxyURL = v
 	}
+	if v := os.Getenv("REVIEW_MAX_TOKENS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_MAX_TOKENS", "value", v, "error", err)
+		} else if n < 0 {
+			slog.Warn("ignoring negative REVIEW_MAX_TOKENS", "value", n)
+		} else {
+			// 0 = unlimited (clears any YAML cap), >0 = token budget.
+			c.MaxTokens = n
+		}
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -340,6 +360,7 @@ func (c *Config) loadFlags() error {
 	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
 	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
 	noContext := fs.Bool("no-context", false, "Disable repo-aware context discovery")
+	maxTokens := fs.Int("max-tokens", 0, "Maximum total tokens (input+output) per review (0 = unlimited)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -408,6 +429,16 @@ func (c *Config) loadFlags() error {
 	if *noContext {
 		c.DisableContext = true
 	}
+	// Detect if --max-tokens was explicitly set (including to 0 for unlimited).
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "max-tokens" {
+			if *maxTokens < 0 {
+				slog.Warn("ignoring negative --max-tokens", "value", *maxTokens)
+				return
+			}
+			c.MaxTokens = *maxTokens
+		}
+	})
 
 	return nil
 }

@@ -134,6 +134,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--sarif` | Write SARIF 2.1.0 output to file | — |
 | `--no-color` | Disable ANSI color output | `false` |
 | `--no-context` | Disable repo-aware cross-file context injection | `false` |
+| `--max-tokens` | Maximum total tokens per review (0 = unlimited) | `0` |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
 | `--proxy-url` | Route model calls through an LLM proxy (e.g. Candela) | — |
 | `--version` | Print version and exit | — |
@@ -157,6 +158,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `SARIF_OUTPUT` | Write SARIF output to this file path | — |
 | `INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
+| `REVIEW_MAX_TOKENS` | Maximum total tokens per review (0 = unlimited) | `0` |
 | `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
 
 ### Per-Repo Config
@@ -175,6 +177,7 @@ excluded_patterns:
 extra_rules: |
   Always flag raw SQL string concatenation.
   Check that zerolog is used instead of log/fmt.
+max_tokens: 50000  # Optional: cap total tokens per review
 ```
 
 See [`.code-reviewer.example.yaml`](.code-reviewer.example.yaml) for all options.
