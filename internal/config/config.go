@@ -325,13 +325,14 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("REVIEW_MAX_TOKENS"); v != "" {
 		n, err := strconv.Atoi(v)
-		if err == nil && n > 0 {
-			c.MaxTokens = n
-		} else if err != nil {
+		if err != nil {
 			slog.Warn("ignoring invalid REVIEW_MAX_TOKENS", "value", v, "error", err)
+		} else if n < 0 {
+			slog.Warn("ignoring negative REVIEW_MAX_TOKENS", "value", n)
+		} else {
+			// 0 = unlimited (clears any YAML cap), >0 = token budget.
+			c.MaxTokens = n
 		}
-		// Zero and negative values are silently ignored — they don't override
-		// an existing cap from yaml config.
 	}
 }
 
