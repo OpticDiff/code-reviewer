@@ -66,7 +66,15 @@ func run(ctx, initCtx context.Context) (int, error) {
 
 	// Create model provider(s).
 	var modelProvider reviewer.ModelReviewer
-	if len(cfg.Models) > 1 {
+	if cfg.APIURL != "" {
+		// HTTP provider: any OpenAI-compatible endpoint.
+		slog.Info("using HTTP provider", "api_url", cfg.APIURL, "model", cfg.Model)
+		provider, err := model.NewHTTPProvider(cfg.APIURL, cfg.APIKey, cfg.Model)
+		if err != nil {
+			return 0, fmt.Errorf("creating HTTP provider: %w", err)
+		}
+		modelProvider = provider
+	} else if len(cfg.Models) > 1 {
 		// Multi-model consensus mode.
 		threshold := cfg.ConsensusThreshold
 		if threshold < 1 {

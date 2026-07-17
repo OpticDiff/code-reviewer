@@ -87,6 +87,8 @@ type Config struct {
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
+	APIURL             string // HTTP provider: OpenAI-compatible endpoint URL.
+	APIKey             string // HTTP provider: API key (optional, e.g. for IAM/ADC auth).
 
 	// Review settings.
 	Focus        []string
@@ -137,6 +139,7 @@ type repoConfig struct {
 	CustomPrompt     string   `yaml:"custom_prompt"`
 	ProxyURL         string   `yaml:"proxy_url"`
 	MaxTokens        int      `yaml:"max_tokens"`
+	APIURL           string   `yaml:"api_url"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -259,6 +262,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.MaxTokens > 0 {
 		c.MaxTokens = rc.MaxTokens
 	}
+	if rc.APIURL != "" {
+		c.APIURL = rc.APIURL
+	}
 	return nil
 }
 
@@ -334,6 +340,12 @@ func (c *Config) loadEnv() {
 			c.MaxTokens = n
 		}
 	}
+	if v := os.Getenv("REVIEW_API_URL"); v != "" {
+		c.APIURL = v
+	}
+	if v := os.Getenv("REVIEW_API_KEY"); v != "" {
+		c.APIKey = v
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -361,6 +373,8 @@ func (c *Config) loadFlags() error {
 	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
 	noContext := fs.Bool("no-context", false, "Disable repo-aware context discovery")
 	maxTokens := fs.Int("max-tokens", 0, "Maximum total tokens (input+output) per review (0 = unlimited)")
+	apiURL := fs.String("api-url", "", "OpenAI-compatible API endpoint (e.g., http://localhost:11434/v1)")
+	apiKey := fs.String("api-key", "", "API key for HTTP provider (optional for IAM/ADC auth)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -439,6 +453,12 @@ func (c *Config) loadFlags() error {
 			c.MaxTokens = *maxTokens
 		}
 	})
+	if *apiURL != "" {
+		c.APIURL = *apiURL
+	}
+	if *apiKey != "" {
+		c.APIKey = *apiKey
+	}
 
 	return nil
 }

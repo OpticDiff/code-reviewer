@@ -135,6 +135,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--no-color` | Disable ANSI color output | `false` |
 | `--no-context` | Disable repo-aware cross-file context injection | `false` |
 | `--max-tokens` | Maximum total tokens per review (0 = unlimited) | `0` |
+| `--api-url` | OpenAI-compatible API endpoint (e.g., `http://localhost:11434/v1`) | — |
+| `--api-key` | API key for HTTP provider (optional for IAM/ADC auth) | — |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
 | `--proxy-url` | Route model calls through an LLM proxy (e.g. Candela) | — |
 | `--version` | Print version and exit | — |
@@ -159,6 +161,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
 | `REVIEW_MAX_TOKENS` | Maximum total tokens per review (0 = unlimited) | `0` |
+| `REVIEW_API_URL` | OpenAI-compatible API endpoint | — |
+| `REVIEW_API_KEY` | API key for HTTP provider | — |
 | `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
 
 ### Per-Repo Config
@@ -178,9 +182,28 @@ extra_rules: |
   Always flag raw SQL string concatenation.
   Check that zerolog is used instead of log/fmt.
 max_tokens: 50000  # Optional: cap total tokens per review
+api_url: http://localhost:11434/v1  # Optional: use a self-hosted model
 ```
 
 See [`.code-reviewer.example.yaml`](.code-reviewer.example.yaml) for all options.
+
+### Self-Hosted Models
+
+Use `--api-url` to point at any OpenAI-compatible endpoint. No GCP project required.
+
+```bash
+# Ollama (local)
+code-reviewer --diff --api-url http://localhost:11434/v1 --model qwen3:32b
+
+# Gemma on Cloud Run
+code-reviewer --diff --api-url https://gemma-review-xyz.run.app/v1 --model gemma-3-27b
+
+# vLLM
+code-reviewer --diff --api-url http://gpu-server:8000/v1 --model meta-llama/Llama-4-Scout-17B-16E
+
+# With Candela proxy (observability + routing)
+code-reviewer --diff --api-url http://candela:8080/v1 --model gemini-2.5-flash
+```
 
 ### REVIEW.md
 
