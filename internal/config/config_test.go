@@ -738,3 +738,47 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+func TestLoad_APIURLBypassesGCPProject(t *testing.T) {
+	// When api_url is set, GOOGLE_CLOUD_PROJECT should NOT be required.
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--api-url", "https://candela.example.com/v1"}
+
+	// Clear GOOGLE_CLOUD_PROJECT to prove it's not needed.
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
+	t.Setenv("REVIEW_API_URL", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v — expected no error when api_url bypasses GCP project", err)
+	}
+	if cfg.APIURL != "https://candela.example.com/v1" {
+		t.Errorf("APIURL = %q, want https://candela.example.com/v1", cfg.APIURL)
+	}
+	if cfg.GCPProject != "" {
+		t.Errorf("GCPProject = %q, want empty", cfg.GCPProject)
+	}
+}
+
+func TestLoad_NoAPIURLRequiresGCPProject(t *testing.T) {
+	// Without api_url, GOOGLE_CLOUD_PROJECT should still be required.
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "")
+	t.Setenv("REVIEW_API_URL", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error when no GCP project and no api_url")
+	}
+	errStr := err.Error()
+	if !containsStr(errStr, "GOOGLE_CLOUD_PROJECT") {
+		t.Errorf("error = %q, want mention of GOOGLE_CLOUD_PROJECT", errStr)
+	}
+	if !containsStr(errStr, "api-url") {
+		t.Errorf("error = %q, want mention of api-url alternative", errStr)
+	}
+}
