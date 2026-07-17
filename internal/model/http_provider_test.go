@@ -61,7 +61,7 @@ func TestHTTPProvider_Review(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -107,7 +107,7 @@ func TestHTTPProvider_Review_NoAPIKey(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -128,7 +128,7 @@ func TestHTTPProvider_Review_NoAPIKey(t *testing.T) {
 func TestHTTPProvider_Review_ServerError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "internal server error"}`))
+		_, _ = w.Write([]byte(`{"error": "internal server error"}`))
 	}))
 	defer server.Close()
 
@@ -147,7 +147,7 @@ func TestHTTPProvider_Review_EmptyChoices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := map[string]interface{}{"choices": []interface{}{}}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

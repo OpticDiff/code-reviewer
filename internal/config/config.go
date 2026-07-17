@@ -140,7 +140,6 @@ type repoConfig struct {
 	ProxyURL         string   `yaml:"proxy_url"`
 	MaxTokens        int      `yaml:"max_tokens"`
 	APIURL           string   `yaml:"api_url"`
-	APIKey           string   `yaml:"api_key"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -265,9 +264,6 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	}
 	if rc.APIURL != "" {
 		c.APIURL = rc.APIURL
-	}
-	if rc.APIKey != "" {
-		c.APIKey = rc.APIKey
 	}
 	return nil
 }

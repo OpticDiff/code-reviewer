@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,6 +14,20 @@ import (
 
 	"github.com/OpticDiff/code-reviewer/internal/retry"
 )
+
+// maxResponseBytes caps the response body read to prevent OOM from malicious servers.
+const maxResponseBytes = 10 * 1024 * 1024 // 10 MB
+
+// httpStatusError captures the HTTP status code for reliable retry classification.
+type httpStatusError struct {
+	StatusCode int
+	Body       string
+	Endpoint   string
+}
+
+func (e *httpStatusError) Error() string {
+	return fmt.Sprintf("HTTP %d from %s: %s", e.StatusCode, e.Endpoint, e.Body)
+}
 
 // HTTPProvider implements ModelReviewer using the OpenAI-compatible
 // Chat Completions API (/v1/chat/completions). Works with any server
@@ -97,13 +112,16 @@ func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt stri
 
 	retryOpts := retry.DefaultOptions()
 	retryOpts.RetryIf = func(err error) bool {
+		var statusErr *httpStatusError
+		if errors.As(err, &statusErr) {
+			switch statusErr.StatusCode {
+			case 429, 502, 503, 504:
+				return true
+			}
+		}
+		// Fallback: network-level errors.
 		errStr := strings.ToLower(err.Error())
-		return strings.Contains(errStr, "429") ||
-			strings.Contains(errStr, "503") ||
-			strings.Contains(errStr, "502") ||
-			strings.Contains(errStr, "504") ||
-			strings.Contains(errStr, "rate") ||
-			strings.Contains(errStr, "unavailable") ||
+		return strings.Contains(errStr, "unavailable") ||
 			strings.Contains(errStr, "overloaded") ||
 			strings.Contains(errStr, "temporarily")
 	}
@@ -123,15 +141,19 @@ func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt stri
 		if doErr != nil {
 			return fmt.Errorf("HTTP request failed: %w", doErr)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
-		respBody, err = io.ReadAll(resp.Body)
+		respBody, err = io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 		if err != nil {
 			return fmt.Errorf("reading response: %w", err)
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("HTTP %d from %s: %s", resp.StatusCode, endpoint, truncateBytes(respBody, 500))
+			return &httpStatusError{
+				StatusCode: resp.StatusCode,
+				Body:       truncateBytes(respBody, 500),
+				Endpoint:   endpoint,
+			}
 		}
 
 		return nil
