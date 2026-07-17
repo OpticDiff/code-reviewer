@@ -9,10 +9,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/retry"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 )
 
 // maxResponseBytes caps the response body read to prevent OOM from malicious servers.
@@ -34,15 +37,21 @@ func (e *httpStatusError) Error() string {
 // that speaks this format: vLLM, Ollama, Candela, TGI, llama.cpp,
 // Cloud Run + Gemma, Vertex AI OpenAI-compat, etc.
 type HTTPProvider struct {
-	baseURL    string
-	apiKey     string
-	modelName  string
-	httpClient *http.Client
+	baseURL     string
+	apiKey      string
+	tokenSource oauth2.TokenSource // GCP ADC (used when apiKey is empty)
+	modelName   string
+	httpClient  *http.Client
 }
 
 // NewHTTPProvider creates a provider that talks to any OpenAI-compatible endpoint.
 // baseURL should be the root URL (e.g., "http://localhost:11434/v1" or
 // "https://gemma-xyz.run.app/v1"). The /chat/completions path is appended automatically.
+//
+// Auth strategy (in order):
+//  1. If apiKey is non-empty, uses static Bearer token.
+//  2. If GOOGLE_APPLICATION_CREDENTIALS is set, uses auto-refreshing GCP ADC tokens.
+//  3. No auth header (for local endpoints like Ollama).
 func NewHTTPProvider(baseURL, apiKey, modelName string) (*HTTPProvider, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("--api-url is required for HTTP provider")
@@ -55,14 +64,29 @@ func NewHTTPProvider(baseURL, apiKey, modelName string) (*HTTPProvider, error) {
 	baseURL = strings.TrimRight(baseURL, "/")
 	baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
 
-	return &HTTPProvider{
+	p := &HTTPProvider{
 		baseURL:   baseURL,
 		apiKey:    apiKey,
 		modelName: modelName,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute, // LLM calls can be slow on large diffs.
 		},
-	}, nil
+	}
+
+	// If no static API key, try GCP ADC for auto-refreshing tokens.
+	if apiKey == "" && os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "" {
+		ts, err := google.DefaultTokenSource(context.Background(),
+			"https://www.googleapis.com/auth/cloud-platform")
+		if err != nil {
+			slog.Warn("GCP ADC available but token source failed, proceeding without auth",
+				"error", err)
+		} else {
+			p.tokenSource = ts
+			slog.Info("HTTP provider using GCP ADC for authentication")
+		}
+	}
+
+	return p, nil
 }
 
 // chatRequest is the OpenAI Chat Completions request format.
@@ -135,6 +159,12 @@ func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt stri
 		req.Header.Set("Content-Type", "application/json")
 		if p.apiKey != "" {
 			req.Header.Set("Authorization", "Bearer "+p.apiKey)
+		} else if p.tokenSource != nil {
+			tok, tokErr := p.tokenSource.Token()
+			if tokErr != nil {
+				return fmt.Errorf("obtaining GCP access token: %w", tokErr)
+			}
+			req.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 		}
 
 		resp, doErr := p.httpClient.Do(req)

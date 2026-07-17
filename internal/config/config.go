@@ -513,11 +513,9 @@ func (c *Config) validate() error {
 		}
 	}
 
-	// GCP project required for model calls.
-	if c.GCPProject == "" {
-		return fmt.Errorf("GOOGLE_CLOUD_PROJECT env var is required\n\n" +
-			"Set it to your GCP project that has Vertex AI enabled:\n" +
-			"  export GOOGLE_CLOUD_PROJECT=my-project-id")
+	// GCP project required for Vertex AI model calls, but not for HTTP provider.
+	if c.GCPProject == "" && c.APIURL == "" {
+		return fmt.Errorf("GOOGLE_CLOUD_PROJECT is required for Vertex AI, or use --api-url for an OpenAI-compatible endpoint")
 	}
 
 	// Validate comment mode.

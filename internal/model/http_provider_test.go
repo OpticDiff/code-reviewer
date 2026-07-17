@@ -3,9 +3,13 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"golang.org/x/oauth2"
 )
 
 func TestHTTPProvider_Review(t *testing.T) {
@@ -190,4 +194,113 @@ func TestNewHTTPProvider_URLNormalization(t *testing.T) {
 	if p.baseURL != "http://localhost:8080/v1" {
 		t.Errorf("baseURL = %q, expected /chat/completions stripped", p.baseURL)
 	}
+}
+
+func TestHTTPProvider_Review_ADCTokenSource(t *testing.T) {
+	// Mock server that captures the Authorization header.
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+
+		review := ReviewResult{Summary: "OK", Findings: []Finding{}}
+		reviewJSON, _ := json.Marshal(review)
+		resp := map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{"message": map[string]string{"content": string(reviewJSON)}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// Create provider with no API key, then inject a mock token source.
+	provider, err := NewHTTPProvider(server.URL+"/v1", "", "test-model")
+	if err != nil {
+		t.Fatalf("creating provider: %v", err)
+	}
+	provider.tokenSource = &staticTokenSource{token: "adc-access-token-123"}
+
+	_, err = provider.Review(context.Background(), "system", "user")
+	if err != nil {
+		t.Fatalf("Review() error: %v", err)
+	}
+
+	if gotAuth != "Bearer adc-access-token-123" {
+		t.Errorf("Authorization = %q, want Bearer adc-access-token-123", gotAuth)
+	}
+}
+
+func TestHTTPProvider_Review_APIKeyTakesPriorityOverADC(t *testing.T) {
+	var gotAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+
+		review := ReviewResult{Summary: "OK", Findings: []Finding{}}
+		reviewJSON, _ := json.Marshal(review)
+		resp := map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{"message": map[string]string{"content": string(reviewJSON)}},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	// Create provider WITH API key, AND inject a token source.
+	// API key should win.
+	provider, err := NewHTTPProvider(server.URL+"/v1", "my-api-key", "test-model")
+	if err != nil {
+		t.Fatalf("creating provider: %v", err)
+	}
+	provider.tokenSource = &staticTokenSource{token: "should-not-be-used"}
+
+	_, err = provider.Review(context.Background(), "system", "user")
+	if err != nil {
+		t.Fatalf("Review() error: %v", err)
+	}
+
+	if gotAuth != "Bearer my-api-key" {
+		t.Errorf("Authorization = %q, want Bearer my-api-key (API key should take priority)", gotAuth)
+	}
+}
+
+func TestHTTPProvider_Review_ADCTokenRefreshError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("server should not be called when token refresh fails")
+	}))
+	defer server.Close()
+
+	provider, err := NewHTTPProvider(server.URL+"/v1", "", "test-model")
+	if err != nil {
+		t.Fatalf("creating provider: %v", err)
+	}
+	provider.tokenSource = &errorTokenSource{err: fmt.Errorf("token expired and refresh failed")}
+
+	_, err = provider.Review(context.Background(), "system", "user")
+	if err == nil {
+		t.Fatal("expected error when token source fails")
+	}
+	if !strings.Contains(err.Error(), "GCP access token") {
+		t.Errorf("error = %q, want mention of GCP access token", err.Error())
+	}
+}
+
+// staticTokenSource returns the same token every time (test helper).
+type staticTokenSource struct {
+	token string
+}
+
+func (s *staticTokenSource) Token() (*oauth2.Token, error) {
+	return &oauth2.Token{AccessToken: s.token}, nil
+}
+
+// errorTokenSource always returns an error (test helper).
+type errorTokenSource struct {
+	err error
+}
+
+func (e *errorTokenSource) Token() (*oauth2.Token, error) {
+	return nil, e.err
 }
