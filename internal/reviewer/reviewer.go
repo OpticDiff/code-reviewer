@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
+	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
 	"github.com/OpticDiff/code-reviewer/internal/vcs"
@@ -23,10 +26,11 @@ type DiffSource interface {
 
 // Reviewer orchestrates the full review pipeline.
 type Reviewer struct {
-	cfg        *config.Config
-	provider   ModelReviewer
-	glClient   VCSClient
-	diffSource DiffSource
+	cfg             *config.Config
+	provider        ModelReviewer
+	glClient        VCSClient
+	diffSource      DiffSource
+	contextProvider ctxpkg.Provider
 }
 
 // New creates a new Reviewer.
@@ -35,6 +39,16 @@ func New(cfg *config.Config, provider ModelReviewer, glClient VCSClient) *Review
 		cfg:      cfg,
 		provider: provider,
 		glClient: glClient,
+	}
+}
+
+// NewWithContext creates a Reviewer with a context provider for repo-aware reviews.
+func NewWithContext(cfg *config.Config, provider ModelReviewer, glClient VCSClient, cp ctxpkg.Provider) *Reviewer {
+	return &Reviewer{
+		cfg:             cfg,
+		provider:        provider,
+		glClient:        glClient,
+		contextProvider: cp,
 	}
 }
 
@@ -111,6 +125,24 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
+	// Step 2c: Sort files by review priority (security-sensitive first).
+	diff.SortByPriority(diffs)
+
+	// Step 2d: Pre-flight budget check.
+	var skippedFiles []string
+	estimate := EstimateCost(diffs)
+	if r.cfg.MaxTokens > 0 && estimate.TotalEstimate > r.cfg.MaxTokens {
+		diffs, skippedFiles = TrimToBudget(diffs, r.cfg.MaxTokens)
+		estimate = EstimateCost(diffs) // Recalculate after trim.
+	}
+	LogBudgetStatus(estimate, r.cfg.MaxTokens, skippedFiles)
+
+	if len(diffs) == 0 {
+		slog.Warn("all files trimmed by token budget")
+		fmt.Println("⚠️  Token budget too low to review any files. Increase --max-tokens.")
+		return 0, nil
+	}
+
 	// Step 3: Check context window / chunk.
 	tokenLimit := diff.TokenLimitForModel(r.cfg.Model)
 	chunker, err := diff.NewChunkStrategy(string(r.cfg.ChunkStrategy))
@@ -124,6 +156,28 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 	slog.Info(fmt.Sprintf("review split into %d chunk(s)", len(chunks)))
 
+	// Step 3b: Discover related code context.
+	var contextSnippets []model.ContextSnippet
+	if r.contextProvider != nil {
+		repoRoot := findRepoRoot()
+		if repoRoot != "" {
+			raw, cerr := r.contextProvider.FindRelatedCode(ctx, repoRoot, diffs)
+			if cerr != nil {
+				slog.Warn("context discovery failed, continuing without context", "error", cerr)
+			} else if len(raw) > 0 {
+				for _, s := range raw {
+					contextSnippets = append(contextSnippets, model.ContextSnippet{
+						File:    s.File,
+						Line:    s.Line,
+						Content: s.Content,
+						Symbol:  s.Symbol,
+					})
+				}
+				slog.Info(fmt.Sprintf("found %d related code snippet(s)", len(contextSnippets)))
+			}
+		}
+	}
+
 	// Step 4: Build prompt and call model for each chunk.
 	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, r.cfg.ReviewMD, r.cfg.Focus, r.cfg.ExtraRules)
 	var allFindings []model.Finding
@@ -135,7 +189,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			i+1, len(chunks), len(chunk), diff.EstimateTokens(chunk)))
 
 		numberedDiff := buildNumberedDiff(chunk)
-		userPrompt := model.BuildUserPrompt(mrTitle, mrDesc, numberedDiff)
+		userPrompt := model.BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff, contextSnippets)
 
 		result, err := r.provider.Review(ctx, systemPrompt, userPrompt)
 		if err != nil {
@@ -150,6 +204,16 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			totalUsage.InputTokens += result.Usage.InputTokens
 			totalUsage.OutputTokens += result.Usage.OutputTokens
 			totalUsage.TotalTokens += result.Usage.TotalTokens
+		}
+
+		// Runtime budget safety net — stop if actual usage exceeds limit.
+		if r.cfg.MaxTokens > 0 && totalUsage.TotalTokens >= int64(r.cfg.MaxTokens) {
+			slog.Warn("runtime token budget exceeded, stopping review",
+				"used", totalUsage.TotalTokens,
+				"limit", r.cfg.MaxTokens,
+				"chunks_completed", i+1,
+				"chunks_total", len(chunks))
+			break
 		}
 	}
 
@@ -386,4 +450,22 @@ func filterByFiles(diffs []diff.FileDiff, changedFiles []string) []diff.FileDiff
 		}
 	}
 	return filtered
+}
+
+// findRepoRoot walks up from cwd to find the git repository root.
+func findRepoRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }

@@ -43,6 +43,41 @@ jobs:
           go-version: '1.26'
           cache: false
 
+      - name: Validate Homebrew tap token
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN secret is not set. Homebrew formula will not be published."
+            echo ""
+            echo "To fix:"
+            echo "  1. Create a fine-grained PAT at: https://github.com/settings/tokens?type=beta"
+            echo "     - Scope to OpticDiff org, repo: homebrew-tap only"
+            echo "     - Permission: Contents → Read and write"
+            echo "  2. Add it at: https://github.com/OpticDiff/code-reviewer/settings/secrets/actions"
+            echo "     - Secret name: HOMEBREW_TAP_TOKEN"
+            exit 1
+          fi
+
+          # Validate the token can access the tap repo.
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer $HOMEBREW_TAP_TOKEN" \
+            "https://api.github.com/repos/OpticDiff/homebrew-tap")
+
+          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+            echo "::error::HOMEBREW_TAP_TOKEN is invalid or expired (HTTP $HTTP_CODE). Homebrew formula will not be published."
+            echo ""
+            echo "The token was likely created with a 1-year expiry. To rotate:"
+            echo "  1. Create a new fine-grained PAT at: https://github.com/settings/tokens?type=beta"
+            echo "     - Scope to OpticDiff org, repo: homebrew-tap only"
+            echo "     - Permission: Contents → Read and write"
+            echo "  2. Update the secret at: https://github.com/OpticDiff/code-reviewer/settings/secrets/actions"
+            echo "     - Edit HOMEBREW_TAP_TOKEN with the new value"
+            exit 1
+          fi
+
+          echo "✅ Homebrew tap token is valid (HTTP $HTTP_CODE)"
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
@@ -50,3 +85,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

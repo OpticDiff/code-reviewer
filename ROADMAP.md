@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.3.0 — Production-ready with incremental review, SARIF, and multi-model consensus**
+Current status: **v0.4.0 — Smarter reviews with repo-aware context, REVIEW.md, and LLM proxy support**
 
 ## ✅ v0.1 — Foundation (Done)
 
@@ -32,20 +32,27 @@ Current status: **v0.3.0 — Production-ready with incremental review, SARIF, an
 - [x] **GitLab hardening** — 429 retry for pagination, generic callback-based pagination, SSRF protection, context cancellation
 - [x] **Custom prompts** — `--custom-prompt` for full prompt override (security audit, architecture, etc.)
 
-## 🔜 v0.4 — Platform Expansion & Observability
+## ✅ v0.4 — Smarter Reviews & Observability (Done)
 
 - [x] **LLM proxy support** — `--proxy-url` / `REVIEW_PROXY_URL` for routing model calls through observability proxies (e.g., Candela)
 - [x] **VCS interface abstraction** — Platform-agnostic `internal/vcs` types, enabling GitHub/Bitbucket support
+- [x] **REVIEW.md** — Drop a `REVIEW.md` in your repo root; contents injected as highest-priority system prompt instruction (PR #19)
+- [x] **Repo-aware context** — Tree-sitter extracts changed symbols, grep finds usages in unchanged files, injected as _Related Unchanged Code_. Supports Go, Kotlin, Java, Python, TypeScript. Opt-out via `--no-context` / `disable_context` (PR #20)
+
+## 🔜 v0.5 — Platform Expansion
+
 - [ ] **GitHub support** — New `internal/github/` client implementing same posting interface. Core engine unchanged
 - [ ] **GitHub Actions integration** — Native `action.yml` for GitHub-hosted repos
 - [ ] **Auto-approve / block MR** — Add `Approve()`/`Unapprove()` to GitLab client + `--approve-mode` flag
 
-## 🧠 v0.5 — Smarter Reviews
+## 🧠 v0.6 — Deep Intelligence
 
+- [ ] **Multi-pass review** — First pass with Flash (fast/cheap), escalate flagged files to Pro (deep analysis)
 - [ ] **Advanced chunk strategies** — Semantic chunking (group related files), AST-aware splitting, dependency-ordered review
+- [ ] **RAG-based context** — Embed repo into a vector store for enterprise-scale cross-file context (beyond grep)
+- [ ] **Import-aware resolution** — Per-language import graph traversal to find transitive dependencies of changed symbols
 - [ ] **Reply to bot comments** — Monitor MR note webhooks, respond to follow-up questions ("why is this a problem?")
 - [ ] **Caching** — Hash file diffs, skip re-review of unchanged files across pushes
-- [ ] **Multi-pass review** — First pass with Flash (fast/cheap), escalate flagged files to Pro (deep analysis)
 
 ## 💡 Ideas (Unplanned)
 

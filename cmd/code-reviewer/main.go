@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
+	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
 	"github.com/OpticDiff/code-reviewer/internal/gitlab"
 	"github.com/OpticDiff/code-reviewer/internal/model"
 	"github.com/OpticDiff/code-reviewer/internal/reviewer"
@@ -66,7 +67,15 @@ func run(ctx, initCtx context.Context) (int, error) {
 
 	// Create model provider(s).
 	var modelProvider reviewer.ModelReviewer
-	if len(cfg.Models) > 1 {
+	if cfg.APIURL != "" {
+		// HTTP provider: any OpenAI-compatible endpoint.
+		slog.Info("using HTTP provider", "api_url", cfg.APIURL, "model", cfg.Model)
+		provider, err := model.NewHTTPProvider(cfg.APIURL, cfg.APIKey, cfg.Model)
+		if err != nil {
+			return 0, fmt.Errorf("creating HTTP provider: %w", err)
+		}
+		modelProvider = provider
+	} else if len(cfg.Models) > 1 {
 		// Multi-model consensus mode.
 		threshold := cfg.ConsensusThreshold
 		if threshold < 1 {
@@ -97,7 +106,14 @@ func run(ctx, initCtx context.Context) (int, error) {
 		glClient = gitlab.NewClient(cfg.GitLabBaseURL, cfg.GitLabToken)
 	}
 
-	rev := reviewer.New(cfg, modelProvider, glClient)
+	// Create context provider for repo-aware reviews.
+	var ctxProvider ctxpkg.Provider
+	if !cfg.DisableContext {
+		ctxProvider = ctxpkg.NewDefaultProvider()
+		slog.Info("repo-aware context discovery enabled")
+	}
+
+	rev := reviewer.NewWithContext(cfg, modelProvider, glClient, ctxProvider)
 	findingCount, err := rev.Run(ctx)
 	if err != nil {
 		return 0, err

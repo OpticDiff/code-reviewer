@@ -5,8 +5,10 @@ package config
 import (
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -85,6 +87,8 @@ type Config struct {
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
+	APIURL             string // HTTP provider: OpenAI-compatible endpoint URL.
+	APIKey             string // HTTP provider: API key (optional, e.g. for IAM/ADC auth).
 
 	// Review settings.
 	Focus        []string
@@ -115,6 +119,12 @@ type Config struct {
 
 	// Exclusions.
 	ExcludedPatterns []string
+
+	// Context discovery.
+	DisableContext bool // Skip repo-aware context discovery (--no-context).
+
+	// Budget.
+	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -129,6 +139,8 @@ type repoConfig struct {
 	OutputJSON       bool     `yaml:"output_json"`
 	CustomPrompt     string   `yaml:"custom_prompt"`
 	ProxyURL         string   `yaml:"proxy_url"`
+	MaxTokens        int      `yaml:"max_tokens"`
+	APIURL           string   `yaml:"api_url"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -186,8 +198,13 @@ func (c *Config) loadRepoConfig() error {
 		return nil // Non-fatal: skip yaml config.
 	}
 
-	var foundYAML bool
+	var foundYAML, foundReviewMD bool
 	for {
+		// Check if we've reached a repo root (.git boundary).
+		gitDir := filepath.Join(dir, ".git")
+		_, gitErr := os.Stat(gitDir)
+		atRepoRoot := gitErr == nil
+
 		// Try to load .code-reviewer.yaml/.yml (stop walking after first match).
 		if !foundYAML {
 			path := filepath.Join(dir, ".code-reviewer.yaml")
@@ -210,17 +227,21 @@ func (c *Config) loadRepoConfig() error {
 		}
 
 		// Try to load REVIEW.md (only if not already found).
-		if c.ReviewMD == "" {
+		if !foundReviewMD {
 			path := filepath.Join(dir, "REVIEW.md")
 			data, err := os.ReadFile(path)
 			if err == nil {
 				c.ReviewMD = strings.TrimSpace(string(data))
+				foundReviewMD = true
 			}
 		}
 
-		// Stop if both found or reached root.
-		if foundYAML && c.ReviewMD != "" {
+		// Stop if both found, at repo root, or reached filesystem root.
+		if foundYAML && foundReviewMD {
 			break
+		}
+		if atRepoRoot {
+			break // Don't walk past the repo boundary.
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -270,6 +291,12 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	}
 	if rc.ProxyURL != "" {
 		c.ProxyURL = rc.ProxyURL
+	}
+	if rc.MaxTokens > 0 {
+		c.MaxTokens = rc.MaxTokens
+	}
+	if rc.APIURL != "" {
+		c.APIURL = rc.APIURL
 	}
 	return nil
 }
@@ -335,6 +362,23 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("REVIEW_PROXY_URL"); v != "" {
 		c.ProxyURL = v
 	}
+	if v := os.Getenv("REVIEW_MAX_TOKENS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_MAX_TOKENS", "value", v, "error", err)
+		} else if n < 0 {
+			slog.Warn("ignoring negative REVIEW_MAX_TOKENS", "value", n)
+		} else {
+			// 0 = unlimited (clears any YAML cap), >0 = token budget.
+			c.MaxTokens = n
+		}
+	}
+	if v := os.Getenv("REVIEW_API_URL"); v != "" {
+		c.APIURL = v
+	}
+	if v := os.Getenv("REVIEW_API_KEY"); v != "" {
+		c.APIKey = v
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -360,6 +404,10 @@ func (c *Config) loadFlags() error {
 	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
 	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
 	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
+	noContext := fs.Bool("no-context", false, "Disable repo-aware context discovery")
+	maxTokens := fs.Int("max-tokens", 0, "Maximum total tokens (input+output) per review (0 = unlimited)")
+	apiURL := fs.String("api-url", "", "OpenAI-compatible API endpoint (e.g., http://localhost:11434/v1)")
+	apiKey := fs.String("api-key", "", "API key for HTTP provider (optional for IAM/ADC auth)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -425,6 +473,25 @@ func (c *Config) loadFlags() error {
 	if *proxyURL != "" {
 		c.ProxyURL = *proxyURL
 	}
+	if *noContext {
+		c.DisableContext = true
+	}
+	// Detect if --max-tokens was explicitly set (including to 0 for unlimited).
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "max-tokens" {
+			if *maxTokens < 0 {
+				slog.Warn("ignoring negative --max-tokens", "value", *maxTokens)
+				return
+			}
+			c.MaxTokens = *maxTokens
+		}
+	})
+	if *apiURL != "" {
+		c.APIURL = *apiURL
+	}
+	if *apiKey != "" {
+		c.APIKey = *apiKey
+	}
 
 	return nil
 }
@@ -479,11 +546,9 @@ func (c *Config) validate() error {
 		}
 	}
 
-	// GCP project required for model calls.
-	if c.GCPProject == "" {
-		return fmt.Errorf("GOOGLE_CLOUD_PROJECT env var is required\n\n" +
-			"Set it to your GCP project that has Vertex AI enabled:\n" +
-			"  export GOOGLE_CLOUD_PROJECT=my-project-id")
+	// GCP project required for Vertex AI model calls, but not for HTTP provider.
+	if c.GCPProject == "" && c.APIURL == "" {
+		return fmt.Errorf("GOOGLE_CLOUD_PROJECT is required for Vertex AI, or use --api-url for an OpenAI-compatible endpoint")
 	}
 
 	// Validate comment mode.

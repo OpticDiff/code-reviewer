@@ -17,7 +17,7 @@
           pname = "code-reviewer";
           inherit version;
           src = self;
-          vendorHash = "sha256-LF+xzVfp+oD5G13kT8Mme51vGC5TvHOvLcvN+0PwuYg=";
+          vendorHash = "sha256-aeefrKMuKR7u7VpdkXjwVC6ROxU93hyqNB94VdoqDOA=";
           subPackages = [ "cmd/code-reviewer" ];
           ldflags = [ "-s" "-w" "-X main.version=${version}" ];
           meta = {
