@@ -6,6 +6,17 @@
 # Options: gemini-2.5-flash (default), gemini-2.5-pro, claude-sonnet-4, etc.
 model: gemini-2.5-flash
 
+# Multiple models for consensus review.
+# Runs all models in parallel and deduplicates findings by file+category+line proximity.
+# When set, 'model' above is ignored.
+# models:
+#   - gemini-2.5-flash
+#   - gemini-2.5-pro
+
+# Minimum number of models that must agree on a finding (default: 2).
+# Only used when 'models' is set.
+# consensus_threshold: 2
+
 # Review focus areas. Options: all, bugs, security, performance, style, docs.
 focus: [bugs, security]
 
@@ -54,3 +65,36 @@ extra_rules: |
 # Routes all Vertex AI model calls through the proxy.
 # Supports Candela (https://github.com/candelahq/candela) or any compatible proxy.
 # proxy_url: http://localhost:8181/proxy/google/
+
+# Maximum total tokens (input+output) per review.
+# 0 or omitted = unlimited.
+# max_tokens: 100000
+
+# OpenAI-compatible API endpoint URL.
+# Use this instead of Vertex AI to connect to Ollama, vLLM, OpenRouter, etc.
+# When set, GOOGLE_CLOUD_PROJECT is not required.
+# api_url: http://localhost:11434/v1
+
+# API key for the HTTP provider (optional if using IAM/ADC auth).
+# Prefer the REVIEW_API_KEY env var to avoid committing secrets.
+# api_key: sk-...
+
+# Skip repo-aware context discovery.
+# Disables Tree-sitter symbol extraction and grep-based usage search.
+# disable_context: true
+
+# Only review files changed in the latest push (CI mode).
+# Useful for large MRs where you only want to review the newest changes.
+# incremental: true
+
+# Output results as JSON to stdout.
+# output_json: false
+
+# Write findings in SARIF 2.1.0 format to the given file path.
+# sarif_output: review.sarif
+
+# Disable ANSI color output. Also respects the NO_COLOR env var.
+# no_color: false
+
+# Whether to skip draft/WIP merge requests in CI mode (default: true).
+# skip_draft_mrs: true
