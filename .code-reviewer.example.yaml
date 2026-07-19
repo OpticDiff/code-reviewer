@@ -6,6 +6,14 @@
 # Options: gemini-2.5-flash (default), gemini-2.5-pro, claude-sonnet-4, etc.
 model: gemini-2.5-flash
 
+# Multiple models for consensus review (CLI-only: --models flag).
+# Runs all models in parallel and deduplicates findings.
+# Consensus activates only with 2+ models; single model uses the normal path.
+# Example: code-reviewer --models gemini-2.5-flash,gemini-2.5-pro
+#
+# Consensus threshold (CLI-only: --consensus-threshold flag, default: 2).
+# Minimum number of models that must agree on a finding.
+
 # Review focus areas. Options: all, bugs, security, performance, style, docs.
 focus: [bugs, security]
 
@@ -54,3 +62,19 @@ extra_rules: |
 # Routes all Vertex AI model calls through the proxy.
 # Supports Candela (https://github.com/candelahq/candela) or any compatible proxy.
 # proxy_url: http://localhost:8181/proxy/google/
+
+# Maximum total tokens (input+output) per review.
+# 0 or omitted = unlimited.
+# max_tokens: 100000
+
+# OpenAI-compatible API endpoint URL.
+# Use this instead of Vertex AI to connect to Ollama, vLLM, OpenRouter, etc.
+# When set, GOOGLE_CLOUD_PROJECT is not required.
+# api_url: http://localhost:11434/v1
+
+# NOTE: The following settings are CLI/env-only and cannot be set in YAML:
+#   --models / --consensus-threshold (multi-model consensus)
+#   --api-key / REVIEW_API_KEY
+#   --no-context, --incremental, --sarif, --no-color
+#   --summarize
+# See README.md for the full CLI flags and env vars reference.

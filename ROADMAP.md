@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.4.0 — Smarter reviews with repo-aware context, REVIEW.md, and LLM proxy support**
+Current status: **v0.5.0 — Auto-summary, repo-aware context, REVIEW.md, and LLM proxy support**
 
 ## ✅ v0.1 — Foundation (Done)
 
