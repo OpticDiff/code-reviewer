@@ -525,7 +525,7 @@ func (c *Config) validate() error {
 					c.GitLabBaseURL)
 			}
 		}
-		if c.GitLabToken == "" && !(c.Summarize && c.DryRun) {
+		if c.GitLabToken == "" && (!c.Summarize || !c.DryRun) {
 			return fmt.Errorf("CI mode requires GITLAB_TOKEN env var\n\n" +
 				"Options:\n" +
 				"  CI_JOB_TOKEN:  Add 'GITLAB_TOKEN: $CI_JOB_TOKEN' to your job variables\n" +
