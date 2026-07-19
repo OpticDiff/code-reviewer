@@ -25,7 +25,7 @@ Every configuration value flows through three layers (flags > env > yaml > defau
 
 ### 1. Add the field to `Config` struct
 
-In [`internal/config/config.go`](file:///Users/ab/code/code-reviewer/internal/config/config.go#L76-L127), add the field to the `Config` struct with a doc comment:
+In [`internal/config/config.go`](internal/config/config.go#L76-L127), add the field to the `Config` struct with a doc comment:
 
 ```go
 type Config struct {
@@ -36,7 +36,7 @@ type Config struct {
 
 ### 2. Add to `repoConfig` with yaml tag
 
-In [`internal/config/config.go`](file:///Users/ab/code/code-reviewer/internal/config/config.go#L130-L143), add the corresponding `repoConfig` field so `.code-reviewer.yaml` can set it:
+In [`internal/config/config.go`](internal/config/config.go#L130-L143), add the corresponding `repoConfig` field so `.code-reviewer.yaml` can set it:
 
 ```go
 type repoConfig struct {
@@ -47,7 +47,7 @@ type repoConfig struct {
 
 ### 3. Add `flag.XxxVar()` in `loadFlags()`
 
-In [`loadFlags()`](file:///Users/ab/code/code-reviewer/internal/config/config.go#L351-L464), register the flag with `flag.NewFlagSet`:
+In [`loadFlags()`](internal/config/config.go#L351-L464), register the flag with `flag.NewFlagSet`:
 
 ```go
 myNewField := fs.String("my-new-field", "", "Description for --help")
@@ -65,7 +65,7 @@ if *myNewField != "" {
 
 ### 5. Apply in `applyRepoConfig()`
 
-In [`applyRepoConfig()`](file:///Users/ab/code/code-reviewer/internal/config/config.go#L222-L269), merge from the parsed YAML:
+In [`applyRepoConfig()`](internal/config/config.go#L222-L269), merge from the parsed YAML:
 
 ```go
 if rc.MyNewField != "" {
@@ -75,7 +75,7 @@ if rc.MyNewField != "" {
 
 ### 6. Apply in `loadEnv()`
 
-If the field should be settable via environment variable, add it in [`loadEnv()`](file:///Users/ab/code/code-reviewer/internal/config/config.go#L271-L348):
+If the field should be settable via environment variable, add it in [`loadEnv()`](internal/config/config.go#L271-L348):
 
 ```go
 if v := os.Getenv("REVIEW_MY_NEW_FIELD"); v != "" {
@@ -85,7 +85,7 @@ if v := os.Getenv("REVIEW_MY_NEW_FIELD"); v != "" {
 
 ### 7. Add validation in `validate()` if needed
 
-In [`validate()`](file:///Users/ab/code/code-reviewer/internal/config/config.go#L473-L532), add any constraints:
+In [`validate()`](internal/config/config.go#L473-L532), add any constraints:
 
 ```go
 if c.MyNewField != "" && !isValidValue(c.MyNewField) {
@@ -95,17 +95,17 @@ if c.MyNewField != "" && !isValidValue(c.MyNewField) {
 
 ### 8. Set the default in `Load()`
 
-In [`Load()`](file:///Users/ab/code/code-reviewer/internal/config/config.go#L157-L191), set the default value in the `Config` literal if it isn't the zero value.
+In [`Load()`](internal/config/config.go#L157-L191), set the default value in the `Config` literal if it isn't the zero value.
 
 ### 9. Update documentation
 
-- Add to [`.code-reviewer.example.yaml`](file:///Users/ab/code/code-reviewer/.code-reviewer.example.yaml)
-- Add to the flags table in [`README.md`](file:///Users/ab/code/code-reviewer/README.md)
+- Add to [`.code-reviewer.example.yaml`](.code-reviewer.example.yaml)
+- Add to the flags table in [`README.md`](README.md)
 - Add to the env vars table in `README.md` if env-sourced
 
 ### 10. Add tests in `config_test.go`
 
-In [`internal/config/config_test.go`](file:///Users/ab/code/code-reviewer/internal/config/config_test.go), add tests covering:
+In [`internal/config/config_test.go`](internal/config/config_test.go), add tests covering:
 - Default value (see `TestLoad_Defaults` pattern at line 76)
 - Flag override
 - Env override
@@ -120,23 +120,23 @@ Both `Provider` (Vertex AI / genai SDK) and `HTTPProvider` (OpenAI-compatible) e
 
 ### Pattern
 
-1. **Define the interface** in [`internal/reviewer/interfaces.go`](file:///Users/ab/code/code-reviewer/internal/reviewer/interfaces.go) if the new method extends the contract. The existing `ModelReviewer` interface (line 11) has `Review()` and `Close()`. If your method is optional, create a separate interface (checked via type assertion at call sites).
+1. **Define the interface** in [`internal/reviewer/interfaces.go`](internal/reviewer/interfaces.go) if the new method extends the contract. The existing `ModelReviewer` interface (line 11) has `Review()` and `Close()`. If your method is optional, create a separate interface (checked via type assertion at call sites).
 
-2. **Implement on `Provider`** in [`internal/model/provider.go`](file:///Users/ab/code/code-reviewer/internal/model/provider.go). Follow the `Review()` pattern (line 70):
+2. **Implement on `Provider`** in [`internal/model/provider.go`](internal/model/provider.go). Follow the `Review()` pattern (line 70):
    - Build a `genai.GenerateContentConfig` with system prompt and temperature
    - Use `retry.Do()` around `p.client.Models.GenerateContent()`
    - Extract text with `extractText()`
    - Parse JSON response with a dedicated `parseXxxJSON()` helper
 
-3. **Implement on `HTTPProvider`** in [`internal/model/http_provider.go`](file:///Users/ab/code/code-reviewer/internal/model/http_provider.go). Follow the `Review()` pattern (line 119):
+3. **Implement on `HTTPProvider`** in [`internal/model/http_provider.go`](internal/model/http_provider.go). Follow the `Review()` pattern (line 119):
    - Build a `chatRequest` with system/user messages
    - Use `retry.Do()` around the HTTP call
    - Parse the OpenAI `chatResponse` format
    - Parse your domain JSON from the content
 
-4. **Add JSON parsing helper.** Follow the `parseReviewJSON()` pattern in [`provider.go`](file:///Users/ab/code/code-reviewer/internal/model/provider.go#L190-L227): try direct unmarshal, strip markdown fences, then fallback to brace extraction.
+4. **Add JSON parsing helper.** Follow the `parseReviewJSON()` pattern in [`provider.go`](internal/model/provider.go#L190-L227): try direct unmarshal, strip markdown fences, then fallback to brace extraction.
 
-5. **Wire into the reviewer.** Add a method on `Reviewer` in [`internal/reviewer/reviewer.go`](file:///Users/ab/code/code-reviewer/internal/reviewer/reviewer.go) that calls the new provider method. Follow the `Run()` flow (line 66):
+5. **Wire into the reviewer.** Add a method on `Reviewer` in [`internal/reviewer/reviewer.go`](internal/reviewer/reviewer.go) that calls the new provider method. Follow the `Run()` flow (line 66):
    - Get diffs → build prompt → call provider → process results
 
 ### Example: Adding a Summarize capability
@@ -154,7 +154,7 @@ reviewer.go    →  func (r *Reviewer) RunSummary(ctx) error { /* type-assert pr
 
 ### Table-driven tests
 
-Every test file uses Go's standard table-driven pattern. See [`config_test.go`](file:///Users/ab/code/code-reviewer/internal/config/config_test.go#L11-L46) for a clean example:
+Every test file uses Go's standard table-driven pattern. See [`config_test.go`](internal/config/config_test.go#L11-L46) for a clean example:
 
 ```go
 func TestParseSeverity_AllLevels(t *testing.T) {
@@ -187,9 +187,9 @@ func TestParseSeverity_AllLevels(t *testing.T) {
 
 ### Mock interfaces
 
-Tests define package-local mock structs that implement the interfaces from [`interfaces.go`](file:///Users/ab/code/code-reviewer/internal/reviewer/interfaces.go). No mock frameworks are used.
+Tests define package-local mock structs that implement the interfaces from [`interfaces.go`](internal/reviewer/interfaces.go). No mock frameworks are used.
 
-**`mockModel`** — implements `ModelReviewer` ([`reviewer_test.go:19-32`](file:///Users/ab/code/code-reviewer/internal/reviewer/reviewer_test.go#L19-L32)):
+**`mockModel`** — implements `ModelReviewer` ([`reviewer_test.go:19-32`](internal/reviewer/reviewer_test.go#L19-L32)):
 
 ```go
 type mockModel struct {
@@ -207,12 +207,12 @@ func (m *mockModel) Review(ctx context.Context, systemPrompt, userPrompt string)
 func (m *mockModel) Close() {}
 ```
 
-**`mockVCS`** — implements `VCSClient` ([`reviewer_test.go:34-100`](file:///Users/ab/code/code-reviewer/internal/reviewer/reviewer_test.go#L34-L100)):
+**`mockVCS`** — implements `VCSClient` ([`reviewer_test.go:34-100`](internal/reviewer/reviewer_test.go#L34-L100)):
 - Tracks call counts per method (e.g. `postNoteCalls`, `getMRChangesCalls`)
 - Returns configurable responses/errors
 - Captures arguments for assertion (e.g. `compareFromSHA`)
 
-**`mockDiffSource`** — implements `DiffSource` ([`reviewer_test.go:423-434`](file:///Users/ab/code/code-reviewer/internal/reviewer/reviewer_test.go#L423-L434)):
+**`mockDiffSource`** — implements `DiffSource` ([`reviewer_test.go:423-434`](internal/reviewer/reviewer_test.go#L423-L434)):
 
 ```go
 type mockDiffSource struct {
@@ -229,7 +229,7 @@ func (m *mockDiffSource) GetDiffs(ctx context.Context) ([]diff.FileDiff, string,
 }
 ```
 
-**`mockReviewer`** (model package) — uses `atomic.Int32` for thread-safe call counting in concurrent consensus tests ([`multi_test.go:11-25`](file:///Users/ab/code/code-reviewer/internal/model/multi_test.go#L11-L25)).
+**`mockReviewer`** (model package) — uses `atomic.Int32` for thread-safe call counting in concurrent consensus tests ([`multi_test.go:11-25`](internal/model/multi_test.go#L11-L25)).
 
 ### How tests avoid network calls
 
@@ -242,7 +242,7 @@ func (m *mockDiffSource) GetDiffs(ctx context.Context) ([]diff.FileDiff, string,
 
 ## CI
 
-CI runs in GitHub Actions ([`.github/workflows/ci.yml`](file:///Users/ab/code/code-reviewer/.github/workflows/ci.yml)) with three jobs:
+CI runs in GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) with three jobs:
 
 | Job | What it does |
 |-----|-------------|
@@ -278,7 +278,7 @@ If the repo has pre-commit hooks configured, always let them run — never use `
 
 ## Prompt Changes
 
-The system prompt lives in [`internal/model/prompt.go`](file:///Users/ab/code/code-reviewer/internal/model/prompt.go).
+The system prompt lives in [`internal/model/prompt.go`](internal/model/prompt.go).
 
 ### Structure
 
@@ -297,7 +297,7 @@ When `--focus` is `all` (default) or empty, all five overlays are appended in de
 
 ### Adding a new focus overlay
 
-1. Add the overlay text to the `focusOverlays` map in [`prompt.go`](file:///Users/ab/code/code-reviewer/internal/model/prompt.go#L73-L117):
+1. Add the overlay text to the `focusOverlays` map in [`prompt.go`](internal/model/prompt.go#L73-L117):
 
 ```go
 "testing": `
@@ -307,9 +307,9 @@ Concentrate on test quality:
 - ...`,
 ```
 
-2. Add `"testing"` to the `all` mode's ordered list in [`BuildPromptWithCustom()`](file:///Users/ab/code/code-reviewer/internal/model/prompt.go#L148).
+2. Add `"testing"` to the `all` mode's ordered list in [`BuildPromptWithCustom()`](internal/model/prompt.go#L148).
 
-3. Update the `--focus` help text in [`loadFlags()`](file:///Users/ab/code/code-reviewer/internal/config/config.go#L359) and `README.md`.
+3. Update the `--focus` help text in [`loadFlags()`](internal/config/config.go#L359) and `README.md`.
 
 ### Testing prompt text
 
