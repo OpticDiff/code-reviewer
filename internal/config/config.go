@@ -122,6 +122,10 @@ type Config struct {
 	// Context discovery.
 	DisableContext bool // Skip repo-aware context discovery (--no-context).
 
+	// Summary mode.
+	Summarize                bool // Generate MR summary instead of review.
+	SummaryUpdateDescription bool // Update MR description with the generated summary.
+
 	// Budget.
 	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 }
@@ -136,10 +140,12 @@ type repoConfig struct {
 	ExcludedPatterns []string `yaml:"excluded_patterns"`
 	ExtraRules       string   `yaml:"extra_rules"`
 	OutputJSON       bool     `yaml:"output_json"`
-	CustomPrompt     string   `yaml:"custom_prompt"`
-	ProxyURL         string   `yaml:"proxy_url"`
-	MaxTokens        int      `yaml:"max_tokens"`
-	APIURL           string   `yaml:"api_url"`
+	CustomPrompt             string   `yaml:"custom_prompt"`
+	ProxyURL                 string   `yaml:"proxy_url"`
+	MaxTokens                int      `yaml:"max_tokens"`
+	APIURL                   string   `yaml:"api_url"`
+	Summarize                bool     `yaml:"summarize"`
+	SummaryUpdateDescription bool     `yaml:"summary_update_description"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -265,6 +271,12 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.APIURL != "" {
 		c.APIURL = rc.APIURL
 	}
+	if rc.Summarize {
+		c.Summarize = true
+	}
+	if rc.SummaryUpdateDescription {
+		c.SummaryUpdateDescription = true
+	}
 	return nil
 }
 
@@ -375,6 +387,8 @@ func (c *Config) loadFlags() error {
 	maxTokens := fs.Int("max-tokens", 0, "Maximum total tokens (input+output) per review (0 = unlimited)")
 	apiURL := fs.String("api-url", "", "OpenAI-compatible API endpoint (e.g., http://localhost:11434/v1)")
 	apiKey := fs.String("api-key", "", "API key for HTTP provider (optional for IAM/ADC auth)")
+	summarize := fs.Bool("summarize", false, "Generate MR summary instead of review")
+	summaryUpdateDesc := fs.Bool("summary-update-description", false, "Update MR description with the generated summary")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -459,6 +473,12 @@ func (c *Config) loadFlags() error {
 	if *apiKey != "" {
 		c.APIKey = *apiKey
 	}
+	if *summarize {
+		c.Summarize = true
+	}
+	if *summaryUpdateDesc {
+		c.SummaryUpdateDescription = true
+	}
 
 	return nil
 }
@@ -505,7 +525,7 @@ func (c *Config) validate() error {
 					c.GitLabBaseURL)
 			}
 		}
-		if c.GitLabToken == "" {
+		if c.GitLabToken == "" && !c.Summarize {
 			return fmt.Errorf("CI mode requires GITLAB_TOKEN env var\n\n" +
 				"Options:\n" +
 				"  CI_JOB_TOKEN:  Add 'GITLAB_TOKEN: $CI_JOB_TOKEN' to your job variables\n" +

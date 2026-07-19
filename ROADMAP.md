@@ -39,16 +39,25 @@ Current status: **v0.4.0 — Smarter reviews with repo-aware context, REVIEW.md,
 - [x] **REVIEW.md** — Drop a `REVIEW.md` in your repo root; contents injected as highest-priority system prompt instruction (PR #19)
 - [x] **Repo-aware context** — Tree-sitter extracts changed symbols, grep finds usages in unchanged files, injected as _Related Unchanged Code_. Supports Go, Kotlin, Java, Python, TypeScript. Opt-out via `--no-context` / `disable_context` (PR #20)
 
-## 🔜 v0.5 — Platform Expansion
+## ✅ v0.5 — Auto-Summary & Intent (Done)
 
-- [ ] **GitHub support** — New `internal/github/` client implementing same posting interface. Core engine unchanged
-- [ ] **GitHub Actions integration** — Native `action.yml` for GitHub-hosted repos
-- [ ] **Auto-approve / block MR** — Add `Approve()`/`Unapprove()` to GitLab client + `--approve-mode` flag
+- [x] **Auto-summary** — `--summarize` generates structured MR descriptions from diffs: classification, intent, risk level, scope areas, breaking changes
+- [x] **SummarizeProvider interface** — Both Vertex AI and HTTP providers support summarize mode via shared `generateRaw()` refactor
+- [x] **Rich output** — Colored terminal display, JSON output, GitLab markdown comments
 
-## 🧠 v0.6 — Deep Intelligence
+## 🔜 v0.6 — Intent-Aware Review
 
+- [ ] **Two-pass review** — Infer developer intent (pass 1), review against it (pass 2). New finding categories: `intent-mismatch`, `scope-creep`, `incomplete-implementation`
+- [ ] **Conventional commit parsing** — Auto-detect `fix:`, `feat:`, `refactor:` from MR titles and cross-reference with model-inferred intent
+- [ ] **Intent confidence** — Surface how confident the model is in its intent classification, let developers confirm or correct
+- [ ] **Platform expansion** — GitHub support (`internal/github/` client), GitHub Actions integration, auto-approve/block MR
+
+## 🏢 v1.0 — Compliance & Audit
+
+- [ ] **Policy engine** — Define path-based policies in `.code-reviewer.yaml` (e.g., auth changes require security focus)
+- [ ] **Scope enforcement** — Block MRs with scope creep above configurable threshold
+- [ ] **Audit trail** — Structured JSONL log of all reviews: intent, classification, findings, token usage, timing
 - [ ] **Multi-pass review** — First pass with Flash (fast/cheap), escalate flagged files to Pro (deep analysis)
-- [ ] **Advanced chunk strategies** — Semantic chunking (group related files), AST-aware splitting, dependency-ordered review
 - [ ] **RAG-based context** — Embed repo into a vector store for enterprise-scale cross-file context (beyond grep)
 - [ ] **Import-aware resolution** — Per-language import graph traversal to find transitive dependencies of changed symbols
 - [ ] **Reply to bot comments** — Monitor MR note webhooks, respond to follow-up questions ("why is this a problem?")

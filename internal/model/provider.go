@@ -68,17 +68,32 @@ func NewProvider(ctx context.Context, project, location, modelName, proxyURL str
 
 // Review sends a diff to the model for review and returns structured findings.
 func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error) {
-	// Build the generation config.
-	config := &genai.GenerateContentConfig{
-		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
-		Temperature:       genai.Ptr(float32(0.2)), // Low temperature for consistent, focused reviews.
+	text, usage, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
 	}
 
-	// Gemini models support native JSON response schema.
-	// For other models (Claude, Mistral), we rely on prompt-instructed JSON.
+	// Parse JSON response.
+	review, err := parseReviewJSON(text)
+	if err != nil {
+		return nil, fmt.Errorf("parsing model response: %w (raw: %s)", err, truncate(text, 500))
+	}
+
+	review.Usage = usage
+	return review, nil
+}
+
+// generateRaw sends a prompt to the model and returns the raw text response
+// along with token usage. This is the shared core used by both Review and Summarize.
+func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, error) {
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
+		Temperature:       genai.Ptr(float32(0.2)),
+	}
+
+	// Gemini models support native JSON mode (without schema constraint for flexibility).
 	if isGeminiModel(p.modelName) {
 		config.ResponseMIMEType = "application/json"
-		config.ResponseSchema = reviewResultSchema()
 	}
 
 	var result *genai.GenerateContentResponse
@@ -97,35 +112,28 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 			strings.Contains(errStr, "temporarily")
 	}
 
-	if err := retry.Do(ctx, "model review", func() error {
+	if err := retry.Do(ctx, "model call", func() error {
 		result, genErr = p.client.Models.GenerateContent(ctx, p.modelName, []*genai.Content{genai.NewContentFromText(userPrompt, genai.RoleUser)}, config)
 		return genErr
 	}, retryOpts); err != nil {
-		return nil, fmt.Errorf("generating content: %w", err)
+		return "", nil, fmt.Errorf("generating content: %w", err)
 	}
 
-	// Extract text from response.
 	text := extractText(result)
 	if text == "" {
-		return nil, fmt.Errorf("empty response from model")
+		return "", nil, fmt.Errorf("empty response from model")
 	}
 
-	// Parse JSON response.
-	review, err := parseReviewJSON(text)
-	if err != nil {
-		return nil, fmt.Errorf("parsing model response: %w (raw: %s)", err, truncate(text, 500))
-	}
-
-	// Capture token usage from the response.
+	var usage *TokenUsage
 	if result.UsageMetadata != nil {
-		review.Usage = &TokenUsage{
+		usage = &TokenUsage{
 			InputTokens:  int64(result.UsageMetadata.PromptTokenCount),
 			OutputTokens: int64(result.UsageMetadata.CandidatesTokenCount),
 			TotalTokens:  int64(result.UsageMetadata.TotalTokenCount),
 		}
 	}
 
-	return review, nil
+	return text, usage, nil
 }
 
 // Close releases resources held by the provider.
@@ -188,12 +196,23 @@ func extractText(result *genai.GenerateContentResponse) string {
 }
 
 func parseReviewJSON(text string) (*ReviewResult, error) {
+	cleaned := cleanJSONText(text)
+
+	var result ReviewResult
+	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
+		return nil, fmt.Errorf("could not parse model response as JSON: %w", err)
+	}
+	return &result, nil
+}
+
+// cleanJSONText strips markdown code fences and extracts the JSON object
+// from model output. Used by both parseReviewJSON and parseSummaryJSON.
+func cleanJSONText(text string) string {
 	text = strings.TrimSpace(text)
 
-	// Try direct JSON parse first (for well-behaved models).
-	var result ReviewResult
-	if err := json.Unmarshal([]byte(text), &result); err == nil {
-		return &result, nil
+	// Try as-is first.
+	if json.Valid([]byte(text)) {
+		return text
 	}
 
 	// Strip markdown code fences (case-insensitive).
@@ -203,27 +222,26 @@ func parseReviewJSON(text string) (*ReviewResult, error) {
 	} else if strings.HasPrefix(lower, "```") {
 		text = text[3:]
 	}
-	// Remove closing fence and any trailing content.
 	if idx := strings.LastIndex(text, "```"); idx >= 0 {
 		text = text[:idx]
 	}
 	text = strings.TrimSpace(text)
 
-	if err := json.Unmarshal([]byte(text), &result); err == nil {
-		return &result, nil
+	if json.Valid([]byte(text)) {
+		return text
 	}
 
 	// Fallback: extract JSON object by finding first '{' and last '}'.
 	start := strings.Index(text, "{")
 	end := strings.LastIndex(text, "}")
 	if start >= 0 && end > start {
-		jsonStr := text[start : end+1]
-		if err := json.Unmarshal([]byte(jsonStr), &result); err == nil {
-			return &result, nil
+		candidate := text[start : end+1]
+		if json.Valid([]byte(candidate)) {
+			return candidate
 		}
 	}
 
-	return nil, fmt.Errorf("could not parse model response as JSON")
+	return text
 }
 
 func truncate(s string, maxLen int) string {
