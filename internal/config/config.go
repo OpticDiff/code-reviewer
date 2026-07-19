@@ -525,7 +525,7 @@ func (c *Config) validate() error {
 					c.GitLabBaseURL)
 			}
 		}
-		if c.GitLabToken == "" && !c.Summarize {
+		if c.GitLabToken == "" && !(c.Summarize && c.DryRun) {
 			return fmt.Errorf("CI mode requires GITLAB_TOKEN env var\n\n" +
 				"Options:\n" +
 				"  CI_JOB_TOKEN:  Add 'GITLAB_TOKEN: $CI_JOB_TOKEN' to your job variables\n" +
@@ -546,6 +546,11 @@ func (c *Config) validate() error {
 	// Validate chunk strategy.
 	if c.ChunkStrategy != ChunkStrategyFail && c.ChunkStrategy != ChunkStrategySplit {
 		return fmt.Errorf("invalid chunk-strategy: %q (valid: fail, split)", c.ChunkStrategy)
+	}
+
+	// Summarize mode is single-model only.
+	if c.Summarize && len(c.Models) > 0 {
+		return fmt.Errorf("--summarize cannot be used with --models (multi-model consensus); use --model instead")
 	}
 
 	return nil

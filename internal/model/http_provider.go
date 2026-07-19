@@ -70,6 +70,9 @@ func NewHTTPProvider(baseURL, apiKey, modelName string) (*HTTPProvider, error) {
 		modelName: modelName,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute, // LLM calls can be slow on large diffs.
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return fmt.Errorf("redirects are not followed for model API calls")
+			},
 		},
 	}
 

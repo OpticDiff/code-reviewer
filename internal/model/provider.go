@@ -146,36 +146,6 @@ func isGeminiModel(model string) bool {
 	return strings.HasPrefix(model, "gemini-")
 }
 
-// reviewResultSchema returns the JSON schema for ReviewResult, used to constrain Gemini output.
-func reviewResultSchema() *genai.Schema {
-	return &genai.Schema{
-		Type: genai.TypeObject,
-		Properties: map[string]*genai.Schema{
-			"summary": {
-				Type:        genai.TypeString,
-				Description: "Brief summary of the overall change and review.",
-			},
-			"findings": {
-				Type:        genai.TypeArray,
-				Description: "List of review findings.",
-				Items: &genai.Schema{
-					Type: genai.TypeObject,
-					Properties: map[string]*genai.Schema{
-						"file":       {Type: genai.TypeString, Description: "File path."},
-						"line":       {Type: genai.TypeInteger, Description: "Line number in the new file."},
-						"severity":   {Type: genai.TypeString, Description: "CRITICAL, HIGH, MEDIUM, or LOW.", Enum: []string{"CRITICAL", "HIGH", "MEDIUM", "LOW"}},
-						"category":   {Type: genai.TypeString, Description: "Finding category.", Enum: []string{"bug", "security", "performance", "style", "docs"}},
-						"title":      {Type: genai.TypeString, Description: "Single sentence summary."},
-						"body":       {Type: genai.TypeString, Description: "Detailed explanation."},
-						"suggestion": {Type: genai.TypeString, Description: "Optional corrected code."},
-					},
-					Required: []string{"file", "line", "severity", "category", "title", "body"},
-				},
-			},
-		},
-		Required: []string{"summary", "findings"},
-	}
-}
 
 func extractText(result *genai.GenerateContentResponse) string {
 	if result == nil || len(result.Candidates) == 0 {

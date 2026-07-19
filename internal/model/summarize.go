@@ -55,5 +55,22 @@ func parseSummaryJSON(text string) (*SummaryResult, error) {
 	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
 		return nil, fmt.Errorf("could not parse summary response as JSON: %w", err)
 	}
+	if err := validateSummary(&result); err != nil {
+		return nil, err
+	}
 	return &result, nil
+}
+
+// validateSummary checks that the model returned required fields.
+func validateSummary(s *SummaryResult) error {
+	if s.Title == "" {
+		return fmt.Errorf("summary response missing required field: title")
+	}
+	if s.Classification == "" {
+		return fmt.Errorf("summary response missing required field: classification")
+	}
+	if s.RiskLevel == "" {
+		return fmt.Errorf("summary response missing required field: risk_level")
+	}
+	return nil
 }
