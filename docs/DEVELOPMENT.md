@@ -21,7 +21,7 @@ go test ./... -race  # run tests with race detector
 
 ## Adding a Config Field
 
-Every configuration value flows through three layers (flags > env > yaml > defaults). Follow this checklist when adding a new field:
+Every configuration value flows through four layers (flags > env > yaml > defaults). Follow this checklist when adding a new field:
 
 ### 1. Add the field to `Config` struct
 
@@ -141,7 +141,7 @@ Both `Provider` (Vertex AI / genai SDK) and `HTTPProvider` (OpenAI-compatible) e
 
 ### Example: Adding a Summarize capability
 
-```
+```text
 interfaces.go  →  type SummarizeProvider interface { Summarize(...) (*SummaryResult, error) }
 provider.go    →  func (p *Provider) Summarize(ctx, prompt string) (*SummaryResult, error) { ... }
 http_provider  →  func (p *HTTPProvider) Summarize(ctx, prompt string) (*SummaryResult, error) { ... }
@@ -333,14 +333,15 @@ Custom prompt file loading uses `os.ReadFile` and falls back to `basePrompt` on 
 
 ## Project Layout
 
-```
+```text
 cmd/code-reviewer/     Entry point (main.go)
 internal/
 ├── config/            Config loading (flags, env, yaml)
 ├── context/           Repo-aware context discovery (tree-sitter)
 ├── diff/              Diff parsing, filtering, chunking
+├── gitlab/            GitLab REST API v4 client
 ├── model/             AI provider (Vertex AI, HTTP/OpenAI-compat)
 ├── retry/             Retry with exponential backoff
 ├── reviewer/          Review pipeline orchestration
-└── vcs/               VCS abstraction (GitLab client, types)
+└── vcs/               Platform-agnostic VCS types
 ```

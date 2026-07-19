@@ -6,7 +6,7 @@ How code-reviewer builds the system prompt, and how you can customize it for you
 
 code-reviewer constructs the AI system prompt by layering multiple sources. Each layer adds to (or replaces) the previous one:
 
-```
+```text
 ┌─────────────────────────────────────┐  ← Highest priority
 │  REVIEW.md (team review standards)  │
 ├─────────────────────────────────────┤
@@ -48,7 +48,7 @@ Drop a `REVIEW.md` in your repo root to inject team-specific review instructions
 
 ### Where It Goes
 
-```
+```text
 your-repo/
 ├── REVIEW.md              ← here
 ├── .code-reviewer.yaml

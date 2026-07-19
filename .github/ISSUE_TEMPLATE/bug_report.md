@@ -27,7 +27,7 @@ labels: bug
 <details>
 <summary>Output</summary>
 
-```
+```text
 paste output here
 ```
 

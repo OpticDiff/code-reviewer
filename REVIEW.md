@@ -1,7 +1,7 @@
 ## Review Standards for code-reviewer
 
 - All exported functions and types MUST have doc comments.
-- Error messages MUST wrap with `%w` for proper error chains.
+- Errors adding context to an existing error MUST wrap with `%w` for proper error chains.
 - Never log or expose secrets, tokens, API keys, or auth headers.
 - Flag any changes to adversarial content sections in prompts — these are security-critical.
 - JSON parsing of model output MUST use `parseReviewJSON()` — never raw `json.Unmarshal`.

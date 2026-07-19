@@ -11,7 +11,7 @@ The simplest setup — uses `CI_JOB_TOKEN` (zero configuration), posts findings 
 ```yaml
 code-review:
   stage: review
-  image: gcr.io/$PROJECT/code-reviewer:latest
+  image: gcr.io/$PROJECT/code-reviewer:latest  # Pin to a specific version in production
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
@@ -30,7 +30,7 @@ Only review files changed in the latest push, not the entire MR. Dramatically fa
 ```yaml
 code-review:
   stage: review
-  image: gcr.io/$PROJECT/code-reviewer:latest
+  image: gcr.io/$PROJECT/code-reviewer:latest  # Pin to a specific version in production
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
@@ -49,7 +49,7 @@ Blocks the MR on high/critical findings. SARIF output appears in GitLab's Securi
 ```yaml
 security-review:
   stage: review
-  image: gcr.io/$PROJECT/code-reviewer:latest
+  image: gcr.io/$PROJECT/code-reviewer:latest  # Pin to a specific version in production
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
@@ -76,7 +76,7 @@ Run Gemini + Claude in parallel. Only keep findings both models agree on — dra
 ```yaml
 consensus-review:
   stage: review
-  image: gcr.io/$PROJECT/code-reviewer:latest
+  image: gcr.io/$PROJECT/code-reviewer:latest  # Pin to a specific version in production
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
@@ -139,7 +139,7 @@ jobs:
           fetch-depth: 0  # Full history for accurate diffs
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@latest
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@latest  # Pin to a specific version in production
 
       - name: Run review
         env:
@@ -327,7 +327,7 @@ The file is discovered by walking up from the working directory to the filesyste
 
 ### Missing `GOOGLE_CLOUD_PROJECT`
 
-```
+```text
 Error: GOOGLE_CLOUD_PROJECT is required for Vertex AI, or use --api-url for an OpenAI-compatible endpoint
 ```
 
@@ -345,7 +345,7 @@ code-reviewer --diff --api-url http://localhost:11434/v1 --model qwen3:32b
 
 ### Token / Auth Errors
 
-```
+```text
 Error: CI mode requires GITLAB_TOKEN env var
 ```
 
@@ -362,12 +362,12 @@ For Vertex AI auth errors, verify ADC:
 
 ```bash
 gcloud auth application-default login
-gcloud auth application-default print-access-token  # verify it works
+gcloud auth application-default print-access-token > /dev/null && echo 'ADC OK'
 ```
 
 ### Rate Limiting (429)
 
-```
+```text
 Error: generating content: 429 Resource has been exhausted
 ```
 
@@ -380,7 +380,7 @@ code-reviewer has built-in retry with exponential backoff for 429, 502, 503, and
 
 ### Context Window Exceeded
 
-```
+```text
 Error: diff exceeds model context window (estimated: 245,000 tokens, limit: 128,000)
 ```
 
@@ -406,7 +406,7 @@ Error: diff exceeds model context window (estimated: 245,000 tokens, limit: 128,
 
 ### Empty Response from Model
 
-```
+```text
 Error: empty response from model
 ```
 
@@ -424,7 +424,7 @@ code-reviewer --diff --model gemini-2.5-pro --chunk-strategy split
 
 ### HTTPS Required for GitLab
 
-```
+```text
 Error: GITLAB_BASE_URL must use HTTPS to protect tokens
 ```
 
@@ -438,7 +438,7 @@ export CODE_REVIEWER_ALLOW_INSECURE=true
 
 ### CI Mode Outside of MR Pipeline
 
-```
+```text
 Error: CI mode requires CI_PROJECT_ID and CI_MERGE_REQUEST_IID env vars
 ```
 

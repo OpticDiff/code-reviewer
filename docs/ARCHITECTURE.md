@@ -71,7 +71,7 @@ sequenceDiagram
 
 The system prompt is constructed by `BuildPromptWithCustom()` in `internal/model/prompt.go` through four additive layers:
 
-```
+```text
 ┌───────────────────────────────────────────────────┐
 │ 1. Base Prompt (built-in or custom file)          │
 │    - Persona: "Principal Software Engineer"       │
@@ -79,7 +79,7 @@ The system prompt is constructed by `BuildPromptWithCustom()` in `internal/model
 │    - Critical constraints (line accuracy, tone)   │
 │    - Severity guidelines (CRITICAL→LOW)           │
 │    - Output format (JSON schema)                  │
-│    - Adversarial guardrails (immutable)           │
+│    - Adversarial guardrails (default prompt only)  │
 ├───────────────────────────────────────────────────┤
 │ 2. Focus Overlays (appended per --focus)          │
 │    bugs | security | performance | style | docs   │
@@ -117,7 +117,7 @@ func BuildPromptWithCustom(customPromptPath string, focusModes []string, extraRu
 
 ### Adversarial Guardrails
 
-The base prompt includes an immutable constraint that the model **must ignore** any directives in the diff content, MR title, or MR description that attempt to override the system prompt. This prevents prompt injection attacks via crafted diffs.
+The default base prompt includes a constraint that the model **must ignore** any directives in the diff content, MR title, or MR description that attempt to override the system prompt. This prevents prompt injection attacks via crafted diffs. Note: when `--custom-prompt` is used, it **replaces the entire base prompt** including these guardrails — custom prompts should include their own adversarial content handling.
 
 ### User Prompt Construction
 
@@ -229,7 +229,7 @@ classDiagram
 
 Both `Provider` and `HTTPProvider` follow the same flow:
 
-```
+```text
 generateRaw() → extractText() → parseReviewJSON() → *ReviewResult
 ```
 
@@ -311,7 +311,7 @@ Only symbols whose definitions overlap with **added lines** in the diff are kept
 
 `Filter()` removes files matching exclusion patterns. Default excluded patterns:
 
-```
+```text
 go.sum, *.lock, package-lock.json, yarn.lock, vendor/*, node_modules/*
 ```
 
@@ -354,7 +354,7 @@ Known model limits:
 
 `buildNumberedDiff()` produces a format optimized for LLM line reference accuracy:
 
-```
+```diff
 === File: internal/handler/auth.go ===
 @@ -10,5 +10,7 @@ func Validate()
   10   func Validate(token string) error {
@@ -380,7 +380,7 @@ Known model limits:
 
 Configuration is loaded by `config.Load()` with strict precedence:
 
-```
+```text
 CLI flags  >  Environment variables  >  .code-reviewer.yaml  >  Defaults
 ```
 
