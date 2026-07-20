@@ -101,15 +101,20 @@ func sanitizeSuggestions(findings []model.Finding) []model.Finding {
 		// Strip leading/trailing whitespace.
 		s = strings.TrimSpace(s)
 
-		// Strip diff markers (lines starting with + or -).
+		// Strip diff markers (lines starting with "+ " or "- ", like unified diff).
+		// Only strip when the marker is followed by a space to avoid corrupting
+		// valid code like negative numbers (-1), increment (++i), or pointers (*-).
 		lines := strings.Split(s, "\n")
 		var cleaned []string
 		allMarkers := true
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "+") || strings.HasPrefix(trimmed, "-") {
-				// Strip the marker prefix, keep the code.
-				cleaned = append(cleaned, strings.TrimPrefix(strings.TrimPrefix(trimmed, "+"), "-"))
+			if (strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ")) && len(trimmed) > 2 {
+				// Strip the single marker prefix and space, keep the code.
+				cleaned = append(cleaned, trimmed[2:])
+			} else if trimmed == "+" || trimmed == "-" {
+				// Empty diff line — skip.
+				cleaned = append(cleaned, "")
 			} else {
 				allMarkers = false
 				cleaned = append(cleaned, line)
@@ -174,17 +179,21 @@ func looksLikeProse(s string) bool {
 		return false
 	}
 	// Starts with capital, ends with period → likely prose.
+	// But exclude method calls like "Server.Close()" — those have parens (already caught above).
 	if len(s) > 0 && s[0] >= 'A' && s[0] <= 'Z' && s[len(s)-1] == '.' {
 		return true
 	}
-	// Contains common prose words with no code characters.
-	proseWords := []string{" the ", " should ", " instead ", " use ", " consider ", " rather ", " make sure "}
+	// Require at least 2 prose indicator words to reduce false positives
+	// on code that happens to contain a common English word.
+	proseWords := []string{" the ", " should ", " instead ", " use ", " consider ", " rather ", " make sure ", " with ", " from ", " into "}
+	matches := 0
+	lower := strings.ToLower(s)
 	for _, w := range proseWords {
-		if strings.Contains(strings.ToLower(s), w) {
-			return true
+		if strings.Contains(lower, w) {
+			matches++
 		}
 	}
-	return false
+	return matches >= 2
 }
 
 // pathMatch checks if two file paths refer to the same file,

@@ -172,14 +172,32 @@ func TestSanitizeSuggestions_StripCodeFences(t *testing.T) {
 
 func TestSanitizeSuggestions_StripDiffMarkers(t *testing.T) {
 	findings := []model.Finding{
-		{Suggestion: "+return nil, err\n+if x > 0 {"},
+		{Suggestion: "+ return nil, err\n+ if x > 0 {"},
 	}
 	result := sanitizeSuggestions(findings)
-	if strings.Contains(result[0].Suggestion, "+") {
-		t.Errorf("expected diff markers stripped, got %q", result[0].Suggestion)
-	}
 	if !strings.Contains(result[0].Suggestion, "return nil, err") {
 		t.Errorf("expected code preserved, got %q", result[0].Suggestion)
+	}
+	if strings.HasPrefix(strings.TrimSpace(result[0].Suggestion), "+ ") {
+		t.Errorf("expected diff markers stripped, got %q", result[0].Suggestion)
+	}
+}
+
+func TestSanitizeSuggestions_PreserveNegativeNumbers(t *testing.T) {
+	findings := []model.Finding{
+		{Suggestion: "-1"},
+		{Suggestion: "x := -42"},
+		{Suggestion: "++i"},
+	}
+	result := sanitizeSuggestions(findings)
+	if result[0].Suggestion != "-1" {
+		t.Errorf("negative number corrupted, got %q", result[0].Suggestion)
+	}
+	if result[1].Suggestion != "x := -42" {
+		t.Errorf("negative assignment corrupted, got %q", result[1].Suggestion)
+	}
+	if result[2].Suggestion != "++i" {
+		t.Errorf("increment corrupted, got %q", result[2].Suggestion)
 	}
 }
 
@@ -256,13 +274,17 @@ func TestLooksLikeProse(t *testing.T) {
 		input string
 		want  bool
 	}{
+		// Should be detected as prose (2+ prose words, no code chars).
 		{"Use a mutex instead of a channel for this.", true},
-		{"Consider refactoring the handler to use middleware.", true},
+		{"Consider refactoring the handler to use middleware instead.", true},
+		// Should NOT be detected as prose.
 		{"return nil, err", false},
 		{"db.Query(\"SELECT 1\")", false},
 		{"x := 1", false},
-		{"short", false}, // too short
-		{"if err != nil {", false},
+		{"short", false},                            // too short
+		{"if err != nil {", false},                   // has code chars
+		{"delete(theMap, key)", false},               // has code chars despite 'the'
+		{"reuse the cached version", false},          // only 1 prose word match
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -271,5 +293,23 @@ func TestLooksLikeProse(t *testing.T) {
 				t.Errorf("looksLikeProse(%q) = %v, want %v", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSanitizeSuggestions_EmptyAndWhitespace(t *testing.T) {
+	findings := []model.Finding{
+		{Suggestion: ""},
+		{Suggestion: "   "},
+		{Suggestion: "```go\n\n```"},
+	}
+	result := sanitizeSuggestions(findings)
+	if result[0].Suggestion != "" {
+		t.Errorf("expected empty to stay empty, got %q", result[0].Suggestion)
+	}
+	if result[1].Suggestion != "" {
+		t.Errorf("expected whitespace-only to be trimmed, got %q", result[1].Suggestion)
+	}
+	if result[2].Suggestion != "" {
+		t.Errorf("expected empty fenced block to be cleared, got %q", result[2].Suggestion)
 	}
 }
