@@ -273,19 +273,19 @@ func BuildIntentContext(intent *SummaryResult) string {
 	sb.WriteString("## DEVELOPER INTENT (inferred from diff analysis)\n\n")
 
 	if intent.Classification != "" {
-		sb.WriteString(fmt.Sprintf("Classification: %s\n", intent.Classification))
+		fmt.Fprintf(&sb, "Classification: %s\n", intent.Classification)
 	}
 	if intent.Intent != "" {
-		sb.WriteString(fmt.Sprintf("Intent: %s\n", intent.Intent))
+		fmt.Fprintf(&sb, "Intent: %s\n", intent.Intent)
 	}
 	if intent.RiskLevel != "" {
-		sb.WriteString(fmt.Sprintf("Risk Level: %s\n", intent.RiskLevel))
+		fmt.Fprintf(&sb, "Risk Level: %s\n", intent.RiskLevel)
 	}
 	if len(intent.ScopeAreas) > 0 {
-		sb.WriteString(fmt.Sprintf("Scope Areas: %s\n", strings.Join(intent.ScopeAreas, ", ")))
+		fmt.Fprintf(&sb, "Scope Areas: %s\n", strings.Join(intent.ScopeAreas, ", "))
 	}
 	if len(intent.BreakingChanges) > 0 {
-		sb.WriteString(fmt.Sprintf("Breaking Changes: %s\n", strings.Join(intent.BreakingChanges, "; ")))
+		fmt.Fprintf(&sb, "Breaking Changes: %s\n", strings.Join(intent.BreakingChanges, "; "))
 	}
 
 	sb.WriteString("\n## INTENT-AWARE REVIEW RULES\n\n")
@@ -293,7 +293,7 @@ func BuildIntentContext(intent *SummaryResult) string {
 
 	// Scope creep detection (always active).
 	if len(intent.ScopeAreas) > 0 {
-		sb.WriteString(fmt.Sprintf("* SCOPE CREEP: Flag any file changes that fall OUTSIDE the stated scope areas (%s). Report as category \"scope\" with severity MEDIUM.\n", strings.Join(intent.ScopeAreas, ", ")))
+		fmt.Fprintf(&sb, "* SCOPE CREEP: Flag any file changes that fall OUTSIDE the stated scope areas (%s). Report as category \"scope\" with severity MEDIUM.\n", strings.Join(intent.ScopeAreas, ", "))
 	}
 
 	// Classification-specific rules.

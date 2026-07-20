@@ -34,18 +34,18 @@ func formatIntentMarkdown(s *model.SummaryResult) string {
 	sb.WriteString("### 🎯 Inferred Intent\n\n")
 	sb.WriteString("| Field | Value |\n")
 	sb.WriteString("|---|---|\n")
-	sb.WriteString(fmt.Sprintf("| **Classification** | `%s` |\n", s.Classification))
-	sb.WriteString(fmt.Sprintf("| **Intent** | %s |\n", s.Intent))
-	sb.WriteString(fmt.Sprintf("| **Risk Level** | %s %s |\n", riskEmoji(s.RiskLevel), s.RiskLevel))
+	fmt.Fprintf(&sb, "| **Classification** | `%s` |\n", s.Classification)
+	fmt.Fprintf(&sb, "| **Intent** | %s |\n", s.Intent)
+	fmt.Fprintf(&sb, "| **Risk Level** | %s %s |\n", riskEmoji(s.RiskLevel), s.RiskLevel)
 	if len(s.ScopeAreas) > 0 {
 		areas := make([]string, len(s.ScopeAreas))
 		for i, a := range s.ScopeAreas {
 			areas[i] = "`" + a + "`"
 		}
-		sb.WriteString(fmt.Sprintf("| **Scope** | %s |\n", strings.Join(areas, ", ")))
+		fmt.Fprintf(&sb, "| **Scope** | %s |\n", strings.Join(areas, ", "))
 	}
 	if len(s.BreakingChanges) > 0 {
-		sb.WriteString(fmt.Sprintf("| **Breaking Changes** | %s |\n", strings.Join(s.BreakingChanges, "; ")))
+		fmt.Fprintf(&sb, "| **Breaking Changes** | %s |\n", strings.Join(s.BreakingChanges, "; "))
 	}
 	sb.WriteString("\n---\n\n")
 	return sb.String()
