@@ -116,7 +116,9 @@ func run(ctx, initCtx context.Context) (int, error) {
 	rev := reviewer.NewWithContext(cfg, modelProvider, glClient, ctxProvider)
 
 	var exitCode int
-	if cfg.Summarize {
+	if cfg.Explain {
+		exitCode, err = rev.RunExplain(ctx)
+	} else if cfg.Summarize {
 		exitCode, err = rev.RunSummary(ctx)
 	} else {
 		exitCode, err = rev.Run(ctx)
