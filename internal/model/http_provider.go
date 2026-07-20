@@ -70,6 +70,9 @@ func NewHTTPProvider(baseURL, apiKey, modelName string) (*HTTPProvider, error) {
 		modelName: modelName,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Minute, // LLM calls can be slow on large diffs.
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return fmt.Errorf("redirects are not followed for model API calls")
+			},
 		},
 	}
 
@@ -117,6 +120,23 @@ type chatResponse struct {
 
 // Review sends a diff to the model for review and returns structured findings.
 func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error) {
+	text, usage, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
+
+	review, err := parseReviewJSON(text)
+	if err != nil {
+		return nil, fmt.Errorf("parsing model response: %w (raw: %s)", err, truncate(text, 500))
+	}
+
+	review.Usage = usage
+	return review, nil
+}
+
+// generateRaw sends a prompt via the OpenAI-compatible API and returns the raw
+// text response along with token usage. Used by both Review and Summarize.
+func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, error) {
 	reqBody := chatRequest{
 		Model: p.modelName,
 		Messages: []chatMessage{
@@ -128,7 +148,7 @@ func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt stri
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("marshaling request: %w", err)
+		return "", nil, fmt.Errorf("marshaling request: %w", err)
 	}
 
 	endpoint := p.baseURL + "/chat/completions"
@@ -143,14 +163,13 @@ func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt stri
 				return true
 			}
 		}
-		// Fallback: network-level errors.
 		errStr := strings.ToLower(err.Error())
 		return strings.Contains(errStr, "unavailable") ||
 			strings.Contains(errStr, "overloaded") ||
 			strings.Contains(errStr, "temporarily")
 	}
 
-	if err := retry.Do(ctx, "http model review", func() error {
+	if err := retry.Do(ctx, "http model call", func() error {
 		req, reqErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 		if reqErr != nil {
 			return fmt.Errorf("creating request: %w", reqErr)
@@ -188,42 +207,35 @@ func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt stri
 
 		return nil
 	}, retryOpts); err != nil {
-		return nil, fmt.Errorf("generating content: %w", err)
+		return "", nil, fmt.Errorf("generating content: %w", err)
 	}
 
-	// Parse the OpenAI-format response.
 	var chatResp chatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		return nil, fmt.Errorf("parsing response JSON: %w (raw: %s)", err, truncateBytes(respBody, 500))
+		return "", nil, fmt.Errorf("parsing response JSON: %w (raw: %s)", err, truncateBytes(respBody, 500))
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return nil, fmt.Errorf("empty response from model (no choices)")
+		return "", nil, fmt.Errorf("empty response from model (no choices)")
 	}
 
 	text := chatResp.Choices[0].Message.Content
 	if text == "" {
-		return nil, fmt.Errorf("empty content in model response")
+		return "", nil, fmt.Errorf("empty content in model response")
 	}
 
 	slog.Debug("raw model response", "length", len(text))
 
-	// Parse the review JSON from the content.
-	review, err := parseReviewJSON(text)
-	if err != nil {
-		return nil, fmt.Errorf("parsing model response: %w (raw: %s)", err, truncate(text, 500))
-	}
-
-	// Capture token usage.
+	var usage *TokenUsage
 	if chatResp.Usage != nil {
-		review.Usage = &TokenUsage{
+		usage = &TokenUsage{
 			InputTokens:  chatResp.Usage.PromptTokens,
 			OutputTokens: chatResp.Usage.CompletionTokens,
 			TotalTokens:  chatResp.Usage.TotalTokens,
 		}
 	}
 
-	return review, nil
+	return text, usage, nil
 }
 
 // Close is a no-op for the HTTP provider.

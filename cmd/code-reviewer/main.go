@@ -114,13 +114,19 @@ func run(ctx, initCtx context.Context) (int, error) {
 	}
 
 	rev := reviewer.NewWithContext(cfg, modelProvider, glClient, ctxProvider)
-	findingCount, err := rev.Run(ctx)
+
+	var exitCode int
+	if cfg.Summarize {
+		exitCode, err = rev.RunSummary(ctx)
+	} else {
+		exitCode, err = rev.Run(ctx)
+	}
 	if err != nil {
 		return 0, err
 	}
 
-	if findingCount > 0 {
-		slog.Info(fmt.Sprintf("review complete: %d finding(s)", findingCount))
+	if exitCode > 0 {
+		slog.Info(fmt.Sprintf("review complete: %d finding(s)", exitCode))
 		return 1, nil
 	}
 

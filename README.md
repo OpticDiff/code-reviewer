@@ -39,6 +39,7 @@ cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
 - **Context-aware** — Modular chunking strategies for large MRs
 - **Repo-aware context** — Tree-sitter extracts changed symbols from diffs; grep finds usages in unchanged files to give the reviewer cross-file awareness
 - **REVIEW.md** — Drop a `REVIEW.md` in your repo root to inject team-specific review instructions at the highest priority
+- **Auto-summary** — `--summarize` generates structured MR descriptions from diffs: classification, intent, risk level, scope areas, and breaking changes
 - **Configurable** — CLI flags, env vars, per-repo `.code-reviewer.yaml`, or `REVIEW.md`
 
 ## Quick Start
@@ -139,6 +140,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--api-key` | API key for HTTP provider (optional for IAM/ADC auth) | — |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
 | `--proxy-url` | Route model calls through an LLM proxy (e.g. Candela) | — |
+| `--summarize` | Generate structured MR summary instead of review | `false` |
 | `--version` | Print version and exit | — |
 
 ### Environment Variables
@@ -232,6 +234,27 @@ Noise mitigation is built in:
 - Import statements and comments are filtered out.
 
 Disable with `--no-context` or the `disable_context: true` config field.
+
+### Auto-Summary
+
+Use `--summarize` to generate a structured MR description from the diff instead of a code review. The model analyzes the changes and produces:
+
+- **Classification** — `feat`, `fix`, `refactor`, `chore`, `docs`, `test`, `security`, `config`, `perf`
+- **Intent** — What the developer is trying to accomplish
+- **Risk level** — `low`, `medium`, `high` based on scope, complexity, and sensitivity
+- **Scope areas** — Which parts of the codebase are affected (e.g. `auth`, `api`, `database`)
+- **Breaking changes** — Any backward-incompatible changes
+
+```bash
+# Local: summarize your branch diff
+code-reviewer --summarize --diff
+
+# CI: post summary as MR comment
+code-reviewer --summarize --ci
+
+# JSON output for scripting
+code-reviewer --summarize --diff --json
+```
 
 ## Models
 
