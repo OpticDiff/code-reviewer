@@ -120,3 +120,44 @@ func TestFormatExplainMarkdown(t *testing.T) {
 		t.Error("expected explanation content")
 	}
 }
+
+func TestStripControlChars_PreservesNormal(t *testing.T) {
+	input := "Hello\nWorld\t!"
+	result := stripControlChars(input)
+	if result != input {
+		t.Errorf("expected %q, got %q", input, result)
+	}
+}
+
+func TestStripControlChars_RemovesESC(t *testing.T) {
+	// ESC[ is CSI (Control Sequence Introducer) used for terminal manipulation.
+	input := "before\x1b[31mred\x1b[0mafter"
+	result := stripControlChars(input)
+	if strings.Contains(result, "\x1b") {
+		t.Errorf("expected ESC sequences removed, got %q", result)
+	}
+	if !strings.Contains(result, "before") || !strings.Contains(result, "after") {
+		t.Error("expected normal text preserved")
+	}
+}
+
+func TestStripControlChars_RemovesOSC(t *testing.T) {
+	// OSC (Operating System Command) can change terminal title.
+	input := "normal\x1b]0;malicious title\x07rest"
+	result := stripControlChars(input)
+	if strings.Contains(result, "\x1b") || strings.Contains(result, "\x07") {
+		t.Errorf("expected control chars removed, got %q", result)
+	}
+}
+
+func TestFormatExplainTerminal_SanitizesControlChars(t *testing.T) {
+	// Model output with embedded CSI sequence.
+	explanation := "This is safe\x1b[2J\x1b[H but this clears screen"
+	result := formatExplainTerminal(explanation, false)
+	if strings.Contains(result, "\x1b") {
+		t.Error("expected control sequences stripped from terminal output")
+	}
+	if !strings.Contains(result, "This is safe") {
+		t.Error("expected safe content preserved")
+	}
+}

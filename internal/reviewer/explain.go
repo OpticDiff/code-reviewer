@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode"
 
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
@@ -94,7 +95,7 @@ func formatExplainTerminal(explanation string, useColor bool) string {
 	}
 	sb.WriteString("\n\n")
 
-	sb.WriteString(strings.TrimSpace(explanation))
+	sb.WriteString(stripControlChars(strings.TrimSpace(explanation)))
 	sb.WriteString("\n\n")
 
 	return sb.String()
@@ -108,4 +109,18 @@ func formatExplainMarkdown(explanation string) string {
 	sb.WriteString(strings.TrimSpace(explanation))
 	sb.WriteString("\n")
 	return sb.String()
+}
+
+// stripControlChars removes terminal control characters (OSC, CSI, etc.)
+// from untrusted model output while preserving newlines and tabs.
+func stripControlChars(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || r == '\r' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1 // Drop.
+		}
+		return r
+	}, s)
 }
