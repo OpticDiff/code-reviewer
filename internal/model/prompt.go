@@ -59,7 +59,7 @@ You MUST respond with a valid JSON object matching this exact schema. Do NOT inc
       "category": "bug",
       "title": "Single sentence summary of the issue",
       "body": "Detailed explanation of why this is an issue and its potential impact.",
-      "suggestion": "Optional: corrected code snippet"
+      "suggestion": "Optional: corrected code (see SUGGESTION RULES)"
     }
   ]
 }
@@ -67,7 +67,18 @@ You MUST respond with a valid JSON object matching this exact schema. Do NOT inc
 If no issues are found, return:
 {"summary": "description of the change", "findings": []}
 
-The "line" field MUST correspond to the new_line number shown in the diff. The "category" MUST be one of: bug, security, performance, style, docs.`
+The "line" field MUST correspond to the new_line number shown in the diff. The "category" MUST be one of: bug, security, performance, style, docs.
+
+## SUGGESTION RULES
+
+When providing a "suggestion", follow these rules strictly:
+
+* The suggestion MUST be a **drop-in replacement** for the problematic line(s). It will be applied directly to the source file.
+* The suggestion MUST be **syntactically valid** code in the file's language. Never output code that would not compile or parse.
+* Output **only the corrected code** — do NOT include explanatory text, comments like "// fix: ...", diff markers (+/-), line numbers, or markdown fencing.
+* Keep suggestions **minimal** — include only the lines that need to change, not the entire function or block.
+* If the fix requires changes across multiple non-adjacent lines, describe the fix in the "body" field instead and omit the suggestion.
+* If you are unsure about the exact fix, omit the suggestion and explain the issue in the "body" field.`
 
 // focusOverlays adds focus-specific instructions to the prompt.
 var focusOverlays = map[string]string{
