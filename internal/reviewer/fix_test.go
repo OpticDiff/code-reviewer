@@ -232,3 +232,94 @@ func TestFormatFixSummary_Mixed(t *testing.T) {
 		t.Error("expected skipped count")
 	}
 }
+
+func TestApplyFixes_PathTraversal(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Create a file inside tmpDir that the traversal would try to reach.
+	target := filepath.Join(tmpDir, "safe.go")
+	if err := os.WriteFile(target, []byte("package safe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	findings := []model.Finding{{
+		File:       "../../etc/passwd",
+		Line:       1,
+		Severity:   "high",
+		Title:      "Malicious path",
+		Suggestion: "pwned",
+	}}
+
+	fixes := ApplyFixes(findings, tmpDir)
+	if len(fixes) != 1 {
+		t.Fatalf("expected 1 fix, got %d", len(fixes))
+	}
+	if fixes[0].Applied {
+		t.Error("path traversal fix should be skipped")
+	}
+	if !strings.Contains(fixes[0].Reason, "escapes repository root") {
+		t.Errorf("expected 'escapes repository root', got: %s", fixes[0].Reason)
+	}
+}
+
+func TestApplyFixes_DuplicateSameLine(t *testing.T) {
+	tmpDir := t.TempDir()
+	file := filepath.Join(tmpDir, "dup.go")
+	content := "line1\nline2\nline3\n"
+	if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	findings := []model.Finding{
+		{File: file, Line: 2, Severity: "medium", Title: "First fix", Suggestion: "FIRST"},
+		{File: file, Line: 2, Severity: "low", Title: "Second fix", Suggestion: "SECOND"},
+	}
+
+	fixes := ApplyFixes(findings, "")
+	if len(fixes) != 2 {
+		t.Fatalf("expected 2 fixes, got %d", len(fixes))
+	}
+
+	applied := 0
+	skipped := 0
+	for _, f := range fixes {
+		if f.Applied {
+			applied++
+		} else {
+			skipped++
+		}
+	}
+	if applied != 1 {
+		t.Errorf("expected exactly 1 applied fix, got %d", applied)
+	}
+	if skipped != 1 {
+		t.Errorf("expected exactly 1 skipped fix, got %d", skipped)
+	}
+
+	result, _ := os.ReadFile(file)
+	if !strings.Contains(string(result), "FIRST") {
+		t.Error("expected first fix to be applied")
+	}
+	if strings.Contains(string(result), "SECOND") {
+		t.Error("second duplicate fix should not be applied")
+	}
+}
+
+func TestApplyFixes_AbsolutePathEscape(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	findings := []model.Finding{{
+		File:       "/etc/passwd",
+		Line:       1,
+		Severity:   "high",
+		Title:      "Absolute path",
+		Suggestion: "pwned",
+	}}
+
+	fixes := ApplyFixes(findings, tmpDir)
+	if len(fixes) != 1 {
+		t.Fatalf("expected 1 fix, got %d", len(fixes))
+	}
+	if fixes[0].Applied {
+		t.Error("absolute path fix should be skipped")
+	}
+}

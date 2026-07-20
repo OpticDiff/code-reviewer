@@ -44,15 +44,23 @@ func ApplyFixes(findings []model.Finding, repoRoot string) []ApplyFix {
 	}
 
 	// Group by file and sort by line descending (apply bottom-up to preserve line numbers).
+	// Detect and skip duplicate fixes targeting the same file:line.
 	byFile := map[string][]int{}
-	fixMap := map[string]map[int]*ApplyFix{}
+	seen := map[string]map[int]bool{}
 	for i := range fixes {
 		f := &fixes[i]
-		byFile[f.File] = append(byFile[f.File], i)
-		if fixMap[f.File] == nil {
-			fixMap[f.File] = map[int]*ApplyFix{}
+
+		// Duplicate detection: skip if we already have a fix for this file:line.
+		if seen[f.File] == nil {
+			seen[f.File] = map[int]bool{}
 		}
-		fixMap[f.File][f.Line] = f
+		if seen[f.File][f.Line] {
+			f.Reason = fmt.Sprintf("duplicate fix for %s:%d, keeping first", f.File, f.Line)
+			continue
+		}
+		seen[f.File][f.Line] = true
+
+		byFile[f.File] = append(byFile[f.File], i)
 	}
 
 	for file, idxs := range byFile {
@@ -64,6 +72,19 @@ func ApplyFixes(findings []model.Finding, repoRoot string) []ApplyFix {
 		filePath := file
 		if repoRoot != "" {
 			filePath = filepath.Join(repoRoot, file)
+		}
+
+		// Path traversal guard: ensure resolved path stays within repoRoot.
+		if repoRoot != "" {
+			cleaned := filepath.Clean(filePath)
+			rel, err := filepath.Rel(repoRoot, cleaned)
+			if err != nil || strings.HasPrefix(rel, "..") {
+				for _, idx := range idxs {
+					fixes[idx].Reason = "path escapes repository root"
+				}
+				continue
+			}
+			filePath = cleaned
 		}
 
 		content, err := os.ReadFile(filePath)
@@ -100,7 +121,6 @@ func ApplyFixes(findings []model.Finding, repoRoot string) []ApplyFix {
 			slog.Info("applied fix",
 				"file", fix.File,
 				"line", fix.Line,
-				"title", fix.Title,
 			)
 		}
 
