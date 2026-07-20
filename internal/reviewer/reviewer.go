@@ -324,6 +324,14 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 	}
 
+	// Step 8: Apply fixes if requested.
+	if r.cfg.Fix && len(allFindings) > 0 {
+		repoRoot := findRepoRoot()
+		fixes := ApplyFixes(allFindings, repoRoot)
+		useColor := !r.cfg.NoColor && isTTY()
+		fmt.Print(FormatFixSummary(fixes, useColor))
+	}
+
 	return len(allFindings), nil
 }
 

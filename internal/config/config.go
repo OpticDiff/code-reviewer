@@ -134,6 +134,9 @@ type Config struct {
 	// Explain mode.
 	Explain bool // Explain the diff instead of reviewing it.
 
+	// Fix mode.
+	Fix bool // Apply suggested fixes to the working tree.
+
 	// Budget.
 	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 }
@@ -454,6 +457,7 @@ func (c *Config) loadFlags() error {
 	intentFlag := fs.Bool("intent", false, "Enable two-pass intent-aware review")
 	noIntentFlag := fs.Bool("no-intent", false, "Disable intent-aware review (overrides CI default)")
 	explain := fs.Bool("explain", false, "Explain the diff instead of reviewing it")
+	fix := fs.Bool("fix", false, "Apply suggested fixes to the working tree after review")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -553,6 +557,9 @@ func (c *Config) loadFlags() error {
 	if *explain {
 		c.Explain = true
 	}
+	if *fix {
+		c.Fix = true
+	}
 	return nil
 }
 
@@ -635,6 +642,16 @@ func (c *Config) validate() error {
 	}
 	if c.Explain && c.IntentReview {
 		return fmt.Errorf("--explain and --intent are mutually exclusive")
+	}
+
+	if c.Fix && !c.DiffMode {
+		return fmt.Errorf("--fix requires --diff mode (cannot modify files from CI)")
+	}
+	if c.Fix && c.Explain {
+		return fmt.Errorf("--fix and --explain are mutually exclusive")
+	}
+	if c.Fix && c.Summarize {
+		return fmt.Errorf("--fix and --summarize are mutually exclusive")
 	}
 
 	return nil
