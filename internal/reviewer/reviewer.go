@@ -179,7 +179,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 
 	// Step 4: Build prompt and call model for each chunk.
-	systemPrompt := model.BuildPromptWithCustom(r.cfg.CustomPrompt, r.cfg.Focus, r.cfg.ExtraRules)
+	// In CI mode, source REVIEW.md from the trusted base/target ref so that
+	// contributor-controlled branches cannot inject review instructions.
+	reviewMD := r.cfg.ReviewMD
+	if r.cfg.CIMode && r.cfg.CIDiffBaseSHA != "" {
+		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
+	}
+	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules)
 	var allFindings []model.Finding
 	var summary string
 	var totalUsage model.TokenUsage
@@ -468,4 +474,26 @@ func findRepoRoot() string {
 		}
 		dir = parent
 	}
+}
+
+// readReviewMDFromRef reads REVIEW.md from a specific git ref (e.g. base commit SHA).
+// Returns empty string if the file doesn't exist at that ref or git fails.
+func readReviewMDFromRef(ref string) string {
+	// Prevent command injection: reject refs that look like flags.
+	if strings.HasPrefix(ref, "-") {
+		slog.Warn("invalid git ref for REVIEW.md lookup, skipping", "ref", ref)
+		return ""
+	}
+	cmd := exec.Command("git", "show", ref+":REVIEW.md")
+	output, err := cmd.Output()
+	if err != nil {
+		// File doesn't exist at this ref — this is normal and expected.
+		slog.Debug("REVIEW.md not found at base ref", "ref", ref)
+		return ""
+	}
+	content := strings.TrimSpace(string(output))
+	if content != "" {
+		slog.Info("loaded REVIEW.md from trusted base ref", "ref", ref[:min(len(ref), 12)])
+	}
+	return content
 }

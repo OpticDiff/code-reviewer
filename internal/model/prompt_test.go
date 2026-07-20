@@ -136,6 +136,77 @@ func TestBuildPromptWithCustom_EmptyPath(t *testing.T) {
 	}
 }
 
+func TestBuildPromptFull_ReviewMD(t *testing.T) {
+	reviewMD := "## Always check\n- New API routes have integration tests\n- No PII in logs"
+	prompt := BuildPromptFull("", reviewMD, []string{"bugs"}, "")
+
+	if !strings.Contains(prompt, "REVIEW INSTRUCTIONS (HIGHEST PRIORITY)") {
+		t.Error("prompt should contain REVIEW INSTRUCTIONS header")
+	}
+	if !strings.Contains(prompt, "New API routes have integration tests") {
+		t.Error("prompt should contain REVIEW.md content")
+	}
+	if !strings.Contains(prompt, "No PII in logs") {
+		t.Error("prompt should contain all REVIEW.md content")
+	}
+	// Verify REVIEW.md comes after base prompt and focus overlays.
+	baseIdx := strings.Index(prompt, "Principal Software Engineer")
+	reviewIdx := strings.Index(prompt, "REVIEW INSTRUCTIONS")
+	if reviewIdx <= baseIdx {
+		t.Error("REVIEW.md should appear after base prompt (recency = highest priority)")
+	}
+	// Verify immutable guardrails come after REVIEW.md.
+	guardrailIdx := strings.Index(prompt, "IMMUTABLE OUTPUT CONSTRAINTS")
+	if guardrailIdx < 0 {
+		t.Fatal("prompt should contain IMMUTABLE OUTPUT CONSTRAINTS")
+	}
+	if guardrailIdx <= reviewIdx {
+		t.Error("immutable guardrails should appear after REVIEW.md")
+	}
+}
+
+func TestBuildPromptFull_ReviewMD_AfterExtraRules(t *testing.T) {
+	reviewMD := "Only report CRITICAL severity."
+	prompt := BuildPromptFull("", reviewMD, []string{"all"}, "Flag raw SQL.")
+
+	rulesIdx := strings.Index(prompt, "ADDITIONAL RULES")
+	reviewIdx := strings.Index(prompt, "REVIEW INSTRUCTIONS")
+	if rulesIdx < 0 || reviewIdx < 0 {
+		t.Fatal("both ADDITIONAL RULES and REVIEW INSTRUCTIONS should be present")
+	}
+	if reviewIdx <= rulesIdx {
+		t.Error("REVIEW.md should appear after extra rules (highest priority = last)")
+	}
+}
+
+func TestBuildPromptFull_EmptyReviewMD(t *testing.T) {
+	prompt := BuildPromptFull("", "", []string{"bugs"}, "")
+	if strings.Contains(prompt, "REVIEW INSTRUCTIONS") {
+		t.Error("empty reviewMD should not inject REVIEW INSTRUCTIONS section")
+	}
+}
+
+func TestBuildPromptFull_WithCustomPromptAndReviewMD(t *testing.T) {
+	dir := t.TempDir()
+	promptFile := filepath.Join(dir, "custom.md")
+	if err := os.WriteFile(promptFile, []byte("You are a security auditor."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reviewMD := "Focus on SQL injection only."
+	prompt := BuildPromptFull(promptFile, reviewMD, []string{"security"}, "")
+
+	if !strings.Contains(prompt, "You are a security auditor.") {
+		t.Error("custom prompt should be used as base")
+	}
+	if !strings.Contains(prompt, "Focus on SQL injection only.") {
+		t.Error("REVIEW.md should be appended")
+	}
+	if strings.Contains(prompt, "Principal Software Engineer") {
+		t.Error("built-in base should not be present when custom prompt is used")
+	}
+}
+
 func TestBuildUserPromptWithContext_WithSnippets(t *testing.T) {
 	snippets := []ContextSnippet{
 		{File: "handler.go", Line: 42, Content: "auth.ValidateSession(token)", Symbol: "ValidateSession"},
