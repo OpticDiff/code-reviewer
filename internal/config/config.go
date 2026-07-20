@@ -131,6 +131,9 @@ type Config struct {
 	IntentReview   bool // Enable two-pass intent-aware review.
 	NoIntentReview bool // Explicitly disable (overrides CI default).
 
+	// Explain mode.
+	Explain bool // Explain the diff instead of reviewing it.
+
 	// Budget.
 	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 }
@@ -450,6 +453,7 @@ func (c *Config) loadFlags() error {
 	summaryUpdateDesc := fs.Bool("summary-update-description", false, "Update MR description with the generated summary")
 	intentFlag := fs.Bool("intent", false, "Enable two-pass intent-aware review")
 	noIntentFlag := fs.Bool("no-intent", false, "Disable intent-aware review (overrides CI default)")
+	explain := fs.Bool("explain", false, "Explain the diff instead of reviewing it")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -546,6 +550,9 @@ func (c *Config) loadFlags() error {
 	if *noIntentFlag {
 		c.NoIntentReview = true
 	}
+	if *explain {
+		c.Explain = true
+	}
 	return nil
 }
 
@@ -621,6 +628,13 @@ func (c *Config) validate() error {
 
 	if c.IntentReview && c.Summarize {
 		return fmt.Errorf("--intent and --summarize are mutually exclusive; intent review includes summarization")
+	}
+
+	if c.Explain && c.Summarize {
+		return fmt.Errorf("--explain and --summarize are mutually exclusive")
+	}
+	if c.Explain && c.IntentReview {
+		return fmt.Errorf("--explain and --intent are mutually exclusive")
 	}
 
 	return nil
