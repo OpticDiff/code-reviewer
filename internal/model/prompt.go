@@ -67,7 +67,7 @@ You MUST respond with a valid JSON object matching this exact schema. Do NOT inc
 If no issues are found, return:
 {"summary": "description of the change", "findings": []}
 
-The "line" field MUST correspond to the new_line number shown in the diff. The "category" MUST be one of: bug, security, performance, style, docs.
+The "line" field MUST correspond to the new_line number shown in the diff. The "category" MUST be one of: bug, security, performance, style, docs, scope.
 
 ## SUGGESTION RULES
 
@@ -130,23 +130,24 @@ Concentrate on documentation quality:
 // BuildPrompt constructs the full system prompt for a review call.
 // Uses the built-in basePrompt as the system prompt.
 func BuildPrompt(focusModes []string, extraRules string) string {
-	return BuildPromptFull("", "", focusModes, extraRules)
+	return BuildPromptFull("", "", focusModes, extraRules, "")
 }
 
 // BuildPromptWithCustom constructs the system prompt, optionally loading a custom
 // prompt from disk. If customPromptPath is non-empty, its contents replace the
 // built-in base prompt. Focus overlays and extra rules are always appended.
 func BuildPromptWithCustom(customPromptPath string, focusModes []string, extraRules string) string {
-	return BuildPromptFull(customPromptPath, "", focusModes, extraRules)
+	return BuildPromptFull(customPromptPath, "", focusModes, extraRules, "")
 }
 
 // BuildPromptFull constructs the complete system prompt with all layers.
 // Priority (highest last, due to LLM recency bias):
 //   1. Base prompt (or custom prompt file)
 //   2. Focus overlays
-//   3. Extra rules
-//   4. REVIEW.md instructions (highest priority)
-func BuildPromptFull(customPromptPath, reviewMD string, focusModes []string, extraRules string) string {
+//   3. Intent context (from two-pass review)
+//   4. Extra rules
+//   5. REVIEW.md instructions (highest priority)
+func BuildPromptFull(customPromptPath, reviewMD string, focusModes []string, extraRules, intentContext string) string {
 	var sb strings.Builder
 
 	// Base prompt: custom file or built-in.
@@ -180,6 +181,12 @@ func BuildPromptFull(customPromptPath, reviewMD string, focusModes []string, ext
 				sb.WriteString(overlay)
 			}
 		}
+	}
+
+	// Layer 3: Intent context (from two-pass review).
+	if intentContext != "" {
+		sb.WriteString("\n\n")
+		sb.WriteString(intentContext)
 	}
 
 	// Append custom rules.
@@ -252,5 +259,68 @@ func BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff string, snippets [
 		fmt.Fprintf(&sb, "**%s:%d** (references `%s`):\n```\n%s\n```\n\n",
 			s.File, s.Line, s.Symbol, s.Content)
 	}
+	return sb.String()
+}
+
+// BuildIntentContext generates an intent context prompt section from a SummaryResult.
+// This is injected into the review prompt during two-pass intent-aware review.
+func BuildIntentContext(intent *SummaryResult) string {
+	if intent == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("## DEVELOPER INTENT (inferred from diff analysis)\n\n")
+
+	if intent.Classification != "" {
+		sb.WriteString(fmt.Sprintf("Classification: %s\n", intent.Classification))
+	}
+	if intent.Intent != "" {
+		sb.WriteString(fmt.Sprintf("Intent: %s\n", intent.Intent))
+	}
+	if intent.RiskLevel != "" {
+		sb.WriteString(fmt.Sprintf("Risk Level: %s\n", intent.RiskLevel))
+	}
+	if len(intent.ScopeAreas) > 0 {
+		sb.WriteString(fmt.Sprintf("Scope Areas: %s\n", strings.Join(intent.ScopeAreas, ", ")))
+	}
+	if len(intent.BreakingChanges) > 0 {
+		sb.WriteString(fmt.Sprintf("Breaking Changes: %s\n", strings.Join(intent.BreakingChanges, "; ")))
+	}
+
+	sb.WriteString("\n## INTENT-AWARE REVIEW RULES\n\n")
+	sb.WriteString("Given the inferred intent above, apply these additional checks:\n\n")
+
+	// Scope creep detection (always active).
+	if len(intent.ScopeAreas) > 0 {
+		sb.WriteString(fmt.Sprintf("* SCOPE CREEP: Flag any file changes that fall OUTSIDE the stated scope areas (%s). Report as category \"scope\" with severity MEDIUM.\n", strings.Join(intent.ScopeAreas, ", ")))
+	}
+
+	// Classification-specific rules.
+	switch intent.Classification {
+	case "feat":
+		sb.WriteString("* TEST COVERAGE: This is a feature change. If new behavior is introduced without corresponding test files or test functions, report as category \"scope\" with severity HIGH and title \"New feature missing test coverage\".\n")
+	case "fix":
+		sb.WriteString("* ROOT CAUSE: This is a bug fix. Verify the fix addresses the root cause, not just symptoms. If the fix appears to be a workaround, report as category \"scope\" with severity MEDIUM.\n")
+	case "refactor":
+		sb.WriteString("* BEHAVIORAL PRESERVATION: This is a refactor. Verify no behavioral changes are introduced. If behavior changes, report as category \"scope\" with severity HIGH and title \"Refactor introduces behavioral change\".\n")
+	}
+
+	// Breaking changes documentation check.
+	if len(intent.BreakingChanges) > 0 {
+		sb.WriteString("* BREAKING CHANGES: Breaking changes were detected. Verify each is documented in CHANGELOG, README, or migration guide. Report undocumented breaking changes as category \"scope\" with severity HIGH.\n")
+	}
+
+	// Risk-level-specific rules.
+	switch intent.RiskLevel {
+	case "high":
+		sb.WriteString("* HIGH RISK: Apply extra scrutiny to error handling, edge cases, and failure modes. Verify rollback paths exist.\n")
+	case "medium":
+		sb.WriteString("* MEDIUM RISK: Apply standard scrutiny to error handling and input validation.\n")
+	}
+
+	sb.WriteString("\nDo NOT repeat the intent summary in your review findings — use it only as review criteria.\n")
+	sb.WriteString("Findings from these rules MUST use category \"scope\" so they can be filtered separately.\n")
+
 	return sb.String()
 }
