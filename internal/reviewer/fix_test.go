@@ -206,10 +206,10 @@ func TestApplyFixes(t *testing.T) {
 				}
 			}
 
-			if tt.wantApplied > 0 && applied != tt.wantApplied {
+			if applied != tt.wantApplied {
 				t.Errorf("applied = %d, want %d", applied, tt.wantApplied)
 			}
-			if tt.wantSkipped > 0 && skipped != tt.wantSkipped {
+			if skipped != tt.wantSkipped {
 				t.Errorf("skipped = %d, want %d", skipped, tt.wantSkipped)
 			}
 
@@ -236,19 +236,20 @@ func TestApplyFixes(t *testing.T) {
 					}
 					checkPath = f
 				}
-				if checkPath != "" {
+			if checkPath != "" {
 					content, err := os.ReadFile(checkPath)
-					if err == nil {
-						s := string(content)
-						for _, want := range tt.wantIn {
-							if !strings.Contains(s, want) {
-								t.Errorf("file should contain %q, got:\n%s", want, s)
-							}
+					if err != nil {
+						t.Fatalf("reading %s for content check: %v", checkPath, err)
+					}
+					s := string(content)
+					for _, want := range tt.wantIn {
+						if !strings.Contains(s, want) {
+							t.Errorf("file should contain %q, got:\n%s", want, s)
 						}
-						for _, notWant := range tt.wantNotIn {
-							if strings.Contains(s, notWant) {
-								t.Errorf("file should NOT contain %q, got:\n%s", notWant, s)
-							}
+					}
+					for _, notWant := range tt.wantNotIn {
+						if strings.Contains(s, notWant) {
+							t.Errorf("file should NOT contain %q, got:\n%s", notWant, s)
 						}
 					}
 				}
