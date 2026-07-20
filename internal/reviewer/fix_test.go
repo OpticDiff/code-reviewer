@@ -305,21 +305,70 @@ func TestApplyFixes_DuplicateSameLine(t *testing.T) {
 }
 
 func TestApplyFixes_AbsolutePathEscape(t *testing.T) {
+	// On macOS/Linux, filepath.Join(root, "/etc/passwd") normalizes to
+	// root/etc/passwd (no escape). Use a relative traversal that actually
+	// escapes: "../<siblingdir>/target" relative to repoRoot.
 	tmpDir := t.TempDir()
 
+	// Create a sibling directory with a target file outside repoRoot.
+	repoRoot := filepath.Join(tmpDir, "repo")
+	sibling := filepath.Join(tmpDir, "sibling")
+	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(sibling, "secret.txt")
+	if err := os.WriteFile(target, []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	findings := []model.Finding{{
-		File:       "/etc/passwd",
+		File:       "../sibling/secret.txt",
 		Line:       1,
 		Severity:   "high",
-		Title:      "Absolute path",
+		Title:      "Escape via sibling",
 		Suggestion: "pwned",
 	}}
 
-	fixes := ApplyFixes(findings, tmpDir)
+	fixes := ApplyFixes(findings, repoRoot)
 	if len(fixes) != 1 {
 		t.Fatalf("expected 1 fix, got %d", len(fixes))
 	}
 	if fixes[0].Applied {
-		t.Error("absolute path fix should be skipped")
+		t.Error("sibling path escape should be skipped")
+	}
+	if !strings.Contains(fixes[0].Reason, "escapes repository root") {
+		t.Errorf("expected 'escapes repository root', got: %s", fixes[0].Reason)
+	}
+
+	// Verify the target file was NOT modified.
+	content, _ := os.ReadFile(target)
+	if strings.Contains(string(content), "pwned") {
+		t.Error("target file outside repoRoot was modified!")
+	}
+}
+
+func TestApplyFixes_NoRepoRootAbsolutePath(t *testing.T) {
+	// When repoRoot is empty, the traversal guard is skipped. An absolute
+	// path to a non-existent file should fail gracefully on ReadFile.
+	findings := []model.Finding{{
+		File:       "/nonexistent/absolute/path.go",
+		Line:       1,
+		Severity:   "high",
+		Title:      "Abs path no root",
+		Suggestion: "fixed",
+	}}
+
+	fixes := ApplyFixes(findings, "")
+	if len(fixes) != 1 {
+		t.Fatalf("expected 1 fix, got %d", len(fixes))
+	}
+	if fixes[0].Applied {
+		t.Error("nonexistent absolute path should fail")
+	}
+	if !strings.Contains(fixes[0].Reason, "cannot read file") {
+		t.Errorf("expected read failure, got: %s", fixes[0].Reason)
 	}
 }
