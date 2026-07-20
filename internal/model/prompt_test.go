@@ -138,7 +138,7 @@ func TestBuildPromptWithCustom_EmptyPath(t *testing.T) {
 
 func TestBuildPromptFull_ReviewMD(t *testing.T) {
 	reviewMD := "## Always check\n- New API routes have integration tests\n- No PII in logs"
-	prompt := BuildPromptFull("", reviewMD, []string{"bugs"}, "")
+	prompt := BuildPromptFull("", reviewMD, []string{"bugs"}, "", "")
 
 	if !strings.Contains(prompt, "REVIEW INSTRUCTIONS (HIGHEST PRIORITY)") {
 		t.Error("prompt should contain REVIEW INSTRUCTIONS header")
@@ -167,7 +167,7 @@ func TestBuildPromptFull_ReviewMD(t *testing.T) {
 
 func TestBuildPromptFull_ReviewMD_AfterExtraRules(t *testing.T) {
 	reviewMD := "Only report CRITICAL severity."
-	prompt := BuildPromptFull("", reviewMD, []string{"all"}, "Flag raw SQL.")
+	prompt := BuildPromptFull("", reviewMD, []string{"all"}, "Flag raw SQL.", "")
 
 	rulesIdx := strings.Index(prompt, "ADDITIONAL RULES")
 	reviewIdx := strings.Index(prompt, "REVIEW INSTRUCTIONS")
@@ -180,7 +180,7 @@ func TestBuildPromptFull_ReviewMD_AfterExtraRules(t *testing.T) {
 }
 
 func TestBuildPromptFull_EmptyReviewMD(t *testing.T) {
-	prompt := BuildPromptFull("", "", []string{"bugs"}, "")
+	prompt := BuildPromptFull("", "", []string{"bugs"}, "", "")
 	if strings.Contains(prompt, "REVIEW INSTRUCTIONS") {
 		t.Error("empty reviewMD should not inject REVIEW INSTRUCTIONS section")
 	}
@@ -194,7 +194,7 @@ func TestBuildPromptFull_WithCustomPromptAndReviewMD(t *testing.T) {
 	}
 
 	reviewMD := "Focus on SQL injection only."
-	prompt := BuildPromptFull(promptFile, reviewMD, []string{"security"}, "")
+	prompt := BuildPromptFull(promptFile, reviewMD, []string{"security"}, "", "")
 
 	if !strings.Contains(prompt, "You are a security auditor.") {
 		t.Error("custom prompt should be used as base")

@@ -178,6 +178,37 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 	}
 
+	// Pass 1: Intent inference (if enabled).
+	var intentContext string
+	var intentSummary *model.SummaryResult
+	var totalUsage model.TokenUsage
+	if r.cfg.IntentReview {
+		if sp, ok := r.provider.(model.SummarizeProvider); ok {
+			fullDiff := buildNumberedDiff(diffs)
+			sysPrompt := model.BuildSummaryPrompt()
+			uPrompt := model.BuildSummaryUserPrompt(mrTitle, mrDesc, fullDiff)
+			summaryResult, serr := sp.Summarize(ctx, sysPrompt, uPrompt)
+			if serr != nil {
+				slog.Warn("intent inference failed, falling back to standard review", "error", serr)
+			} else {
+				intentSummary = summaryResult
+				intentContext = model.BuildIntentContext(summaryResult)
+				slog.Info("intent inferred",
+					"classification", summaryResult.Classification,
+					"intent", summaryResult.Intent,
+					"risk", summaryResult.RiskLevel,
+				)
+				if summaryResult.Usage != nil {
+					totalUsage.InputTokens += summaryResult.Usage.InputTokens
+					totalUsage.OutputTokens += summaryResult.Usage.OutputTokens
+					totalUsage.TotalTokens += summaryResult.Usage.TotalTokens
+				}
+			}
+		} else {
+			slog.Warn("intent review enabled but provider does not support summarization, skipping pass 1")
+		}
+	}
+
 	// Step 4: Build prompt and call model for each chunk.
 	// In CI mode, source REVIEW.md from the trusted base/target ref so that
 	// contributor-controlled branches cannot inject review instructions.
@@ -185,10 +216,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	if r.cfg.CIMode && r.cfg.CIDiffBaseSHA != "" {
 		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
 	}
-	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules)
+	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, intentContext)
 	var allFindings []model.Finding
 	var summary string
-	var totalUsage model.TokenUsage
 
 	for i, chunk := range chunks {
 		slog.Info(fmt.Sprintf("reviewing chunk %d/%d (%d files, ~%d tokens)",
@@ -265,6 +295,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			fmt.Println(string(jsonOut))
 		} else {
 			useColor := !r.cfg.NoColor && isTTY()
+			fmt.Print(formatIntentOneLiner(intentSummary, useColor))
 			fmt.Print(ColorTerminalOutput(result, useColor))
 		}
 	} else {
@@ -281,6 +312,11 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 					version = &versions[0]
 				}
 			}
+		}
+
+		// Prepend intent markdown to the summary note if intent was inferred.
+		if intentSummary != nil {
+			result.Summary = formatIntentMarkdown(intentSummary) + result.Summary
 		}
 
 		if err := PostToGitLab(ctx, r.cfg, r.glClient, result, version); err != nil {

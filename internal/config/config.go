@@ -127,6 +127,10 @@ type Config struct {
 	Summarize                bool // Generate MR summary instead of review.
 	SummaryUpdateDescription bool // Update MR description with the generated summary.
 
+	// Intent-aware review (two-pass).
+	IntentReview   bool // Enable two-pass intent-aware review.
+	NoIntentReview bool // Explicitly disable (overrides CI default).
+
 	// Budget.
 	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 }
@@ -147,6 +151,7 @@ type repoConfig struct {
 	APIURL                   string   `yaml:"api_url"`
 	Summarize                bool     `yaml:"summarize"`
 	SummaryUpdateDescription bool     `yaml:"summary_update_description"`
+	IntentReview             *bool    `yaml:"intent_review"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -189,6 +194,15 @@ func Load() (*Config, error) {
 
 	// Auto-detect CI environment.
 	cfg.loadCIEnv()
+
+	// Intent review: default on in CI, off in local.
+	// Explicit --no-intent or REVIEW_INTENT=false overrides.
+	if cfg.NoIntentReview {
+		cfg.IntentReview = false
+	} else if !cfg.IntentReview && cfg.CIMode {
+		// Auto-enable in CI unless explicitly disabled.
+		cfg.IntentReview = true
+	}
 
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -310,6 +324,12 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.SummaryUpdateDescription {
 		c.SummaryUpdateDescription = true
 	}
+	if rc.IntentReview != nil {
+		c.IntentReview = *rc.IntentReview
+		if !*rc.IntentReview {
+			c.NoIntentReview = true // Explicit false prevents CI auto-enable.
+		}
+	}
 	return nil
 }
 
@@ -391,6 +411,12 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("REVIEW_API_KEY"); v != "" {
 		c.APIKey = v
 	}
+	if v := os.Getenv("REVIEW_INTENT"); v != "" {
+		c.IntentReview = strings.EqualFold(v, "true") || v == "1"
+		if strings.EqualFold(v, "false") || v == "0" {
+			c.NoIntentReview = true
+		}
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -422,6 +448,8 @@ func (c *Config) loadFlags() error {
 	apiKey := fs.String("api-key", "", "API key for HTTP provider (optional for IAM/ADC auth)")
 	summarize := fs.Bool("summarize", false, "Generate MR summary instead of review")
 	summaryUpdateDesc := fs.Bool("summary-update-description", false, "Update MR description with the generated summary")
+	intentFlag := fs.Bool("intent", false, "Enable two-pass intent-aware review")
+	noIntentFlag := fs.Bool("no-intent", false, "Disable intent-aware review (overrides CI default)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -512,7 +540,12 @@ func (c *Config) loadFlags() error {
 	if *summaryUpdateDesc {
 		c.SummaryUpdateDescription = true
 	}
-
+	if *intentFlag {
+		c.IntentReview = true
+	}
+	if *noIntentFlag {
+		c.NoIntentReview = true
+	}
 	return nil
 }
 
@@ -584,6 +617,10 @@ func (c *Config) validate() error {
 	// Summarize mode is single-model only.
 	if c.Summarize && len(c.Models) > 0 {
 		return fmt.Errorf("--summarize cannot be used with --models (multi-model consensus); use --model instead")
+	}
+
+	if c.IntentReview && c.Summarize {
+		return fmt.Errorf("--intent and --summarize are mutually exclusive; intent review includes summarization")
 	}
 
 	return nil
