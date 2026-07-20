@@ -204,6 +204,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 					totalUsage.TotalTokens += summaryResult.Usage.TotalTokens
 				}
 			}
+		} else {
+			slog.Warn("intent review enabled but provider does not support summarization, skipping pass 1")
 		}
 	}
 

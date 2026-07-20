@@ -326,6 +326,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	}
 	if rc.IntentReview != nil {
 		c.IntentReview = *rc.IntentReview
+		if !*rc.IntentReview {
+			c.NoIntentReview = true // Explicit false prevents CI auto-enable.
+		}
 	}
 	return nil
 }
@@ -445,8 +448,8 @@ func (c *Config) loadFlags() error {
 	apiKey := fs.String("api-key", "", "API key for HTTP provider (optional for IAM/ADC auth)")
 	summarize := fs.Bool("summarize", false, "Generate MR summary instead of review")
 	summaryUpdateDesc := fs.Bool("summary-update-description", false, "Update MR description with the generated summary")
-	fs.BoolVar(&c.IntentReview, "intent", false, "Enable two-pass intent-aware review")
-	fs.BoolVar(&c.NoIntentReview, "no-intent", false, "Disable intent-aware review (overrides CI default)")
+	intentFlag := fs.Bool("intent", false, "Enable two-pass intent-aware review")
+	noIntentFlag := fs.Bool("no-intent", false, "Disable intent-aware review (overrides CI default)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -537,7 +540,12 @@ func (c *Config) loadFlags() error {
 	if *summaryUpdateDesc {
 		c.SummaryUpdateDescription = true
 	}
-
+	if *intentFlag {
+		c.IntentReview = true
+	}
+	if *noIntentFlag {
+		c.NoIntentReview = true
+	}
 	return nil
 }
 

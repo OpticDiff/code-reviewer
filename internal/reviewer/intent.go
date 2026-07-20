@@ -35,7 +35,7 @@ func formatIntentMarkdown(s *model.SummaryResult) string {
 	sb.WriteString("| Field | Value |\n")
 	sb.WriteString("|---|---|\n")
 	fmt.Fprintf(&sb, "| **Classification** | `%s` |\n", s.Classification)
-	fmt.Fprintf(&sb, "| **Intent** | %s |\n", s.Intent)
+	fmt.Fprintf(&sb, "| **Intent** | %s |\n", escapeTableCell(s.Intent))
 	fmt.Fprintf(&sb, "| **Risk Level** | %s %s |\n", riskEmoji(s.RiskLevel), s.RiskLevel)
 	if len(s.ScopeAreas) > 0 {
 		areas := make([]string, len(s.ScopeAreas))
@@ -45,8 +45,17 @@ func formatIntentMarkdown(s *model.SummaryResult) string {
 		fmt.Fprintf(&sb, "| **Scope** | %s |\n", strings.Join(areas, ", "))
 	}
 	if len(s.BreakingChanges) > 0 {
-		fmt.Fprintf(&sb, "| **Breaking Changes** | %s |\n", strings.Join(s.BreakingChanges, "; "))
+		escaped := make([]string, len(s.BreakingChanges))
+		for i, bc := range s.BreakingChanges {
+			escaped[i] = escapeTableCell(bc)
+		}
+		fmt.Fprintf(&sb, "| **Breaking Changes** | %s |\n", strings.Join(escaped, "; "))
 	}
 	sb.WriteString("\n---\n\n")
 	return sb.String()
+}
+
+// escapeTableCell escapes pipe characters in text to prevent breaking Markdown tables.
+func escapeTableCell(s string) string {
+	return strings.ReplaceAll(s, "|", "\\|")
 }

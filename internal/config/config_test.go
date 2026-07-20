@@ -782,3 +782,120 @@ func TestLoad_NoAPIURLRequiresGCPProject(t *testing.T) {
 		t.Errorf("error = %q, want mention of api-url alternative", errStr)
 	}
 }
+
+// TestIntentReview_DefaultOnInCI verifies intent is auto-enabled in CI mode.
+func TestIntentReview_DefaultOnInCI(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--ci"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "123")
+	t.Setenv("CI_MERGE_REQUEST_IID", "456")
+	t.Setenv("GITLAB_TOKEN", "test-token")
+	t.Setenv("REVIEW_INTENT", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if !cfg.IntentReview {
+		t.Error("IntentReview should be true in CI mode by default")
+	}
+}
+
+// TestIntentReview_YAMLFalseOverridesCIDefault verifies YAML intent_review: false
+// prevents CI auto-enable.
+func TestIntentReview_YAMLFalseOverridesCIDefault(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--ci"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "123")
+	t.Setenv("CI_MERGE_REQUEST_IID", "456")
+	t.Setenv("GITLAB_TOKEN", "test-token")
+	t.Setenv("REVIEW_INTENT", "")
+
+	tmpDir := t.TempDir()
+	yamlContent := []byte("intent_review: false\n")
+	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), yamlContent, 0o644); err != nil {
+		t.Fatalf("writing yaml: %v", err)
+	}
+
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	defer os.Chdir(oldDir) //nolint:errcheck
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.IntentReview {
+		t.Error("IntentReview should be false when YAML sets intent_review: false, even in CI")
+	}
+}
+
+// TestIntentReview_EnvFalseOverridesCIDefault verifies REVIEW_INTENT=false
+// prevents CI auto-enable.
+func TestIntentReview_EnvFalseOverridesCIDefault(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--ci"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "123")
+	t.Setenv("CI_MERGE_REQUEST_IID", "456")
+	t.Setenv("GITLAB_TOKEN", "test-token")
+	t.Setenv("REVIEW_INTENT", "false")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.IntentReview {
+		t.Error("IntentReview should be false when REVIEW_INTENT=false, even in CI")
+	}
+}
+
+// TestIntentReview_DefaultOffLocal verifies intent is off in local/diff mode.
+func TestIntentReview_DefaultOffLocal(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_INTENT", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+	if cfg.IntentReview {
+		t.Error("IntentReview should be false in diff mode by default")
+	}
+}
+
+// TestIntentReview_MutuallyExclusiveWithSummarize verifies that --intent and
+// --summarize cannot be used together.
+func TestIntentReview_MutuallyExclusiveWithSummarize(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--intent", "--summarize"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_INTENT", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for --intent + --summarize")
+	}
+	if !containsStr(err.Error(), "mutually exclusive") {
+		t.Errorf("error = %q, want mention of 'mutually exclusive'", err.Error())
+	}
+}
