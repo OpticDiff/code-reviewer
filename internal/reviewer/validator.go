@@ -3,6 +3,7 @@ package reviewer
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
@@ -78,7 +79,121 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 		slog.Info(fmt.Sprintf("validation: %d findings valid, %d dropped (invalid line refs)", len(valid), dropped))
 	}
 
+	valid = sanitizeSuggestions(valid)
+
 	return valid
+}
+
+// sanitizeSuggestions cleans up suggestion fields that contain common model
+// artifacts: markdown code fences, diff markers, explanatory prefixes, and
+// trailing prose. Suggestions that appear to be prose rather than code are
+// cleared to prevent invalid code from being applied.
+func sanitizeSuggestions(findings []model.Finding) []model.Finding {
+	for i := range findings {
+		s := findings[i].Suggestion
+		if s == "" {
+			continue
+		}
+
+		// Strip markdown code fences (```lang\n...\n```).
+		s = stripCodeFences(s)
+
+		// Strip leading/trailing whitespace.
+		s = strings.TrimSpace(s)
+
+		// Strip diff markers (lines starting with "+ " or "- ", like unified diff).
+		// Only strip when the marker is followed by a space to avoid corrupting
+		// valid code like negative numbers (-1), increment (++i), or pointers (*-).
+		lines := strings.Split(s, "\n")
+		var cleaned []string
+		allMarkers := true
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if (strings.HasPrefix(trimmed, "+ ") || strings.HasPrefix(trimmed, "- ")) && len(trimmed) > 2 {
+				// Strip the single marker prefix and space, keep the code.
+				cleaned = append(cleaned, trimmed[2:])
+			} else if trimmed == "+" || trimmed == "-" {
+				// Empty diff line — skip.
+				cleaned = append(cleaned, "")
+			} else {
+				allMarkers = false
+				cleaned = append(cleaned, line)
+			}
+		}
+		if allMarkers && len(cleaned) > 0 {
+			s = strings.Join(cleaned, "\n")
+		}
+
+		// Strip common explanatory prefixes.
+		for _, prefix := range []string{"Fix:", "fix:", "Suggestion:", "suggestion:", "Corrected:", "corrected:"} {
+			s = strings.TrimPrefix(s, prefix)
+		}
+		s = strings.TrimSpace(s)
+
+		// Drop suggestions that look like prose rather than code.
+		// Heuristic: if the suggestion is a single line with no code-like
+		// characters and reads like a sentence, clear it.
+		if !strings.Contains(s, "\n") && looksLikeProse(s) {
+			slog.Debug("clearing prose-like suggestion",
+				"file", findings[i].File,
+				"title", findings[i].Title,
+				"suggestion", s,
+			)
+			s = ""
+		}
+
+		findings[i].Suggestion = s
+	}
+	return findings
+}
+
+// stripCodeFences removes markdown code fences from a string.
+func stripCodeFences(s string) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) < 2 {
+		return s
+	}
+	first := strings.TrimSpace(lines[0])
+	last := strings.TrimSpace(lines[len(lines)-1])
+	if strings.HasPrefix(first, "```") && last == "```" {
+		return strings.Join(lines[1:len(lines)-1], "\n")
+	}
+	return s
+}
+
+// looksLikeProse returns true if the string appears to be natural language
+// rather than code. Uses simple heuristics.
+func looksLikeProse(s string) bool {
+	if len(s) < 10 {
+		return false
+	}
+	// Code typically has: =, (, ), {, }, ;, :, [, ], <, >
+	codeChars := 0
+	for _, c := range s {
+		switch c {
+		case '=', '(', ')', '{', '}', ';', '[', ']', '<', '>':
+			codeChars++
+		}
+	}
+	if codeChars > 0 {
+		return false
+	}
+	// Starts with capital, ends with period → likely prose.
+	// But exclude method calls like "Server.Close()" — those have parens (already caught above).
+	if len(s) > 0 && s[0] >= 'A' && s[0] <= 'Z' && s[len(s)-1] == '.' {
+		return true
+	}
+	// Require at least 2 prose indicator words to reduce false positives
+	// on code that happens to contain a common English word.
+	proseWords := []string{" the ", " should ", " instead ", " use ", " consider ", " rather ", " make sure ", " with ", " from ", " into "}
+	matches := 0
+	lower := strings.ToLower(s)
+	for _, w := range proseWords {
+		if strings.Contains(lower, w) {
+			matches++
+		}
+	}
+	return matches >= 2
 }
 
 // pathMatch checks if two file paths refer to the same file,

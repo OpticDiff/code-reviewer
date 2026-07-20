@@ -1,6 +1,7 @@
 package reviewer
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/OpticDiff/code-reviewer/internal/diff"
@@ -152,5 +153,163 @@ func TestValidateFindings_PartialPathMatch(t *testing.T) {
 	}
 	if len(result) == 1 && result[0].File != "internal/handler.go" {
 		t.Errorf("expected file to be normalized to 'internal/handler.go', got %q", result[0].File)
+	}
+}
+
+func TestSanitizeSuggestions_StripCodeFences(t *testing.T) {
+	findings := []model.Finding{
+		{Suggestion: "```go\nreturn nil, err\n```"},
+		{Suggestion: "```\nfmt.Println(x)\n```"},
+	}
+	result := sanitizeSuggestions(findings)
+	if result[0].Suggestion != "return nil, err" {
+		t.Errorf("expected fences stripped, got %q", result[0].Suggestion)
+	}
+	if result[1].Suggestion != "fmt.Println(x)" {
+		t.Errorf("expected fences stripped, got %q", result[1].Suggestion)
+	}
+}
+
+func TestSanitizeSuggestions_StripDiffMarkers(t *testing.T) {
+	findings := []model.Finding{
+		{Suggestion: "+ return nil, err\n+ if x > 0 {"},
+	}
+	result := sanitizeSuggestions(findings)
+	if !strings.Contains(result[0].Suggestion, "return nil, err") {
+		t.Errorf("expected code preserved, got %q", result[0].Suggestion)
+	}
+	if strings.HasPrefix(strings.TrimSpace(result[0].Suggestion), "+ ") {
+		t.Errorf("expected diff markers stripped, got %q", result[0].Suggestion)
+	}
+}
+
+func TestSanitizeSuggestions_PreserveNegativeNumbers(t *testing.T) {
+	findings := []model.Finding{
+		{Suggestion: "-1"},
+		{Suggestion: "x := -42"},
+		{Suggestion: "++i"},
+	}
+	result := sanitizeSuggestions(findings)
+	if result[0].Suggestion != "-1" {
+		t.Errorf("negative number corrupted, got %q", result[0].Suggestion)
+	}
+	if result[1].Suggestion != "x := -42" {
+		t.Errorf("negative assignment corrupted, got %q", result[1].Suggestion)
+	}
+	if result[2].Suggestion != "++i" {
+		t.Errorf("increment corrupted, got %q", result[2].Suggestion)
+	}
+}
+
+func TestSanitizeSuggestions_StripExplanatoryPrefix(t *testing.T) {
+	findings := []model.Finding{
+		{Suggestion: "Fix: return nil, err"},
+		{Suggestion: "suggestion: x := 1"},
+	}
+	result := sanitizeSuggestions(findings)
+	if result[0].Suggestion != "return nil, err" {
+		t.Errorf("expected prefix stripped, got %q", result[0].Suggestion)
+	}
+	if result[1].Suggestion != "x := 1" {
+		t.Errorf("expected prefix stripped, got %q", result[1].Suggestion)
+	}
+}
+
+func TestSanitizeSuggestions_ClearProse(t *testing.T) {
+	findings := []model.Finding{
+		{File: "test.go", Title: "test", Suggestion: "Use parameterized queries instead of string concatenation."},
+		{File: "test.go", Title: "test", Suggestion: "Consider using a mutex instead of a channel for this case."},
+	}
+	result := sanitizeSuggestions(findings)
+	if result[0].Suggestion != "" {
+		t.Errorf("expected prose cleared, got %q", result[0].Suggestion)
+	}
+	if result[1].Suggestion != "" {
+		t.Errorf("expected prose cleared, got %q", result[1].Suggestion)
+	}
+}
+
+func TestSanitizeSuggestions_PreserveValidCode(t *testing.T) {
+	findings := []model.Finding{
+		{Suggestion: "db.Query(\"SELECT * FROM t WHERE id = ?\", id)"},
+		{Suggestion: "if err != nil {\n\treturn nil, fmt.Errorf(\"failed: %w\", err)\n}"},
+		{Suggestion: "x := 1"},
+	}
+	result := sanitizeSuggestions(findings)
+	if result[0].Suggestion != "db.Query(\"SELECT * FROM t WHERE id = ?\", id)" {
+		t.Errorf("expected valid code preserved, got %q", result[0].Suggestion)
+	}
+	if !strings.Contains(result[1].Suggestion, "return nil, fmt.Errorf") {
+		t.Errorf("expected multiline code preserved, got %q", result[1].Suggestion)
+	}
+	if result[2].Suggestion != "x := 1" {
+		t.Errorf("expected short code preserved, got %q", result[2].Suggestion)
+	}
+}
+
+func TestStripCodeFences(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"with language", "```go\ncode\n```", "code"},
+		{"without language", "```\ncode\n```", "code"},
+		{"no fences", "code", "code"},
+		{"single line", "```code```", "```code```"},
+		{"multiline content", "```py\nline1\nline2\n```", "line1\nline2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stripCodeFences(tt.input)
+			if got != tt.want {
+				t.Errorf("stripCodeFences(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLooksLikeProse(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		// Should be detected as prose (2+ prose words, no code chars).
+		{"Use a mutex instead of a channel for this.", true},
+		{"Consider refactoring the handler to use middleware instead.", true},
+		// Should NOT be detected as prose.
+		{"return nil, err", false},
+		{"db.Query(\"SELECT 1\")", false},
+		{"x := 1", false},
+		{"short", false},                            // too short
+		{"if err != nil {", false},                   // has code chars
+		{"delete(theMap, key)", false},               // has code chars despite 'the'
+		{"reuse the cached version", false},          // only 1 prose word match
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := looksLikeProse(tt.input)
+			if got != tt.want {
+				t.Errorf("looksLikeProse(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeSuggestions_EmptyAndWhitespace(t *testing.T) {
+	findings := []model.Finding{
+		{Suggestion: ""},
+		{Suggestion: "   "},
+		{Suggestion: "```go\n\n```"},
+	}
+	result := sanitizeSuggestions(findings)
+	if result[0].Suggestion != "" {
+		t.Errorf("expected empty to stay empty, got %q", result[0].Suggestion)
+	}
+	if result[1].Suggestion != "" {
+		t.Errorf("expected whitespace-only to be trimmed, got %q", result[1].Suggestion)
+	}
+	if result[2].Suggestion != "" {
+		t.Errorf("expected empty fenced block to be cleared, got %q", result[2].Suggestion)
 	}
 }
