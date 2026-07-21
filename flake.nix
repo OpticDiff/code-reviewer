@@ -17,7 +17,8 @@
           pname = "code-reviewer";
           inherit version;
           src = self;
-          vendorHash = "sha256-aeefrKMuKR7u7VpdkXjwVC6ROxU93hyqNB94VdoqDOA=";
+          # Update after go.mod/go.sum changes: ./scripts/update-vendor-hash.sh
+          vendorHash = "sha256-FZUO2vyA56DpHazr5eiEApffJe07oHN7iDuoteQmK2Y=";
           subPackages = [ "cmd/code-reviewer" ];
           ldflags = [ "-s" "-w" "-X main.version=${version}" ];
           meta = {
