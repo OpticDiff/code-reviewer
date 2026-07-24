@@ -249,3 +249,34 @@ func TestBuildUserPromptWithContext_EmptySnippets(t *testing.T) {
 		t.Error("empty snippets should not inject the Related Unchanged Code section")
 	}
 }
+
+// TestBasePrompt_PrecisionRules verifies that the base prompt contains all
+// quality-improvement rules added to reduce false positives and improve precision.
+func TestBasePrompt_PrecisionRules(t *testing.T) {
+	prompt := BuildPrompt(nil, "")
+
+	checks := []struct {
+		name    string
+		substr  string
+	}{
+		{"precision penalty", "false positive wastes more developer time"},
+		{"confidence threshold", "confidence below 80%"},
+		{"zero is fine", "empty findings array is a perfectly valid review"},
+		{"no manufacturing", "Do not manufacture findings"},
+		{"focus on additions", "FOCUS ON ADDITIONS"},
+		{"additions detail", "Concentrate on lines starting with '+'"},
+		{"no deleted line findings", "Do NOT comment on deleted lines"},
+		{"scope restriction", `Use "scope" ONLY for intent-driven findings`},
+		{"no split suggestion", "split into smaller changes"},
+		{"suggestion import guard", "references variables, functions, or imports not visible"},
+		{"medium tightened", "NOT: style preferences"},
+	}
+
+	for _, c := range checks {
+		t.Run(c.name, func(t *testing.T) {
+			if !strings.Contains(prompt, c.substr) {
+				t.Errorf("base prompt should contain %q", c.substr)
+			}
+		})
+	}
+}

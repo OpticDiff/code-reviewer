@@ -1,0 +1,19 @@
+# Pre-commit hook for code-reviewer.
+# See: https://pre-commit.com
+# Usage in .pre-commit-config.yaml:
+#
+#   - repo: https://github.com/OpticDiff/code-reviewer
+#     rev: v0.6.0
+#     hooks:
+#       - id: code-review
+#         stages: [pre-push]
+#         args: [--min-severity, high]
+#
+- id: code-review
+  name: code-review
+  description: AI-powered code review before push
+  entry: code-reviewer --diff
+  language: golang
+  pass_filenames: false
+  stages: [pre-push]
+  always_run: true
