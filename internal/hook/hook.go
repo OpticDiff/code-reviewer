@@ -9,7 +9,13 @@ import (
 	"strings"
 )
 
+// managedSentinel is the exact marker that identifies hooks managed by code-reviewer.
+// Ownership checks match this sentinel, not a loose substring, so a foreign hook
+// that happens to mention "code-reviewer" in a comment is never overwritten.
+const managedSentinel = "# managed-by: code-reviewer"
+
 const preCommitHookContent = `#!/bin/sh
+` + managedSentinel + `
 # code-reviewer pre-push hook
 # Installed by: code-reviewer hook install
 # Remove with:  code-reviewer hook uninstall
@@ -26,28 +32,26 @@ if ! git diff --quiet @{push} 2>/dev/null; then
 fi
 `
 
-// Install writes the pre-push hook to .git/hooks/pre-push.
+// Install writes the pre-push hook to the repository's hooks directory.
 // If a hook already exists and wasn't installed by code-reviewer, it returns an error.
 func Install() error {
-	gitDir, err := findGitDir()
+	hooksDir, err := resolveHooksDir()
 	if err != nil {
 		return err
 	}
 
-	hookDir := filepath.Join(gitDir, "hooks")
-	hookPath := filepath.Join(hookDir, "pre-push")
+	hookPath := filepath.Join(hooksDir, "pre-push")
 
 	// Check for existing hook.
 	if data, err := os.ReadFile(hookPath); err == nil {
-		content := string(data)
-		if !strings.Contains(content, "code-reviewer") {
+		if !strings.Contains(string(data), managedSentinel) {
 			return fmt.Errorf("pre-push hook already exists at %s\n\nTo overwrite, remove it first:\n  rm %s", hookPath, hookPath)
 		}
 		// Our hook — safe to overwrite.
 	}
 
 	// Ensure hooks directory exists.
-	if err := os.MkdirAll(hookDir, 0o755); err != nil {
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return fmt.Errorf("creating hooks directory: %w", err)
 	}
 
@@ -63,12 +67,12 @@ func Install() error {
 
 // Uninstall removes the pre-push hook if it was installed by code-reviewer.
 func Uninstall() error {
-	gitDir, err := findGitDir()
+	hooksDir, err := resolveHooksDir()
 	if err != nil {
 		return err
 	}
 
-	hookPath := filepath.Join(gitDir, "hooks", "pre-push")
+	hookPath := filepath.Join(hooksDir, "pre-push")
 
 	data, err := os.ReadFile(hookPath)
 	if err != nil {
@@ -79,7 +83,7 @@ func Uninstall() error {
 		return fmt.Errorf("reading hook: %w", err)
 	}
 
-	if !strings.Contains(string(data), "code-reviewer") {
+	if !strings.Contains(string(data), managedSentinel) {
 		return fmt.Errorf("pre-push hook at %s was not installed by code-reviewer; refusing to remove", hookPath)
 	}
 
@@ -91,12 +95,33 @@ func Uninstall() error {
 	return nil
 }
 
+// resolveHooksDir returns the hooks directory for the current repository,
+// honoring Git's core.hooksPath configuration if set.
+func resolveHooksDir() (string, error) {
+	// Try core.hooksPath first.
+	cmd := exec.Command("git", "rev-parse", "--git-path", "hooks")
+	out, err := cmd.Output()
+	if err == nil {
+		resolved := strings.TrimSpace(string(out))
+		if resolved != "" {
+			return resolved, nil
+		}
+	}
+
+	// Fallback: <gitdir>/hooks.
+	gitDir, err := findGitDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(gitDir, "hooks"), nil
+}
+
 // findGitDir locates the .git directory by running git rev-parse.
 func findGitDir() (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
 	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("not a git repository (run this from inside a git repo)")
+		return "", fmt.Errorf("not a git repository (run this from inside a git repo): %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }

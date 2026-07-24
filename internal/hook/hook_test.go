@@ -21,13 +21,39 @@ func initGitRepo(t *testing.T) string {
 	return dir
 }
 
+// chdirRepo changes into dir and restores the original working directory on cleanup.
+func chdirRepo(t *testing.T, dir string) {
+	t.Helper()
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("os.Getwd: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Errorf("restoring working directory: %v", err)
+		}
+	})
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("os.Chdir(%s): %v", dir, err)
+	}
+}
+
+// writeForeignHook creates a non-code-reviewer hook at .git/hooks/pre-push.
+func writeForeignHook(t *testing.T, dir string) {
+	t.Helper()
+	hookDir := filepath.Join(dir, ".git", "hooks")
+	if err := os.MkdirAll(hookDir, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hookDir, "pre-push"), []byte("#!/bin/sh\necho 'foreign'"), 0o755); err != nil {
+		t.Fatalf("os.WriteFile: %v", err)
+	}
+}
+
+// TestInstallAndUninstall verifies the full lifecycle: install, re-install (idempotent), uninstall.
 func TestInstallAndUninstall(t *testing.T) {
 	dir := initGitRepo(t)
-
-	// cd into the repo so findGitDir works.
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { os.Chdir(orig) })
-	os.Chdir(dir)
+	chdirRepo(t, dir)
 
 	// Install.
 	if err := Install(); err != nil {
@@ -39,12 +65,15 @@ func TestInstallAndUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hook file not found: %v", err)
 	}
-	if !strings.Contains(string(data), "code-reviewer") {
-		t.Error("hook content should contain code-reviewer marker")
+	if !strings.Contains(string(data), managedSentinel) {
+		t.Error("hook content should contain managed sentinel")
 	}
 
 	// Check executable permission.
-	info, _ := os.Stat(hookPath)
+	info, err := os.Stat(hookPath)
+	if err != nil {
+		t.Fatalf("os.Stat: %v", err)
+	}
 	if info.Mode()&0o111 == 0 {
 		t.Error("hook file should be executable")
 	}
@@ -64,59 +93,76 @@ func TestInstallAndUninstall(t *testing.T) {
 	}
 }
 
-func TestInstall_ExistingForeignHook(t *testing.T) {
-	dir := initGitRepo(t)
-
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { os.Chdir(orig) })
-	os.Chdir(dir)
-
-	// Create a foreign hook.
-	hookDir := filepath.Join(dir, ".git", "hooks")
-	os.MkdirAll(hookDir, 0o755)
-	os.WriteFile(filepath.Join(hookDir, "pre-push"), []byte("#!/bin/sh\necho 'my custom hook'"), 0o755)
-
-	// Install should fail — refuse to overwrite foreign hook.
-	err := Install()
-	if err == nil {
-		t.Fatal("Install() should fail when foreign hook exists")
+// TestHookPolicy covers table-driven cases for hook protection behavior.
+func TestHookPolicy(t *testing.T) {
+	tests := []struct {
+		name      string
+		setup     func(t *testing.T, dir string) // optional pre-test setup
+		op        func() error                    // operation under test
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:  "install refuses to overwrite foreign hook",
+			setup: writeForeignHook,
+			op:    Install,
+			wantErr:   true,
+			errSubstr: "already exists",
+		},
+		{
+			name:  "uninstall refuses to remove foreign hook",
+			setup: writeForeignHook,
+			op:    Uninstall,
+			wantErr:   true,
+			errSubstr: "not installed by code-reviewer",
+		},
+		{
+			name:    "uninstall succeeds when no hook exists",
+			op:      Uninstall,
+			wantErr: false,
+		},
+		{
+			name: "install preserves foreign hook that mentions code-reviewer in comment",
+			setup: func(t *testing.T, dir string) {
+				t.Helper()
+				hookDir := filepath.Join(dir, ".git", "hooks")
+				if err := os.MkdirAll(hookDir, 0o755); err != nil {
+					t.Fatalf("os.MkdirAll: %v", err)
+				}
+				// Foreign hook that happens to mention code-reviewer but lacks the sentinel.
+				content := "#!/bin/sh\n# Run code-reviewer manually if needed\necho 'my hook'"
+				if err := os.WriteFile(filepath.Join(hookDir, "pre-push"), []byte(content), 0o755); err != nil {
+					t.Fatalf("os.WriteFile: %v", err)
+				}
+			},
+			op:        Install,
+			wantErr:   true,
+			errSubstr: "already exists",
+		},
 	}
-	if !strings.Contains(err.Error(), "already exists") {
-		t.Errorf("error should mention 'already exists', got: %v", err)
-	}
-}
 
-func TestUninstall_ForeignHook(t *testing.T) {
-	dir := initGitRepo(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := initGitRepo(t)
+			chdirRepo(t, dir)
 
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { os.Chdir(orig) })
-	os.Chdir(dir)
+			if tt.setup != nil {
+				tt.setup(t, dir)
+			}
 
-	// Create a foreign hook.
-	hookDir := filepath.Join(dir, ".git", "hooks")
-	os.MkdirAll(hookDir, 0o755)
-	os.WriteFile(filepath.Join(hookDir, "pre-push"), []byte("#!/bin/sh\necho 'foreign'"), 0o755)
-
-	// Uninstall should refuse.
-	err := Uninstall()
-	if err == nil {
-		t.Fatal("Uninstall() should fail for foreign hook")
-	}
-	if !strings.Contains(err.Error(), "not installed by code-reviewer") {
-		t.Errorf("error should mention 'not installed by code-reviewer', got: %v", err)
-	}
-}
-
-func TestUninstall_NoHook(t *testing.T) {
-	dir := initGitRepo(t)
-
-	orig, _ := os.Getwd()
-	t.Cleanup(func() { os.Chdir(orig) })
-	os.Chdir(dir)
-
-	// Uninstall with no hook should succeed silently.
-	if err := Uninstall(); err != nil {
-		t.Fatalf("Uninstall() should succeed when no hook exists: %v", err)
+			err := tt.op()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error should contain %q, got: %v", tt.errSubstr, err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			}
+		})
 	}
 }

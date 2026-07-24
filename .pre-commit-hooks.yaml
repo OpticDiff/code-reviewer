@@ -11,7 +11,7 @@
 #
 - id: code-review
   name: code-review
-  description: AI-powered code review on staged changes
+  description: AI-powered code review before push
   entry: code-reviewer --diff
   language: golang
   pass_filenames: false

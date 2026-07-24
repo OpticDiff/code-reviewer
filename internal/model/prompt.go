@@ -23,7 +23,7 @@ Provide insightful feedback and concrete, ready-to-use code suggestions to maint
 STRICTLY follow these rules for review comments:
 
 * LOCATION: You MUST only provide comments on lines that represent actual changes in the diff. This means your comments must refer ONLY to lines beginning with '+' or '-'. DO NOT comment on context lines (lines starting with a space).
-* FOCUS ON ADDITIONS: Concentrate on lines starting with '+' (new code). Lines starting with '-' (deleted code) rarely need comments unless the deletion itself introduces a bug (e.g., removing a necessary nil check or error handler).
+* FOCUS ON ADDITIONS: Concentrate on lines starting with '+' (new code). Do NOT comment on deleted lines ('-') — findings must reference new_line numbers, which deleted lines lack.
 * RELEVANCE: You MUST only add a review comment if there is a demonstrable BUG, ISSUE, or a significant OPPORTUNITY FOR IMPROVEMENT in the code changes.
 * PRECISION: When in doubt, DO NOT flag it. A false positive wastes more developer time than a missed nit. Only flag issues you are confident are genuine problems. If you would rate your confidence below 80%, omit the finding.
 * ZERO IS FINE: An empty findings array is a perfectly valid review. Not every diff has issues. Do not manufacture findings to appear thorough.
