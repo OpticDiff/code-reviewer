@@ -12,6 +12,7 @@ import (
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
 	"github.com/OpticDiff/code-reviewer/internal/gitlab"
+	"github.com/OpticDiff/code-reviewer/internal/hook"
 	"github.com/OpticDiff/code-reviewer/internal/model"
 	"github.com/OpticDiff/code-reviewer/internal/reviewer"
 )
@@ -26,6 +27,15 @@ func main() {
 			fmt.Println("code-reviewer", version)
 			os.Exit(0)
 		}
+	}
+
+	// Handle "hook" subcommand before config.Load() since it doesn't need model config.
+	if len(os.Args) >= 2 && os.Args[1] == "hook" {
+		if err := runHook(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	}
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -151,4 +161,19 @@ func wrapProviderError(err error) error {
 			err)
 	}
 	return fmt.Errorf("initializing model provider: %w", err)
+}
+
+// runHook dispatches hook subcommands.
+func runHook(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("usage: code-reviewer hook <install|uninstall>")
+	}
+	switch args[0] {
+	case "install":
+		return hook.Install()
+	case "uninstall":
+		return hook.Uninstall()
+	default:
+		return fmt.Errorf("unknown hook command: %q (valid: install, uninstall)", args[0])
+	}
 }
