@@ -166,3 +166,50 @@ func TestHookPolicy(t *testing.T) {
 		})
 	}
 }
+
+// TestInstallWithCustomHooksPath verifies that Install and Uninstall honor
+// the core.hooksPath git config, writing to the configured directory instead
+// of .git/hooks.
+func TestInstallWithCustomHooksPath(t *testing.T) {
+	dir := initGitRepo(t)
+	chdirRepo(t, dir)
+
+	// Set core.hooksPath to a custom directory.
+	customHooksDir := filepath.Join(dir, "my-hooks")
+	if err := os.MkdirAll(customHooksDir, 0o755); err != nil {
+		t.Fatalf("os.MkdirAll: %v", err)
+	}
+	cmd := exec.Command("git", "config", "core.hooksPath", customHooksDir)
+	cmd.Dir = dir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("git config core.hooksPath: %v", err)
+	}
+
+	// Install should write to custom directory.
+	if err := Install(); err != nil {
+		t.Fatalf("Install() error: %v", err)
+	}
+
+	customHookPath := filepath.Join(customHooksDir, "pre-push")
+	data, err := os.ReadFile(customHookPath)
+	if err != nil {
+		t.Fatalf("hook not found at custom path %s: %v", customHookPath, err)
+	}
+	if !strings.Contains(string(data), managedSentinel) {
+		t.Error("hook at custom path should contain managed sentinel")
+	}
+
+	// Default location should NOT have a hook.
+	defaultPath := filepath.Join(dir, ".git", "hooks", "pre-push")
+	if _, err := os.Stat(defaultPath); !os.IsNotExist(err) {
+		t.Error("hook should NOT be installed at .git/hooks when core.hooksPath is set")
+	}
+
+	// Uninstall should remove from custom directory.
+	if err := Uninstall(); err != nil {
+		t.Fatalf("Uninstall() error: %v", err)
+	}
+	if _, err := os.Stat(customHookPath); !os.IsNotExist(err) {
+		t.Error("hook should be removed from custom path after uninstall")
+	}
+}
