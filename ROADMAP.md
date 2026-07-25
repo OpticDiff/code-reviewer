@@ -22,7 +22,7 @@ Current status: **v0.5.1 — Prompt quality, pre-push hook, intent-aware review,
 - [x] **Multi-model consensus** — Run multiple models in parallel, deduplicate by file+category+line proximity
 - [x] **Goreleaser** — Multi-platform binary releases via GitHub Actions
 - [x] **Config validation tests** — Unit tests for flags > env > yaml precedence, table-driven flag/env coverage
-- [ ] **Integration tests** — Mock model responses → verify GitLab API payloads
+- [x] **Integration tests** — 10 end-to-end tests: mock model → verify GitLab API payloads, SARIF output, summary/explain/intent pipelines (PR #33)
 
 ## ✅ v0.3 — Reviewer Powers (Done)
 
