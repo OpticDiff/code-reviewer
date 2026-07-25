@@ -265,6 +265,9 @@ func TestIntegration_CIDiscussions_Positions(t *testing.T) {
 
 	// Verify second discussion position.
 	d2 := client.createdDiscussions[1]
+	if d2.Position == nil {
+		t.Fatal("expected position on second discussion")
+	}
 	if d2.Position.NewPath != "internal/middleware/rate.go" {
 		t.Errorf("NewPath = %q, want internal/middleware/rate.go", d2.Position.NewPath)
 	}
@@ -698,8 +701,8 @@ func TestIntegration_TokenBudget_TrimFiles(t *testing.T) {
 			fileCount++
 		}
 	}
-	if fileCount == 5 {
-		t.Error("expected token budget to trim some files, but all 5 were in the prompt")
+	if fileCount < 1 || fileCount >= 5 {
+		t.Errorf("expected budget to include some but not all files, got %d of 5", fileCount)
 	}
 }
 
