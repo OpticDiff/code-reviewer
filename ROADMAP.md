@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.5.0 — Auto-summary, repo-aware context, REVIEW.md, and LLM proxy support**
+Current status: **v0.5.1 — Prompt quality, pre-push hook, intent-aware review, explain, and fix**
 
 ## ✅ v0.1 — Foundation (Done)
 
@@ -39,18 +39,22 @@ Current status: **v0.5.0 — Auto-summary, repo-aware context, REVIEW.md, and LL
 - [x] **REVIEW.md** — Drop a `REVIEW.md` in your repo root; contents injected as highest-priority system prompt instruction (PR #19)
 - [x] **Repo-aware context** — Tree-sitter extracts changed symbols, grep finds usages in unchanged files, injected as _Related Unchanged Code_. Supports Go, Kotlin, Java, Python, TypeScript. Opt-out via `--no-context` / `disable_context` (PR #20)
 
-## ✅ v0.5 — Auto-Summary & Intent (Done)
+## ✅ v0.5 — Auto-Summary, Intent & Developer Tools (Done)
 
 - [x] **Auto-summary** — `--summarize` generates structured MR descriptions from diffs: classification, intent, risk level, scope areas, breaking changes
 - [x] **SummarizeProvider interface** — Both Vertex AI and HTTP providers support summarize mode via shared `generateRaw()` refactor
 - [x] **Rich output** — Colored terminal display, JSON output, GitLab markdown comments
+- [x] **Intent-aware review** — `--intent` enables two-pass review: infer intent (pass 1), review against it (pass 2). Auto-enabled in CI.
+- [x] **Explain mode** — `--explain` generates a plain-language walkthrough of the diff instead of a review
+- [x] **Fix mode** — `--fix` applies suggested code changes directly to the working tree
+- [x] **Prompt quality pass** — 5 improvements to reduce false positives: precision penalty, zero-is-fine, focus-on-additions, tightened MEDIUM, suggestion guardrails (v0.5.1)
+- [x] **Pre-push hook** — `code-reviewer hook install` sets up automatic review before `git push`; `.pre-commit-hooks.yaml` for pre-commit framework (v0.5.1)
 
-## 🔜 v0.6 — Intent-Aware Review
+## 🔜 v0.6 — Platform Expansion
 
-- [ ] **Two-pass review** — Infer developer intent (pass 1), review against it (pass 2). New finding categories: `intent-mismatch`, `scope-creep`, `incomplete-implementation`
-- [ ] **Conventional commit parsing** — Auto-detect `fix:`, `feat:`, `refactor:` from MR titles and cross-reference with model-inferred intent
-- [ ] **Intent confidence** — Surface how confident the model is in its intent classification, let developers confirm or correct
-- [ ] **Platform expansion** — GitHub support (`internal/github/` client), GitHub Actions integration, auto-approve/block MR
+- [ ] **GitHub support** — `internal/github/` client implementing `VCSClient` interface, PR review comments, GitHub Actions integration
+- [ ] **GitHub Actions workflow** — Drop-in `.github/workflows/code-review.yml` example
+- [ ] **Pre-commit.com listing** — Register in the pre-commit hook registry for discovery
 
 ## 🏢 v1.0 — Compliance & Audit
 

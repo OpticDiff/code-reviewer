@@ -40,6 +40,10 @@ cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
 - **Repo-aware context** — Tree-sitter extracts changed symbols from diffs; grep finds usages in unchanged files to give the reviewer cross-file awareness
 - **REVIEW.md** — Drop a `REVIEW.md` in your repo root to inject team-specific review instructions at the highest priority
 - **Auto-summary** — `--summarize` generates structured MR descriptions from diffs: classification, intent, risk level, scope areas, and breaking changes
+- **Intent-aware review** — `--intent` enables two-pass review: infer intent, then review against it. Auto-enabled in CI (v0.5.0)
+- **Explain mode** — `--explain` generates a plain-language walkthrough of the diff (v0.5.0)
+- **Fix mode** — `--fix` applies suggested code fixes directly to the working tree (v0.5.0)
+- **Pre-push hook** — `code-reviewer hook install` sets up automatic review before `git push` (v0.5.1)
 - **Configurable** — CLI flags, env vars, per-repo `.code-reviewer.yaml`, or `REVIEW.md`
 
 ## Quick Start
@@ -141,7 +145,14 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
 | `--proxy-url` | Route model calls through an LLM proxy (e.g. Candela) | — |
 | `--summarize` | Generate structured MR summary instead of review | `false` |
+| `--summary-update-description` | Update MR description with generated summary | `false` |
+| `--intent` | Enable two-pass intent-aware review | `false` (auto in CI) |
+| `--no-intent` | Disable intent-aware review (overrides CI default) | `false` |
+| `--explain` | Explain the diff instead of reviewing it | `false` |
+| `--fix` | Apply suggested fixes to the working tree | `false` |
 | `--version` | Print version and exit | — |
+| `hook install` | Install a pre-push git hook | — |
+| `hook uninstall` | Remove the pre-push git hook | — |
 
 ### Environment Variables
 
@@ -254,6 +265,41 @@ code-reviewer --summarize --ci
 
 # JSON output for scripting
 code-reviewer --summarize --diff --json
+```
+
+### Pre-push Hook
+
+Automatic code review before every push — catches issues before CI, before MR creation, before anyone sees your code.
+
+```bash
+# Install the hook (one-time setup)
+code-reviewer hook install
+
+# Now every git push triggers a review:
+$ git push
+🔍 code-reviewer: reviewing changes before push...
+
+  ❌ HIGH  internal/auth/handler.go:58
+           Nil pointer dereference — token is used before nil check
+
+🚫 Push blocked: 1 HIGH severity finding. Fix or --no-verify to skip.
+
+# Remove the hook
+code-reviewer hook uninstall
+```
+
+Honors Git's `core.hooksPath` configuration. Won't overwrite foreign hooks.
+
+Also works with the [pre-commit](https://pre-commit.com) framework:
+
+```yaml
+# .pre-commit-config.yaml
+- repo: https://github.com/OpticDiff/code-reviewer
+  rev: v0.5.1
+  hooks:
+    - id: code-review
+      stages: [pre-push]
+      args: [--min-severity, high]
 ```
 
 ## Models
@@ -373,8 +419,8 @@ CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https
 Releases are automated via [GoReleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
 
 ```bash
-git tag -a v0.3.0 -m "v0.3.0"
-git push origin v0.3.0
+git tag -a v0.5.1 -m "v0.5.1"
+git push origin v0.5.1
 # → GitHub Actions: test → build 6 binaries → publish to Releases
 ```
 
