@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
@@ -455,3 +456,392 @@ func TestRedirect_StripsAuthCrossHost(t *testing.T) {
 		t.Errorf("expected stripped auth, got %q", gotAuth)
 	}
 }
+
+// --- New hardening tests ---
+
+func TestSubmitReview_PinsCommitID(t *testing.T) {
+	var gotReq CreateReviewRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&gotReq)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "pinned review",
+		Version: &vcs.DiffVersion{HeadSHA: "abc123def"},
+		Comments: []vcs.ReviewComment{
+			{Path: "main.go", Line: 10, Body: "fix"},
+		},
+	}
+	if err := client.SubmitReview(context.Background(), "o/r", "1", req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotReq.CommitID != "abc123def" {
+		t.Errorf("commit_id = %q, want %q", gotReq.CommitID, "abc123def")
+	}
+}
+
+func TestSubmitReview_DropsInvalidComments(t *testing.T) {
+	var gotReq CreateReviewRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&gotReq)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "filtered",
+		Comments: []vcs.ReviewComment{
+			{Path: "ok.go", Line: 5, Body: "valid"},
+			{Path: "", Line: 10, Body: "empty path"},      // dropped
+			{Path: "bad.go", Line: 0, Body: "zero line"},   // dropped
+			{Path: "bad.go", Line: -1, Body: "neg line"},   // dropped
+			{Path: "ok2.go", Line: 20, Body: "also valid"},
+		},
+	}
+	if err := client.SubmitReview(context.Background(), "o/r", "1", req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(gotReq.Comments) != 2 {
+		t.Fatalf("expected 2 valid comments, got %d", len(gotReq.Comments))
+	}
+	if gotReq.Comments[0].Path != "ok.go" {
+		t.Errorf("first comment path = %q, want ok.go", gotReq.Comments[0].Path)
+	}
+	if gotReq.Comments[1].Path != "ok2.go" {
+		t.Errorf("second comment path = %q, want ok2.go", gotReq.Comments[1].Path)
+	}
+}
+
+func TestSubmitReview_422FallsBackToSummary(t *testing.T) {
+	// First POST (with comments) returns 422.
+	// Second POST (summary-only) succeeds.
+	reviewPosts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		reviewPosts++
+		if reviewPosts == 1 {
+			// First attempt: reject with 422
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Validation Failed","errors":[{"code":"invalid","field":"line"}]}`))
+			return
+		}
+		// Second attempt (summary-only): succeed
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "my review",
+		Comments: []vcs.ReviewComment{
+			{Path: "a.go", Line: 999, Body: "bad line"},
+		},
+	}
+	if err := client.SubmitReview(context.Background(), "o/r", "1", req); err != nil {
+		t.Fatalf("expected graceful degradation, got error: %v", err)
+	}
+	if reviewPosts != 2 {
+		t.Errorf("expected 2 review POSTs (1 rejected + 1 summary-only), got %d", reviewPosts)
+	}
+}
+
+func TestSubmitReview_422SummaryAlsoFails_FallsBackToPostNote(t *testing.T) {
+	// Both review POSTs return 422 (stale commit_id).
+	// Falls back to PostNote (issue comment).
+	reviewPosts := 0
+	issuePosts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		// Distinguish review POST from issue comment POST by URL.
+		if strings.Contains(r.URL.Path, "/reviews") {
+			reviewPosts++
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Validation Failed"}`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/comments") {
+			issuePosts++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":42,"body":"test"}`))
+			return
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "my review",
+		Comments: []vcs.ReviewComment{
+			{Path: "a.go", Line: 5, Body: "comment"},
+		},
+	}
+	if err := client.SubmitReview(context.Background(), "o/r", "1", req); err != nil {
+		t.Fatalf("expected PostNote fallback, got error: %v", err)
+	}
+	if reviewPosts != 2 {
+		t.Errorf("expected 2 review POSTs (both 422), got %d", reviewPosts)
+	}
+	if issuePosts != 1 {
+		t.Errorf("expected 1 PostNote fallback, got %d", issuePosts)
+	}
+}
+
+func TestSubmitReview_422AllFallbacksFail(t *testing.T) {
+	// Both review POSTs return 422. PostNote also fails.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		if strings.Contains(r.URL.Path, "/reviews") {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"Validation Failed"}`))
+			return
+		}
+		// PostNote also fails.
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"Internal Server Error"}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary:  "review",
+		Comments: []vcs.ReviewComment{{Path: "a.go", Line: 5, Body: "c"}},
+	}
+	err := client.SubmitReview(context.Background(), "o/r", "1", req)
+	if err == nil {
+		t.Fatal("expected error when all fallbacks fail")
+	}
+	if !strings.Contains(err.Error(), "posting summary as comment") {
+		t.Errorf("error = %q, want 'posting summary as comment'", err.Error())
+	}
+}
+
+func TestSubmitReview_CleanupFailureContinues(t *testing.T) {
+	// ListBotNotes returns notes, but deletion fails for all.
+	// Review should still be posted.
+	var gotReviewReq CreateReviewRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/comments"):
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"id":1,"body":"old <!-- code-reviewer -->"}]`))
+		case r.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusInternalServerError)
+		case r.Method == http.MethodPost:
+			_ = json.NewDecoder(r.Body).Decode(&gotReviewReq)
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "new review",
+	}
+	if err := client.SubmitReview(context.Background(), "o/r", "1", req); err != nil {
+		t.Fatalf("cleanup failure should not block review: %v", err)
+	}
+	if !strings.Contains(gotReviewReq.Body, "new review") {
+		t.Errorf("review body = %q, want 'new review'", gotReviewReq.Body)
+	}
+}
+
+func TestSubmitReview_ContextCancelled(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		// Block long enough for context to be cancelled.
+		time.Sleep(2 * time.Second)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	req := vcs.SubmitReviewRequest{Summary: "review"}
+	err := client.SubmitReview(ctx, "o/r", "1", req)
+	if err == nil {
+		t.Fatal("expected context error")
+	}
+}
+
+func TestDoRaw_429Retry(t *testing.T) {
+	var mu sync.Mutex
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts++
+		a := attempts
+		mu.Unlock()
+		if a <= 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		// Return paginated response.
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":1,"body":"<!-- code-reviewer -->"}]`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	client.retryBaseMs = 1
+	notes, err := client.ListBotNotes(context.Background(), "proj", "1")
+	if err != nil {
+		t.Fatalf("expected retry success, got: %v", err)
+	}
+	if len(notes) != 1 {
+		t.Errorf("expected 1 note, got %d", len(notes))
+	}
+}
+
+func Test403SecondaryRateLimit_Retried(t *testing.T) {
+	var mu sync.Mutex
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		attempts++
+		a := attempts
+		mu.Unlock()
+		if a <= 1 {
+			// Secondary rate limit: 403 with abuse body, NO X-RateLimit-Remaining header.
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"You have exceeded a secondary rate limit. Please wait."}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	client.retryBaseMs = 1
+	err := client.get(context.Background(), srv.URL, nil)
+	if err != nil {
+		t.Fatalf("expected retry on secondary rate limit, got: %v", err)
+	}
+	mu.Lock()
+	if attempts != 2 {
+		t.Errorf("attempts = %d, want 2", attempts)
+	}
+	mu.Unlock()
+}
+
+func Test403PermissionDenied_NotRetried(t *testing.T) {
+	attempts := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		// Regular 403: no rate limit headers, no abuse keywords.
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"Resource not accessible by integration"}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	client.retryBaseMs = 1
+	err := client.get(context.Background(), srv.URL, nil)
+	if err == nil {
+		t.Fatal("expected permission error")
+	}
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt (no retry), got %d", attempts)
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Errorf("error = %q, want 403", err.Error())
+	}
+}
+
+func TestGetPRChanges_RenamedFile(t *testing.T) {
+	pr := PullRequest{Number: 1, Title: "rename", State: "open"}
+	files := []PullFile{
+		{SHA: "a", Filename: "new_name.go", Status: "renamed", PreviousFilename: "old_name.go", Patch: "@@ -1 +1 @@\n-old\n+new"},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/files") {
+			_ = json.NewEncoder(w).Encode(files)
+		} else {
+			_ = json.NewEncoder(w).Encode(pr)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	changes, err := client.GetMRChanges(context.Background(), "o/r", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(changes.Changes) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(changes.Changes))
+	}
+	c := changes.Changes[0]
+	if c.OldPath != "old_name.go" {
+		t.Errorf("OldPath = %q, want old_name.go", c.OldPath)
+	}
+	if c.NewPath != "new_name.go" {
+		t.Errorf("NewPath = %q, want new_name.go", c.NewPath)
+	}
+	if !c.RenamedFile {
+		t.Error("expected RenamedFile = true")
+	}
+}
+
+func TestGetPRChanges_PaginatedFiles(t *testing.T) {
+	pr := PullRequest{Number: 1, Title: "big PR", State: "open"}
+
+	page := 0
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.HasSuffix(r.URL.Path, "/files") {
+			_ = json.NewEncoder(w).Encode(pr)
+			return
+		}
+		page++
+		if page == 1 {
+			// First page: Link to page 2.
+			w.Header().Set("Link", fmt.Sprintf(`<%s/repos/o/r/pulls/1/files?page=2>; rel="next"`, srvURL))
+			_ = json.NewEncoder(w).Encode([]PullFile{
+				{SHA: "a", Filename: "file1.go", Status: "modified", Patch: "p"},
+			})
+		} else {
+			// Second page: no Link header.
+			_ = json.NewEncoder(w).Encode([]PullFile{
+				{SHA: "b", Filename: "file2.go", Status: "added", Patch: "p"},
+			})
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	client := NewClient(srv.URL, "token")
+	changes, err := client.GetMRChanges(context.Background(), "o/r", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(changes.Changes) != 2 {
+		t.Fatalf("expected 2 files across 2 pages, got %d", len(changes.Changes))
+	}
+}
+

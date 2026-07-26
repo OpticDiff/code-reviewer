@@ -211,6 +211,11 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, prNumber s
 }
 
 // SubmitReview posts a complete review to the pull request via a single API call.
+// On 422 (e.g. stale commit, line outside diff), it degrades gracefully:
+//  1. Retry as summary-only review (no inline comments).
+//  2. If that also fails, fall back to a plain issue comment via PostNote.
+//
+// This ensures exactly one notification to the PR author in all cases.
 func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, req vcs.SubmitReviewRequest) error {
 	// 1. Clean previous bot comments.
 	deleted, err := c.CleanPreviousReviews(ctx, projectID, prNumber)
@@ -220,31 +225,81 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, r
 		slog.Info(fmt.Sprintf("cleaned %d previous bot comment(s)", deleted))
 	}
 
-	// 2. Build review request.
-	reviewReq := CreateReviewRequest{
-		Event: "COMMENT",
-		Body:  req.Summary + "\n" + botMarker,
-	}
-
+	// 2. Pre-validate comments: drop structurally invalid ones before POST.
+	var validComments []ReviewCommentRequest
+	var dropped int
 	for _, comment := range req.Comments {
-		reviewReq.Comments = append(reviewReq.Comments, ReviewCommentRequest{
+		if comment.Path == "" || comment.Line <= 0 {
+			slog.Warn("dropping invalid review comment",
+				"path", comment.Path,
+				"line", comment.Line,
+			)
+			dropped++
+			continue
+		}
+		validComments = append(validComments, ReviewCommentRequest{
 			Path: comment.Path,
 			Line: comment.Line,
 			Body: comment.Body,
 			Side: "RIGHT",
 		})
 	}
+	if dropped > 0 {
+		slog.Info("pre-validation filtered comments", "valid", len(validComments), "dropped", dropped)
+	}
+
+	// 3. Build review request, pinning to the reviewed commit.
+	reviewReq := CreateReviewRequest{
+		Event: "COMMENT",
+		Body:  req.Summary + "\n" + botMarker,
+	}
+	if req.Version != nil && req.Version.HeadSHA != "" {
+		reviewReq.CommitID = req.Version.HeadSHA
+	}
+	reviewReq.Comments = validComments
 
 	apiURL := fmt.Sprintf("%s/repos/%s/pulls/%s/reviews", c.baseURL, projectID, prNumber)
 
-	// 3. Post review
+	// 4. POST review.
 	if err := c.post(ctx, apiURL, reviewReq, nil); err != nil {
-		return fmt.Errorf("posting review: %w", err)
-	}
-	
-	slog.Info("posted GitHub review", "comments", len(req.Comments))
+		if !is422(err) {
+			return fmt.Errorf("posting review: %w", err)
+		}
 
+		// 422: likely stale commit or comment on line outside diff.
+		// Degrade to summary-only review (no inline comments).
+		slog.Warn("batched review rejected (422), retrying as summary-only",
+			"error", err,
+			"dropped_comments", len(validComments),
+		)
+
+		reviewReq.Comments = nil
+		if err := c.post(ctx, apiURL, reviewReq, nil); err != nil {
+			if !is422(err) {
+				return fmt.Errorf("posting summary-only review: %w", err)
+			}
+
+			// Summary-only also rejected (stale commit_id).
+			// Last resort: plain issue comment.
+			slog.Warn("summary-only review also rejected (422), falling back to issue comment",
+				"error", err,
+			)
+			if _, err := c.PostNote(ctx, projectID, prNumber, req.Summary); err != nil {
+				return fmt.Errorf("posting summary as comment: %w", err)
+			}
+		}
+
+		slog.Info("review posted in degraded mode (summary only)")
+		return nil
+	}
+
+	slog.Info("posted GitHub review", "comments", len(validComments))
 	return nil
+}
+
+// is422 checks if an error is a GitHub API 422 Unprocessable Entity response.
+func is422(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "GitHub API error 422")
 }
 
 // getPaginated fetches all pages of a paginated GitHub API response.
@@ -282,7 +337,7 @@ func (c *Client) doRaw(ctx context.Context, method, url string) ([]byte, string,
 			return nil, "", fmt.Errorf("HTTP request failed: %w", err)
 		}
 
-		if resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		if c.isRateLimited(resp) {
 			_ = resp.Body.Close()
 			if attempt >= maxRetries {
 				return nil, "", fmt.Errorf("GitHub API rate limited after %d retries", maxRetries)
@@ -290,6 +345,7 @@ func (c *Client) doRaw(ctx context.Context, method, url string) ([]byte, string,
 			wait := c.retryDelay(resp.Header.Get("Retry-After"))
 			slog.Warn("GitHub rate limited, retrying",
 				"attempt", attempt+1,
+				"status", resp.StatusCode,
 				"wait", wait,
 			)
 			select {
@@ -390,7 +446,7 @@ func (c *Client) do(req *http.Request, out interface{}) error {
 			return fmt.Errorf("HTTP request failed: %w", err)
 		}
 
-		if resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0" || resp.StatusCode == http.StatusTooManyRequests {
+		if c.isRateLimited(resp) {
 			_ = resp.Body.Close()
 			if attempt >= maxRetries {
 				return fmt.Errorf("GitHub API rate limited after %d retries", maxRetries)
@@ -398,6 +454,7 @@ func (c *Client) do(req *http.Request, out interface{}) error {
 			wait := c.retryDelay(resp.Header.Get("Retry-After"))
 			slog.Warn("GitHub rate limited, retrying",
 				"attempt", attempt+1,
+				"status", resp.StatusCode,
 				"wait", wait,
 			)
 			select {
@@ -444,4 +501,31 @@ func (c *Client) retryDelay(retryAfter string) time.Duration {
 		secs = 60
 	}
 	return time.Duration(secs) * time.Second
+}
+
+// isRateLimited returns true if the response indicates a rate limit that should be retried.
+// GitHub has three flavors:
+//   - 429 Too Many Requests (primary rate limit)
+//   - 403 with X-RateLimit-Remaining: 0 (primary rate limit)
+//   - 403 with "secondary rate limit" or "abuse detection" in body (secondary/abuse)
+//
+// For secondary rate limits, the body is peeked but not consumed; the caller must
+// close resp.Body.
+func (c *Client) isRateLimited(resp *http.Response) bool {
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return true
+	}
+	if resp.StatusCode != http.StatusForbidden {
+		return false
+	}
+	// Primary rate limit: explicit header.
+	if resp.Header.Get("X-RateLimit-Remaining") == "0" {
+		return true
+	}
+	// Secondary rate limit: peek at body for abuse detection keywords.
+	// Read a small prefix to check without consuming the whole body.
+	peek, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+	bodyStr := strings.ToLower(string(peek))
+	return strings.Contains(bodyStr, "secondary rate limit") ||
+		strings.Contains(bodyStr, "abuse detection")
 }
