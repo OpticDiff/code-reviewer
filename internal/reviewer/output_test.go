@@ -344,6 +344,13 @@ type outputMockVCS struct {
 	submitReviewCalls int
 	submitReviewReq   *vcs.SubmitReviewRequest
 	submitReviewErr   error
+
+	getDescriptionCalls int
+	getDescription      string
+	getDescriptionErr   error
+	setDescriptionCalls int
+	setDescriptionVal   string
+	setDescriptionErr   error
 }
 
 func (m *outputMockVCS) GetMRChanges(context.Context, string, string) (*vcs.MRChanges, error) {
@@ -399,8 +406,24 @@ func (m *outputMockVCS) SubmitReview(_ context.Context, _, _ string, req vcs.Sub
 	return m.submitReviewErr
 }
 
-// Compile-time check that outputMockVCS implements VCSClient.
+func (m *outputMockVCS) GetDescription(ctx context.Context, projectID, mrIID string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.getDescriptionCalls++
+	return m.getDescription, m.getDescriptionErr
+}
+
+func (m *outputMockVCS) SetDescription(ctx context.Context, projectID, mrIID, description string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.setDescriptionCalls++
+	m.setDescriptionVal = description
+	return m.setDescriptionErr
+}
+
+// Compile-time check that outputMockVCS implements VCSClient and DescriptionUpdater.
 var _ VCSClient = (*outputMockVCS)(nil)
+var _ vcs.DescriptionUpdater = (*outputMockVCS)(nil)
 
 // ---------------------------------------------------------------------------
 // PostToGitLab tests
@@ -475,5 +498,37 @@ func TestPostReview_NotesMode_NoComments(t *testing.T) {
 	req := mockClient.submitReviewReq
 	if len(req.Comments) != 0 {
 		t.Errorf("notes mode should not include inline comments, got %d", len(req.Comments))
+	}
+}
+
+func TestPostReview_UpdateDescription(t *testing.T) {
+	mockClient := &outputMockVCS{
+		getDescription: "Old description",
+	}
+
+	cfg := &config.Config{
+		CommentMode:       config.CommentModeNotes,
+		CIProjectID:       "proj",
+		CIMergeRequestID:  "1",
+		UpdateDescription: true,
+	}
+
+	result := &model.ReviewResult{
+		Summary: "Summary update",
+	}
+
+	err := PostReview(context.Background(), cfg, mockClient, result, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mockClient.getDescriptionCalls != 1 {
+		t.Errorf("expected 1 GetDescription call, got %d", mockClient.getDescriptionCalls)
+	}
+	if mockClient.setDescriptionCalls != 1 {
+		t.Errorf("expected 1 SetDescription call, got %d", mockClient.setDescriptionCalls)
+	}
+	if !strings.Contains(mockClient.setDescriptionVal, "Summary update") {
+		t.Errorf("expected description to contain summary, got %q", mockClient.setDescriptionVal)
 	}
 }

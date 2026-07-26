@@ -3,7 +3,10 @@
 // platforms (GitLab, GitHub, Bitbucket), enabling multi-platform support.
 package vcs
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // MRChanges holds the file changes from a merge/pull request.
 type MRChanges struct {
@@ -55,6 +58,7 @@ type InlineCommentPosition struct {
 	NewPath  string
 	OldLine  *int
 	NewLine  *int
+	EndLine  *int
 }
 
 // InlineCommentRequest is the payload for creating an inline
@@ -69,7 +73,8 @@ type InlineCommentRequest struct {
 // positioning info — the platform client handles SHA context internally.
 type ReviewComment struct {
 	Path       string // File path relative to repo root.
-	Line       int    // Line number in the new file.
+	Line       int    // Start line (or single line).
+	EndLine    int    // End line (0 means single-line comment).
 	Body       string // Pre-formatted markdown body.
 	Suggestion string // Raw replacement code (empty if no suggestion).
 }
@@ -82,4 +87,11 @@ type SubmitReviewRequest struct {
 	Comments    []ReviewComment // Inline comments anchored to diff positions.
 	Version     *DiffVersion    // SHA context for inline comment positioning (may be nil).
 	CleanupMode string          // "delete" or "resolve" — controls how old bot comments are handled.
+}
+
+// DescriptionUpdater is implemented by VCS clients that support updating
+// MR/PR descriptions. This is a separate interface for interface segregation.
+type DescriptionUpdater interface {
+	GetDescription(ctx context.Context, projectID, mrIID string) (string, error)
+	SetDescription(ctx context.Context, projectID, mrIID, description string) error
 }
