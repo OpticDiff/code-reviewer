@@ -12,6 +12,18 @@ go build ./...
 go test ./... -race
 ```
 
+### Updating the Nix `vendorHash`
+
+When you change `go.mod` / `go.sum`, the Nix build will fail with a hash
+mismatch. Run the helper script to update it automatically:
+
+```bash
+./scripts/update-vendor-hash.sh
+```
+
+Or manually: set `vendorHash = "";` in `flake.nix`, run `nix build`, and copy
+the `got:` hash from the error into `vendorHash`.
+
 For detailed setup, config-field checklists, provider patterns, and test
 conventions, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
