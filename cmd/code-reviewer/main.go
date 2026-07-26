@@ -11,6 +11,7 @@ import (
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
+	gh "github.com/OpticDiff/code-reviewer/internal/github"
 	"github.com/OpticDiff/code-reviewer/internal/gitlab"
 	"github.com/OpticDiff/code-reviewer/internal/hook"
 	"github.com/OpticDiff/code-reviewer/internal/model"
@@ -111,9 +112,15 @@ func run(ctx, initCtx context.Context) (int, error) {
 
 	// Use interface type so nil remains an untyped nil (not a typed nil
 	// *gitlab.Client wrapped in an interface, which would pass nil checks).
-	var glClient reviewer.VCSClient
+	var vcsClient reviewer.VCSClient
 	if cfg.CIMode && !cfg.DryRun {
-		glClient = gitlab.NewClient(cfg.GitLabBaseURL, cfg.GitLabToken)
+		switch cfg.Platform {
+		case "github":
+			vcsClient = gh.NewClient(cfg.GitHubBaseURL, cfg.GitHubToken)
+			slog.Info("using GitHub VCS client", "base_url", cfg.GitHubBaseURL)
+		default:
+			vcsClient = gitlab.NewClient(cfg.GitLabBaseURL, cfg.GitLabToken)
+		}
 	}
 
 	// Create context provider for repo-aware reviews.
@@ -123,7 +130,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 		slog.Info("repo-aware context discovery enabled")
 	}
 
-	rev := reviewer.NewWithContext(cfg, modelProvider, glClient, ctxProvider)
+	rev := reviewer.NewWithContext(cfg, modelProvider, vcsClient, ctxProvider)
 
 	var exitCode int
 	if cfg.Explain {
