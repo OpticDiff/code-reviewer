@@ -28,6 +28,10 @@ type capturingVCS struct {
 	postedNotes          []string
 	createdDiscussions   []vcs.InlineCommentRequest
 	discussionErr        error // If set, CreateDiscussion returns this error.
+	
+	submitReviewCalls int
+	submitReviewReq   *vcs.SubmitReviewRequest
+	submitReviewErr   error
 }
 
 func (c *capturingVCS) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
@@ -40,6 +44,47 @@ func (c *capturingVCS) CreateDiscussion(ctx context.Context, projectID, mrIID st
 	c.createDiscussionCalls++
 	c.createdDiscussions = append(c.createdDiscussions, req)
 	return c.discussionErr
+}
+
+func (c *capturingVCS) SubmitReview(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
+	c.submitReviewCalls++
+	c.submitReviewReq = &req
+	if c.submitReviewErr != nil {
+		return c.submitReviewErr
+	}
+	
+	// Delegate to CleanPreviousReviews
+	if _, err := c.CleanPreviousReviews(ctx, projectID, mrIID); err != nil {
+		return err
+	}
+	
+	// Delegate to individual calls to preserve existing test assertions on
+	// postNoteCalls and createdDiscussions.
+	if _, err := c.PostNote(ctx, projectID, mrIID, req.Summary); err != nil {
+		return fmt.Errorf("posting summary: %w", err)
+	}
+	for _, comment := range req.Comments {
+		if req.Version != nil {
+			newLine := comment.Line
+			inlineReq := vcs.InlineCommentRequest{
+				Body: comment.Body,
+				Position: &vcs.InlineCommentPosition{
+					BaseSHA:  req.Version.BaseSHA,
+					HeadSHA:  req.Version.HeadSHA,
+					StartSHA: req.Version.StartSHA,
+					NewPath:  comment.Path,
+					OldPath:  comment.Path,
+					NewLine:  &newLine,
+				},
+			}
+			if err := c.CreateDiscussion(ctx, projectID, mrIID, inlineReq); err != nil {
+				// Fallback
+				body := fmt.Sprintf("**%s:%d** — %s", comment.Path, comment.Line, comment.Body)
+				_, _ = c.PostNote(ctx, projectID, mrIID, body)
+			}
+		}
+	}
+	return nil
 }
 
 // mockSummarizeModel implements ModelReviewer + SummarizeProvider for

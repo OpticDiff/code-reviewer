@@ -111,6 +111,13 @@ type Config struct {
 	GitLabBaseURL string
 	SkipDraftMRs  bool
 
+	// GitHub settings.
+	GitHubToken   string
+	GitHubBaseURL string // Default: https://api.github.com
+
+	// Platform detection: "gitlab", "github", or "" (auto-detect from CI env).
+	Platform string
+
 	// CI auto-detected.
 	CIProjectID      string
 	CIMergeRequestID string
@@ -181,6 +188,7 @@ func Load() (*Config, error) {
 		CommentMode:      CommentModeNotes,
 		ChunkStrategy:    ChunkStrategyFail,
 		GitLabBaseURL:    "https://gitlab.com",
+		GitHubBaseURL:    "https://api.github.com",
 		SkipDraftMRs:     true,
 		ExcludedPatterns: DefaultExcludedPatterns,
 	}
@@ -564,10 +572,52 @@ func (c *Config) loadFlags() error {
 }
 
 func (c *Config) loadCIEnv() {
+	// Auto-detect platform from CI environment unless explicitly configured.
+	// Check GitLab first: CI_PROJECT_ID is specific to GitLab CI,
+	// while GITHUB_ACTIONS is set for all GitHub Actions jobs (even
+	// ones that test GitLab-targeting tools).
+	switch {
+	case c.Platform != "":
+		// Platform was explicitly configured (e.g., via flag or yaml).
+		switch c.Platform {
+		case "github":
+			c.loadGitHubCIEnv()
+		case "gitlab":
+			c.loadGitLabCIEnv()
+		}
+	case os.Getenv("CI_PROJECT_ID") != "":
+		c.Platform = "gitlab"
+		c.loadGitLabCIEnv()
+	case os.Getenv("GITHUB_ACTIONS") == "true":
+		c.Platform = "github"
+		c.loadGitHubCIEnv()
+	default:
+		// Try GitLab env vars anyway for manual runs.
+		c.loadGitLabCIEnv()
+	}
+}
+
+func (c *Config) loadGitLabCIEnv() {
 	c.CIProjectID = os.Getenv("CI_PROJECT_ID")
 	c.CIMergeRequestID = os.Getenv("CI_MERGE_REQUEST_IID")
 	c.CIDiffBaseSHA = os.Getenv("CI_MERGE_REQUEST_DIFF_BASE_SHA")
 	c.CICommitBeforeSHA = os.Getenv("CI_COMMIT_BEFORE_SHA")
+}
+
+func (c *Config) loadGitHubCIEnv() {
+	c.CIProjectID = os.Getenv("GITHUB_REPOSITORY") // "owner/repo"
+	c.GitHubToken = os.Getenv("GITHUB_TOKEN")
+	if v := os.Getenv("GITHUB_API_URL"); v != "" {
+		c.GitHubBaseURL = v // GitHub Enterprise support.
+	}
+
+	// Parse PR number from GITHUB_REF (e.g., "refs/pull/42/merge").
+	if ref := os.Getenv("GITHUB_REF"); ref != "" {
+		parts := strings.Split(ref, "/")
+		if len(parts) >= 3 && parts[1] == "pull" {
+			c.CIMergeRequestID = parts[2]
+		}
+	}
 }
 
 func (c *Config) validate() error {
@@ -589,27 +639,41 @@ func (c *Config) validate() error {
 		return fmt.Errorf("only one input mode allowed (--ci, --diff, or --files)")
 	}
 
-	// CI mode requires MR context.
+	// CI mode requires MR/PR context.
 	if c.CIMode {
 		if c.CIProjectID == "" || c.CIMergeRequestID == "" {
+			if c.Platform == "github" {
+				return fmt.Errorf("CI mode requires GITHUB_REPOSITORY and a pull_request event\n\n" +
+					"Ensure your workflow uses: on: pull_request\n" +
+					"GITHUB_REF must match refs/pull/<number>/merge")
+			}
 			return fmt.Errorf("CI mode requires CI_PROJECT_ID and CI_MERGE_REQUEST_IID env vars\n\n" +
 				"These are set automatically when running in a GitLab MR pipeline.\n" +
 				"If running locally, use --diff instead of --ci")
 		}
-		// Validate GitLab URL scheme to prevent token leakage over plain HTTP.
-		if !strings.HasPrefix(c.GitLabBaseURL, "https://") {
-			if os.Getenv("CODE_REVIEWER_ALLOW_INSECURE") != "true" {
-				return fmt.Errorf("GITLAB_BASE_URL must use HTTPS to protect tokens\n\n"+
-					"Current URL: %s\n"+
-					"Set CODE_REVIEWER_ALLOW_INSECURE=true to override (not recommended)",
-					c.GitLabBaseURL)
+
+		switch c.Platform {
+		case "github":
+			if c.GitHubToken == "" && !c.DryRun {
+				return fmt.Errorf("CI mode on GitHub requires GITHUB_TOKEN env var\n\n" +
+					"Add 'permissions: pull-requests: write' to your workflow")
 			}
-		}
-		if c.GitLabToken == "" && (!c.Summarize || !c.DryRun) {
-			return fmt.Errorf("CI mode requires GITLAB_TOKEN env var\n\n" +
-				"Options:\n" +
-				"  CI_JOB_TOKEN:  Add 'GITLAB_TOKEN: $CI_JOB_TOKEN' to your job variables\n" +
-				"  Access Token:  Create a Project Access Token with api scope")
+		default: // gitlab
+			// Validate GitLab URL scheme to prevent token leakage over plain HTTP.
+			if !strings.HasPrefix(c.GitLabBaseURL, "https://") {
+				if os.Getenv("CODE_REVIEWER_ALLOW_INSECURE") != "true" {
+					return fmt.Errorf("GITLAB_BASE_URL must use HTTPS to protect tokens\n\n"+
+						"Current URL: %s\n"+
+						"Set CODE_REVIEWER_ALLOW_INSECURE=true to override (not recommended)",
+						c.GitLabBaseURL)
+				}
+			}
+			if c.GitLabToken == "" && !c.DryRun {
+				return fmt.Errorf("CI mode requires GITLAB_TOKEN env var\n\n" +
+					"Options:\n" +
+					"  CI_JOB_TOKEN:  Add 'GITLAB_TOKEN: $CI_JOB_TOKEN' to your job variables\n" +
+					"  Access Token:  Create a Project Access Token with api scope")
+			}
 		}
 	}
 

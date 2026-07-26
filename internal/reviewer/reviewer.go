@@ -277,7 +277,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 
 	// Step 7a: Write SARIF if requested (before posting to GitLab so it's not
-	// skipped when PostToGitLab fails).
+	// skipped when PostReview fails).
 	if r.cfg.SARIFOutput != "" {
 		if err := WriteSARIF(r.cfg.SARIFOutput, result); err != nil {
 			return len(allFindings), fmt.Errorf("writing SARIF: %w", err)
@@ -319,8 +319,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			result.Summary = formatIntentMarkdown(intentSummary) + result.Summary
 		}
 
-		if err := PostToGitLab(ctx, r.cfg, r.glClient, result, version); err != nil {
-			return len(allFindings), fmt.Errorf("posting to GitLab: %w", err)
+		if err := PostReview(ctx, r.cfg, r.glClient, result, version); err != nil {
+			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
 	}
 

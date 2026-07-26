@@ -2,8 +2,6 @@ package reviewer
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -308,6 +306,10 @@ type outputMockVCS struct {
 	postNoteErr error
 	cleanResult int
 	cleanErr    error
+
+	submitReviewCalls int
+	submitReviewReq   *vcs.SubmitReviewRequest
+	submitReviewErr   error
 }
 
 func (m *outputMockVCS) GetMRChanges(context.Context, string, string) (*vcs.MRChanges, error) {
@@ -355,6 +357,14 @@ func (m *outputMockVCS) CleanPreviousReviews(context.Context, string, string) (i
 	return m.cleanResult, m.cleanErr
 }
 
+func (m *outputMockVCS) SubmitReview(_ context.Context, _, _ string, req vcs.SubmitReviewRequest) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.submitReviewCalls++
+	m.submitReviewReq = &req
+	return m.submitReviewErr
+}
+
 // Compile-time check that outputMockVCS implements VCSClient.
 var _ VCSClient = (*outputMockVCS)(nil)
 
@@ -362,17 +372,56 @@ var _ VCSClient = (*outputMockVCS)(nil)
 // PostToGitLab tests
 // ---------------------------------------------------------------------------
 
-func TestPostToGitLab_DiscussionFallbackToNote(t *testing.T) {
-	discErr := errors.New("position not found in diff")
-
-	mockClient := &outputMockVCS{
-		createDiscussionFunc: func(_ int) error {
-			return discErr // all discussions fail
-		},
-	}
+func TestPostReview_BuildsSubmitRequest(t *testing.T) {
+	mockClient := &outputMockVCS{}
 
 	cfg := &config.Config{
 		CommentMode:      config.CommentModeDiscussions,
+		CIProjectID:      "proj",
+		CIMergeRequestID: "1",
+	}
+
+	result := &model.ReviewResult{
+		Summary: "Found 2 issues.",
+		Findings: []model.Finding{
+			{File: "main.go", Line: 10, Severity: "HIGH", Title: "Bug", Body: "desc"},
+			{File: "util.go", Line: 5, Severity: "LOW", Title: "Style", Body: "nit"},
+		},
+	}
+
+	version := &vcs.DiffVersion{
+		ID: 1, HeadSHA: "head", BaseSHA: "base", StartSHA: "start",
+	}
+
+	err := PostReview(context.Background(), cfg, mockClient, result, version)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mockClient.submitReviewCalls != 1 {
+		t.Fatalf("expected 1 SubmitReview call, got %d", mockClient.submitReviewCalls)
+	}
+
+	req := mockClient.submitReviewReq
+	if !strings.Contains(req.Summary, "📋 Code Review Summary") {
+		t.Error("summary missing header")
+	}
+	if len(req.Comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(req.Comments))
+	}
+	if req.Comments[0].Path != "main.go" || req.Comments[0].Line != 10 {
+		t.Errorf("comment[0] = %s:%d, want main.go:10", req.Comments[0].Path, req.Comments[0].Line)
+	}
+	if req.Version != version {
+		t.Error("expected version to be passed through")
+	}
+}
+
+func TestPostReview_NotesMode_NoComments(t *testing.T) {
+	mockClient := &outputMockVCS{}
+
+	cfg := &config.Config{
+		CommentMode:      config.CommentModeNotes,
 		CIProjectID:      "proj",
 		CIMergeRequestID: "1",
 	}
@@ -384,75 +433,13 @@ func TestPostToGitLab_DiscussionFallbackToNote(t *testing.T) {
 		},
 	}
 
-	version := &vcs.DiffVersion{
-		ID:       1,
-		HeadSHA:  "head",
-		BaseSHA:  "base",
-		StartSHA: "start",
-	}
-
-	err := PostToGitLab(context.Background(), cfg, mockClient, result, version)
+	err := PostReview(context.Background(), cfg, mockClient, result, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// PostNote should be called twice:
-	// 1. Summary note
-	// 2. Fallback inline note (because CreateDiscussion failed)
-	if mockClient.postNoteCalls != 2 {
-		t.Errorf("PostNote call count = %d, want 2 (summary + fallback)", mockClient.postNoteCalls)
-	}
-
-	if mockClient.createDiscussionCalls != 1 {
-		t.Errorf("CreateDiscussion call count = %d, want 1", mockClient.createDiscussionCalls)
-	}
-}
-
-func TestPostToGitLab_PartialPostingCount(t *testing.T) {
-	// CreateDiscussion alternates: #0 succeeds, #1 fails, #2 succeeds.
-	mockClient := &outputMockVCS{
-		createDiscussionFunc: func(callIndex int) error {
-			if callIndex == 1 {
-				return fmt.Errorf("position error")
-			}
-			return nil
-		},
-	}
-
-	cfg := &config.Config{
-		CommentMode:      config.CommentModeDiscussions,
-		CIProjectID:      "proj",
-		CIMergeRequestID: "1",
-	}
-
-	result := &model.ReviewResult{
-		Summary: "Found issues.",
-		Findings: []model.Finding{
-			{File: "a.go", Line: 1, Severity: "HIGH", Title: "F1", Body: "d1"},
-			{File: "b.go", Line: 2, Severity: "MEDIUM", Title: "F2", Body: "d2"},
-			{File: "c.go", Line: 3, Severity: "LOW", Title: "F3", Body: "d3"},
-		},
-	}
-
-	version := &vcs.DiffVersion{
-		ID:       1,
-		HeadSHA:  "head",
-		BaseSHA:  "base",
-		StartSHA: "start",
-	}
-
-	err := PostToGitLab(context.Background(), cfg, mockClient, result, version)
-	if err != nil {
-		t.Fatalf("expected nil error, got: %v", err)
-	}
-
-	// 3 CreateDiscussion attempts total.
-	if mockClient.createDiscussionCalls != 3 {
-		t.Errorf("CreateDiscussion calls = %d, want 3", mockClient.createDiscussionCalls)
-	}
-
-	// 1 summary note + 1 fallback note for finding #2.
-	if mockClient.postNoteCalls != 2 {
-		t.Errorf("PostNote calls = %d, want 2 (1 summary + 1 fallback)", mockClient.postNoteCalls)
+	req := mockClient.submitReviewReq
+	if len(req.Comments) != 0 {
+		t.Errorf("notes mode should not include inline comments, got %d", len(req.Comments))
 	}
 }
