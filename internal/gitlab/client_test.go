@@ -1122,10 +1122,13 @@ func TestIsDraftNotesUnavailable(t *testing.T) {
 		want bool
 	}{
 		{"nil error", nil, false},
-		{"404 error", fmt.Errorf("GitLab API error 404: Not Found"), true},
-		{"Not Found in message", fmt.Errorf("creating draft note: GitLab API error 404: {\"message\":\"Not Found\"}"), true},
-		{"500 error", fmt.Errorf("GitLab API error 500: Internal Server Error"), false},
-		{"422 error", fmt.Errorf("GitLab API error 422: Validation Failed"), false},
+		{"typed 404", &APIError{StatusCode: 404, Body: "Not Found"}, true},
+		{"wrapped typed 404", fmt.Errorf("creating draft note: %w", &APIError{StatusCode: 404, Body: "Not Found"}), true},
+		{"typed 500", &APIError{StatusCode: 500, Body: "Internal Server Error"}, false},
+		{"typed 422", &APIError{StatusCode: 422, Body: "Validation Failed"}, false},
+		{"string 404 Not Found", fmt.Errorf("GitLab API error 404: Not Found"), true},
+		{"string 404 only (no Not Found)", fmt.Errorf("something 404"), false},
+		{"generic error", fmt.Errorf("connection refused"), false},
 	}
 
 	for _, tt := range tests {
@@ -1135,5 +1138,101 @@ func TestIsDraftNotesUnavailable(t *testing.T) {
 				t.Errorf("isDraftNotesUnavailable(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSubmitReview_DraftNotes_InlineDraftFailsFallsBackToNote(t *testing.T) {
+	// When createDraftNote fails for an inline comment, it should fall back to PostNote.
+	var notePosts int
+	var draftPosts int
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/bulk_publish"):
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/draft_notes"):
+			draftPosts++
+			if draftPosts == 2 {
+				// Second draft (first inline) fails.
+				w.WriteHeader(http.StatusUnprocessableEntity)
+				_, _ = w.Write([]byte(`{"message":"Validation failed"}`))
+				return
+			}
+			_, _ = fmt.Fprintf(w, `{"id":%d,"note":"draft"}`, draftPosts)
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/notes"):
+			notePosts++
+			_, _ = fmt.Fprintf(w, `{"id":%d,"body":"fallback"}`, 100+notePosts)
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "Review",
+		Version: &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"},
+		Comments: []vcs.ReviewComment{
+			{Path: "a.go", Line: 10, Body: "problem here"},
+		},
+	}
+
+	if err := client.SubmitReview(context.Background(), "proj", "1", req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if notePosts != 1 {
+		t.Errorf("expected 1 PostNote fallback call, got %d", notePosts)
+	}
+}
+
+func TestSubmitReview_DraftNotes_StaleDraftCleanupFailure(t *testing.T) {
+	// If stale drafts can't be deleted AND remain after cleanup,
+	// submitViaDraftNotes should propagate the error to prevent republishing stale content.
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
+			// Always returns a stale draft (can't be deleted).
+			_, _ = w.Write([]byte(`[{"id":99,"note":"stale draft that won't go away"}]`))
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/draft_notes/99"):
+			// Delete fails.
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{Summary: "Review"}
+
+	err := client.SubmitReview(context.Background(), "proj", "1", req)
+	if err == nil {
+		t.Fatal("expected error when stale drafts remain")
+	}
+	if !strings.Contains(err.Error(), "stale draft note(s) remain") {
+		t.Errorf("error = %q, want contains 'stale draft note(s) remain'", err.Error())
 	}
 }
