@@ -251,7 +251,11 @@ func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID st
 				continue
 			}
 			resolved++
-			time.Sleep(apiRateDelay)
+			select {
+			case <-time.After(apiRateDelay):
+			case <-ctx.Done():
+				return resolved, ctx.Err()
+			}
 		}
 	}
 	return resolved, nil
@@ -327,8 +331,12 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 			}
 
 			newLine := comment.Line
+			noteBody := comment.Body
+			if comment.Suggestion != "" {
+				noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
+			}
 			draftReq := CreateDraftNoteRequest{
-				Note: comment.Body,
+				Note: noteBody + "\n" + botMarker,
 				Position: &DiscussionPosition{
 					PositionType: "text",
 					BaseSHA:      req.Version.BaseSHA,
@@ -346,8 +354,8 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 					"line", comment.Line,
 					"error", err,
 				)
-				noteBody := fmt.Sprintf("**%s:%d** — %s", comment.Path, comment.Line, comment.Body)
-				if _, noteErr := c.PostNote(ctx, projectID, mrIID, noteBody); noteErr != nil {
+				noteBodyStr := fmt.Sprintf("**%s:%d** — %s", comment.Path, comment.Line, noteBody)
+				if _, noteErr := c.PostNote(ctx, projectID, mrIID, noteBodyStr); noteErr != nil {
 					slog.Error("note fallback also failed", "error", noteErr)
 				}
 				draftsFailed++
@@ -388,8 +396,12 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 				break
 			}
 			newLine := comment.Line
+			noteBody := comment.Body
+			if comment.Suggestion != "" {
+				noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
+			}
 			inlineReq := vcs.InlineCommentRequest{
-				Body: comment.Body,
+				Body: noteBody,
 				Position: &vcs.InlineCommentPosition{
 					BaseSHA:  req.Version.BaseSHA,
 					HeadSHA:  req.Version.HeadSHA,
@@ -407,8 +419,8 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 					"error", err,
 				)
 				// Fallback: post as a regular note.
-				noteBody := fmt.Sprintf("**%s:%d** — %s", comment.Path, comment.Line, comment.Body)
-				if _, err := c.PostNote(ctx, projectID, mrIID, noteBody); err != nil {
+				noteBodyStr := fmt.Sprintf("**%s:%d** — %s", comment.Path, comment.Line, noteBody)
+				if _, err := c.PostNote(ctx, projectID, mrIID, noteBodyStr); err != nil {
 					slog.Error("failed to post fallback note", "error", err)
 				} else {
 					fallbackPosted++

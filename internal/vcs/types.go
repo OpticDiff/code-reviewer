@@ -68,9 +68,10 @@ type InlineCommentRequest struct {
 // submission. Unlike InlineCommentRequest, it carries only the essential
 // positioning info — the platform client handles SHA context internally.
 type ReviewComment struct {
-	Path string // File path relative to repo root.
-	Line int    // Line number in the new file.
-	Body string // Pre-formatted markdown body.
+	Path       string // File path relative to repo root.
+	Line       int    // Line number in the new file.
+	Body       string // Pre-formatted markdown body.
+	Suggestion string // Raw replacement code (empty if no suggestion).
 }
 
 // SubmitReviewRequest is the payload for submitting a complete code review

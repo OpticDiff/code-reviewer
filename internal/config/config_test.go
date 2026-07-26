@@ -704,6 +704,36 @@ func TestLoad_FlagAndEnvOptions(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "cleanup_mode_flag",
+			args: []string{"code-reviewer", "--diff", "--cleanup-mode", "resolve"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.CleanupMode != CleanupModeResolve {
+					t.Errorf("CleanupMode = %q, want %q", cfg.CleanupMode, CleanupModeResolve)
+				}
+			},
+		},
+		{
+			name: "cleanup_mode_env",
+			args: []string{"code-reviewer", "--diff"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "CODE_REVIEWER_CLEANUP_MODE": "resolve"},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.CleanupMode != CleanupModeResolve {
+					t.Errorf("CleanupMode = %q, want %q", cfg.CleanupMode, CleanupModeResolve)
+				}
+			},
+		},
+		{
+			name: "cleanup_mode_flag_over_env",
+			args: []string{"code-reviewer", "--diff", "--cleanup-mode", "delete"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "CODE_REVIEWER_CLEANUP_MODE": "resolve"},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.CleanupMode != CleanupModeDelete {
+					t.Errorf("CleanupMode = %q, want %q (flag should override env)", cfg.CleanupMode, CleanupModeDelete)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -897,5 +927,21 @@ func TestIntentReview_MutuallyExclusiveWithSummarize(t *testing.T) {
 	}
 	if !containsStr(err.Error(), "mutually exclusive") {
 		t.Errorf("error = %q, want mention of 'mutually exclusive'", err.Error())
+	}
+}
+
+func TestLoad_InvalidCleanupMode(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff", "--cleanup-mode", "archive"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for invalid cleanup-mode")
+	}
+	if !containsStr(err.Error(), "invalid cleanup-mode") {
+		t.Errorf("error = %q, want mention of 'invalid cleanup-mode'", err.Error())
 	}
 }

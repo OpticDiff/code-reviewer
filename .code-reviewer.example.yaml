@@ -21,9 +21,11 @@ focus: [bugs, security]
 min_severity: low
 
 # How to post comments to GitLab MRs.
-# notes: simple MR note (works with CI_JOB_TOKEN)
+# comment_mode: notes
 # discussions: inline diff-anchored comments (needs PAT with api scope)
 comment_mode: notes
+
+# cleanup_mode: delete    # How to handle previous bot comments (delete or resolve)
 
 # How to handle diffs that exceed the model's context window.
 # fail: error out with a helpful message (default, forces smaller MRs)
