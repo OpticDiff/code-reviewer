@@ -60,8 +60,9 @@ func TerminalOutput(result *model.ReviewResult) string {
 // PostReview posts review results to a GitLab merge request.
 func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion) error {
 	req := vcs.SubmitReviewRequest{
-		Summary: formatSummaryNote(result),
-		Version: version,
+		Summary:     formatSummaryNote(result),
+		Version:     version,
+		CleanupMode: string(cfg.CleanupMode),
 	}
 
 	if cfg.CommentMode == config.CommentModeDiscussions && version != nil {

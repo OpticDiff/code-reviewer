@@ -218,6 +218,9 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, prNumber s
 // This ensures exactly one notification to the PR author in all cases.
 func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, req vcs.SubmitReviewRequest) error {
 	// 1. Clean previous bot comments.
+	if req.CleanupMode == "resolve" {
+		slog.Warn("GitHub does not support resolving previous reviews; falling back to delete mode")
+	}
 	deleted, err := c.CleanPreviousReviews(ctx, projectID, prNumber)
 	if err != nil {
 		slog.Warn("failed to clean previous reviews", "error", err)

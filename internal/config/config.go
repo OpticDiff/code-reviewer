@@ -64,6 +64,14 @@ const (
 	CommentModeDiscussions CommentMode = "discussions"
 )
 
+// CleanupMode determines how previous bot comments are handled.
+type CleanupMode string
+
+const (
+	CleanupModeDelete  CleanupMode = "delete"  // Delete old comments (default).
+	CleanupModeResolve CleanupMode = "resolve" // Resolve old discussions (GitLab only; GitHub falls back to delete).
+)
+
 // ChunkStrategy determines how large diffs are handled.
 type ChunkStrategy string
 
@@ -100,6 +108,7 @@ type Config struct {
 
 	// Output settings.
 	CommentMode CommentMode
+	CleanupMode CleanupMode
 	DryRun      bool
 	OutputJSON  bool
 	NoColor     bool   // Disable ANSI color output.
@@ -154,6 +163,7 @@ type repoConfig struct {
 	Focus            []string `yaml:"focus"`
 	MinSeverity      string   `yaml:"min_severity"`
 	CommentMode      string   `yaml:"comment_mode"`
+	CleanupMode      string   `yaml:"cleanup_mode"`
 	ChunkStrategy    string   `yaml:"chunk_strategy"`
 	ExcludedPatterns []string `yaml:"excluded_patterns"`
 	ExtraRules       string   `yaml:"extra_rules"`
@@ -186,6 +196,7 @@ func Load() (*Config, error) {
 		Focus:            []string{"all"},
 		MinSeverity:      SeverityLow,
 		CommentMode:      CommentModeNotes,
+		CleanupMode:      CleanupModeDelete,
 		ChunkStrategy:    ChunkStrategyFail,
 		GitLabBaseURL:    "https://gitlab.com",
 		GitHubBaseURL:    "https://api.github.com",
@@ -308,6 +319,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.CommentMode != "" {
 		c.CommentMode = CommentMode(rc.CommentMode)
 	}
+	if rc.CleanupMode != "" {
+		c.CleanupMode = CleanupMode(rc.CleanupMode)
+	}
 	if rc.ChunkStrategy != "" {
 		c.ChunkStrategy = ChunkStrategy(rc.ChunkStrategy)
 	}
@@ -361,6 +375,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("REVIEW_COMMENT_MODE"); v != "" {
 		c.CommentMode = CommentMode(v)
+	}
+	if v := os.Getenv("CODE_REVIEWER_CLEANUP_MODE"); v != "" {
+		c.CleanupMode = CleanupMode(v)
 	}
 	if v := os.Getenv("REVIEW_CHUNK_STRATEGY"); v != "" {
 		c.ChunkStrategy = ChunkStrategy(v)
@@ -444,6 +461,7 @@ func (c *Config) loadFlags() error {
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")
+	cleanupMode := fs.String("cleanup-mode", "", "How to handle previous bot comments (delete or resolve)")
 	chunkStrategy := fs.String("chunk-strategy", "", "How to handle large diffs: fail (default) or split")
 	extraRules := fs.String("extra-rules", "", "Additional review rules appended to prompt")
 	dryRun := fs.Bool("dry-run", false, "Run analysis but don't post to GitLab")
@@ -500,6 +518,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *commentMode != "" {
 		c.CommentMode = CommentMode(*commentMode)
+	}
+	if *cleanupMode != "" {
+		c.CleanupMode = CleanupMode(*cleanupMode)
 	}
 	if *chunkStrategy != "" {
 		c.ChunkStrategy = ChunkStrategy(*chunkStrategy)
@@ -685,6 +706,11 @@ func (c *Config) validate() error {
 	// Validate comment mode.
 	if c.CommentMode != CommentModeNotes && c.CommentMode != CommentModeDiscussions {
 		return fmt.Errorf("invalid comment-mode: %q (valid: notes, discussions)", c.CommentMode)
+	}
+
+	// Validate cleanup mode.
+	if c.CleanupMode != CleanupModeDelete && c.CleanupMode != CleanupModeResolve {
+		return fmt.Errorf("invalid cleanup-mode: %q (valid: delete, resolve)", c.CleanupMode)
 	}
 
 	// Validate chunk strategy.

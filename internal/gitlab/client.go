@@ -173,6 +173,35 @@ func (c *Client) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]v
 	return botNotes, nil
 }
 
+type Discussion struct {
+	ID    string `json:"id"`
+	Notes []Note `json:"notes"`
+}
+
+// ListDiscussions returns all discussions on a merge request.
+func (c *Client) ListDiscussions(ctx context.Context, projectID, mrIID string) ([]Discussion, error) {
+	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/discussions", c.baseURL, url.PathEscape(projectID), mrIID)
+	var discussions []Discussion
+	err := c.getPaginated(ctx, url, func(page json.RawMessage) error {
+		var pageDiscussions []Discussion
+		if err := json.Unmarshal(page, &pageDiscussions); err != nil {
+			return err
+		}
+		discussions = append(discussions, pageDiscussions...)
+		return nil
+	})
+	return discussions, err
+}
+
+// ResolveDiscussion marks a discussion as resolved on a merge request.
+func (c *Client) ResolveDiscussion(ctx context.Context, projectID, mrIID string, discussionID string) error {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s/discussions/%s", c.baseURL, url.PathEscape(projectID), mrIID, discussionID)
+	type resolveReq struct {
+		Resolved bool `json:"resolved"`
+	}
+	return c.put(ctx, apiURL, resolveReq{Resolved: true}, nil)
+}
+
 // DeleteNote removes a note from a merge request.
 func (c *Client) DeleteNote(ctx context.Context, projectID, mrIID string, noteID int) error {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/notes/%d", c.baseURL, url.PathEscape(projectID), mrIID, noteID)
@@ -201,16 +230,52 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 	return deleted, nil
 }
 
+// ResolvePreviousReviews resolves all bot-tagged discussions on an MR.
+func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID string) (int, error) {
+	discussions, err := c.ListDiscussions(ctx, projectID, mrIID)
+	if err != nil {
+		return 0, err
+	}
+
+	resolved := 0
+	for _, d := range discussions {
+		isBotDiscussion := false
+		for _, n := range d.Notes {
+			if strings.Contains(n.Body, botMarker) {
+				isBotDiscussion = true
+				break
+			}
+		}
+		if isBotDiscussion {
+			if err := c.ResolveDiscussion(ctx, projectID, mrIID, d.ID); err != nil {
+				continue
+			}
+			resolved++
+			time.Sleep(apiRateDelay)
+		}
+	}
+	return resolved, nil
+}
+
 // SubmitReview posts a complete review to the merge request using draft notes
 // for a single-notification experience. Falls back to individual discussions
 // if the Draft Notes API is unavailable (GitLab < 15.11 or CE without the feature).
 func (c *Client) SubmitReview(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
 	// 1. Clean previous bot comments.
-	deleted, err := c.CleanPreviousReviews(ctx, projectID, mrIID)
-	if err != nil {
-		slog.Warn("failed to clean previous reviews", "error", err)
-	} else if deleted > 0 {
-		slog.Info(fmt.Sprintf("cleaned %d previous bot comment(s)", deleted))
+	if req.CleanupMode == "resolve" {
+		resolved, err := c.ResolvePreviousReviews(ctx, projectID, mrIID)
+		if err != nil {
+			slog.Warn("failed to resolve previous reviews", "error", err)
+		} else if resolved > 0 {
+			slog.Info(fmt.Sprintf("resolved %d previous bot discussion(s)", resolved))
+		}
+	} else {
+		deleted, err := c.CleanPreviousReviews(ctx, projectID, mrIID)
+		if err != nil {
+			slog.Warn("failed to clean previous reviews", "error", err)
+		} else if deleted > 0 {
+			slog.Info(fmt.Sprintf("cleaned %d previous bot comment(s)", deleted))
+		}
 	}
 
 	// 2. Try draft notes path (single notification).
@@ -605,6 +670,20 @@ func (c *Client) delete(ctx context.Context, url string) error {
 		return err
 	}
 	return c.do(req, nil)
+}
+
+func (c *Client) put(ctx context.Context, url string, body interface{}, out interface{}) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("marshaling request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, out)
 }
 
 func (c *Client) do(req *http.Request, out interface{}) error {
