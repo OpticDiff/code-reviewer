@@ -123,3 +123,16 @@ type CreateNoteRequest struct {
 	Body string `json:"body"`
 }
 
+// DraftNote is an unpublished review comment from GET /draft_notes.
+type DraftNote struct {
+	ID       int                 `json:"id"`
+	Note     string              `json:"note"`
+	Position *DiscussionPosition `json:"position,omitempty"`
+}
+
+// CreateDraftNoteRequest is the request body for POST /draft_notes.
+type CreateDraftNoteRequest struct {
+	Note     string              `json:"note"`
+	Position *DiscussionPosition `json:"position,omitempty"`
+}
+
