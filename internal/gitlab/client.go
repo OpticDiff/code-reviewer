@@ -251,7 +251,11 @@ func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID st
 				continue
 			}
 			resolved++
-			time.Sleep(apiRateDelay)
+			select {
+			case <-time.After(apiRateDelay):
+			case <-ctx.Done():
+				return resolved, ctx.Err()
+			}
 		}
 	}
 	return resolved, nil
@@ -332,7 +336,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 				noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
 			}
 			draftReq := CreateDraftNoteRequest{
-				Note: noteBody,
+				Note: noteBody + "\n" + botMarker,
 				Position: &DiscussionPosition{
 					PositionType: "text",
 					BaseSHA:      req.Version.BaseSHA,

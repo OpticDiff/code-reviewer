@@ -201,7 +201,55 @@ func TestFormatInlineComment_WithoutSuggestion(t *testing.T) {
 		t.Error("should not have suggestion block when suggestion is empty")
 	}
 }
+func TestPostReview_PassesSuggestionAndCleanupMode(t *testing.T) {
+	tests := []struct {
+		name        string
+		suggestion  string
+		cleanupMode config.CleanupMode
+	}{
+		{"with_suggestion_and_delete", "fixed := sanitize(input)", config.CleanupModeDelete},
+		{"with_suggestion_and_resolve", "return fmt.Errorf(\"wrap: %w\", err)", config.CleanupModeResolve},
+		{"no_suggestion", "", config.CleanupModeDelete},
+	}
 
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &outputMockVCS{}
+			cfg := &config.Config{
+				CIMode:           true,
+				CIProjectID:      "proj",
+				CIMergeRequestID: "1",
+				CommentMode:      config.CommentModeDiscussions,
+				CleanupMode:      tt.cleanupMode,
+			}
+			result := &model.ReviewResult{
+				Summary: "Review",
+				Findings: []model.Finding{
+					{File: "a.go", Line: 5, Severity: "HIGH", Category: "bug", Title: "issue", Body: "desc", Suggestion: tt.suggestion},
+				},
+			}
+			version := &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"}
+
+			if err := PostReview(context.Background(), cfg, mockClient, result, version); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			req := mockClient.submitReviewReq
+			if req == nil {
+				t.Fatal("expected SubmitReview to be called")
+			}
+			if req.CleanupMode != string(tt.cleanupMode) {
+				t.Errorf("CleanupMode = %q, want %q", req.CleanupMode, tt.cleanupMode)
+			}
+			if len(req.Comments) != 1 {
+				t.Fatalf("expected 1 comment, got %d", len(req.Comments))
+			}
+			if req.Comments[0].Suggestion != tt.suggestion {
+				t.Errorf("Suggestion = %q, want %q", req.Comments[0].Suggestion, tt.suggestion)
+			}
+		})
+	}
+}
 
 
 func TestTokenUsageRendering(t *testing.T) {
