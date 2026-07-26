@@ -74,11 +74,7 @@ func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, resul
 		}
 	}
 
-	if err := client.SubmitReview(ctx, cfg.CIProjectID, cfg.CIMergeRequestID, req); err != nil {
-		return err
-	}
-
-	return nil
+	return client.SubmitReview(ctx, cfg.CIProjectID, cfg.CIMergeRequestID, req)
 }
 
 func formatSummaryNote(result *model.ReviewResult) string {
