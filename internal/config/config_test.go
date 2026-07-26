@@ -224,7 +224,7 @@ func TestLoad_ValidationErrors(t *testing.T) {
 		{
 			name:    "ci_without_project_id",
 			args:    []string{"code-reviewer", "--ci"},
-			env:     map[string]string{"GOOGLE_CLOUD_PROJECT": "p", "CI_PROJECT_ID": "", "CI_MERGE_REQUEST_IID": "", "GITLAB_TOKEN": "tok"},
+			env:     map[string]string{"GOOGLE_CLOUD_PROJECT": "p", "CI_PROJECT_ID": "", "CI_MERGE_REQUEST_IID": "", "GITLAB_TOKEN": "tok", "GITHUB_ACTIONS": ""},
 			wantSub: "CI_PROJECT_ID",
 		},
 		{
