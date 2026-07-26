@@ -144,7 +144,7 @@ func (c *Client) CreateDiscussion(ctx context.Context, projectID, prNumber strin
 		return fmt.Errorf("position and new line required for inline comments")
 	}
 
-	glReq := CreatePullCommentRequest{
+	ghReq := CreatePullCommentRequest{
 		Body:     req.Body + "\n" + botMarker,
 		CommitID: req.Position.HeadSHA,
 		Path:     req.Position.NewPath,
@@ -152,7 +152,7 @@ func (c *Client) CreateDiscussion(ctx context.Context, projectID, prNumber strin
 		Side:     "RIGHT",
 	}
 
-	if err := c.post(ctx, apiURL, glReq, nil); err != nil {
+	if err := c.post(ctx, apiURL, ghReq, nil); err != nil {
 		return fmt.Errorf("creating discussion: %w", err)
 	}
 	return nil

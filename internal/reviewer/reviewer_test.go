@@ -111,8 +111,12 @@ func (m *mockVCS) SubmitReview(ctx context.Context, projectID, mrIID string, req
 		return m.submitReviewErr
 	}
 	// Delegate to individual methods so tests asserting on postNoteCalls/cleanCalls still pass.
-	_, _ = m.CleanPreviousReviews(ctx, projectID, mrIID)
-	_, _ = m.PostNote(ctx, projectID, mrIID, req.Summary)
+	if _, err := m.CleanPreviousReviews(ctx, projectID, mrIID); err != nil {
+		return fmt.Errorf("cleaning previous reviews: %w", err)
+	}
+	if _, err := m.PostNote(ctx, projectID, mrIID, req.Summary); err != nil {
+		return fmt.Errorf("posting summary: %w", err)
+	}
 	return nil
 }
 

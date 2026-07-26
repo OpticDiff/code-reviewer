@@ -572,14 +572,26 @@ func (c *Config) loadFlags() error {
 }
 
 func (c *Config) loadCIEnv() {
-	// Auto-detect platform from CI environment.
-	if os.Getenv("GITHUB_ACTIONS") == "true" {
-		c.Platform = "github"
-		c.loadGitHubCIEnv()
-	} else if os.Getenv("CI_PROJECT_ID") != "" {
+	// Auto-detect platform from CI environment unless explicitly configured.
+	// Check GitLab first: CI_PROJECT_ID is specific to GitLab CI,
+	// while GITHUB_ACTIONS is set for all GitHub Actions jobs (even
+	// ones that test GitLab-targeting tools).
+	switch {
+	case c.Platform != "":
+		// Platform was explicitly configured (e.g., via flag or yaml).
+		switch c.Platform {
+		case "github":
+			c.loadGitHubCIEnv()
+		case "gitlab":
+			c.loadGitLabCIEnv()
+		}
+	case os.Getenv("CI_PROJECT_ID") != "":
 		c.Platform = "gitlab"
 		c.loadGitLabCIEnv()
-	} else {
+	case os.Getenv("GITHUB_ACTIONS") == "true":
+		c.Platform = "github"
+		c.loadGitHubCIEnv()
+	default:
 		// Try GitLab env vars anyway for manual runs.
 		c.loadGitLabCIEnv()
 	}
@@ -642,7 +654,7 @@ func (c *Config) validate() error {
 
 		switch c.Platform {
 		case "github":
-			if c.GitHubToken == "" && (!c.Summarize || !c.DryRun) {
+			if c.GitHubToken == "" && !c.DryRun {
 				return fmt.Errorf("CI mode on GitHub requires GITHUB_TOKEN env var\n\n" +
 					"Add 'permissions: pull-requests: write' to your workflow")
 			}
@@ -656,7 +668,7 @@ func (c *Config) validate() error {
 						c.GitLabBaseURL)
 				}
 			}
-			if c.GitLabToken == "" && (!c.Summarize || !c.DryRun) {
+			if c.GitLabToken == "" && !c.DryRun {
 				return fmt.Errorf("CI mode requires GITLAB_TOKEN env var\n\n" +
 					"Options:\n" +
 					"  CI_JOB_TOKEN:  Add 'GITLAB_TOKEN: $CI_JOB_TOKEN' to your job variables\n" +
