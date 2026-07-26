@@ -59,6 +59,7 @@ You MUST respond with a valid JSON object matching this exact schema. Do NOT inc
     {
       "file": "path/to/file.go",
       "line": 42,
+      "end_line": 45,
       "severity": "HIGH",
       "category": "bug",
       "title": "Single sentence summary of the issue",
@@ -71,7 +72,7 @@ You MUST respond with a valid JSON object matching this exact schema. Do NOT inc
 If no issues are found, return:
 {"summary": "description of the change", "findings": []}
 
-The "line" field MUST correspond to the new_line number shown in the diff. The "category" MUST be one of: bug, security, performance, style, docs, scope. Use "scope" ONLY for intent-driven findings (e.g., scope creep, missing tests for new features). Do NOT use "scope" to suggest splitting or resizing the change.
+The "line" field MUST correspond to the new_line number shown in the diff. The "end_line" field is optional and represents the last line of the finding range. Omit for single-line findings. The "category" MUST be one of: bug, security, performance, style, docs, scope. Use "scope" ONLY for intent-driven findings (e.g., scope creep, missing tests for new features). Do NOT use "scope" to suggest splitting or resizing the change.
 
 ## SUGGESTION RULES
 

@@ -114,6 +114,7 @@ type Config struct {
 	NoColor     bool   // Disable ANSI color output.
 	SARIFOutput string // Path to write SARIF 2.1.0 output file.
 	ProxyURL    string // Optional: LLM proxy URL for observability (e.g., Candela).
+	UpdateDescription bool
 
 	// GitLab settings.
 	GitLabToken   string
@@ -174,6 +175,7 @@ type repoConfig struct {
 	APIURL                   string   `yaml:"api_url"`
 	Summarize                bool     `yaml:"summarize"`
 	SummaryUpdateDescription bool     `yaml:"summary_update_description"`
+	UpdateDescription        *bool    `yaml:"update_description"`
 	IntentReview             *bool    `yaml:"intent_review"`
 }
 
@@ -352,6 +354,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.SummaryUpdateDescription {
 		c.SummaryUpdateDescription = true
 	}
+	if rc.UpdateDescription != nil {
+		c.UpdateDescription = *rc.UpdateDescription
+	}
 	if rc.IntentReview != nil {
 		c.IntentReview = *rc.IntentReview
 		if !*rc.IntentReview {
@@ -378,6 +383,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("CODE_REVIEWER_CLEANUP_MODE"); v != "" {
 		c.CleanupMode = CleanupMode(v)
+	}
+	if v := os.Getenv("CODE_REVIEWER_UPDATE_DESCRIPTION"); strings.EqualFold(v, "true") {
+		c.UpdateDescription = true
 	}
 	if v := os.Getenv("REVIEW_CHUNK_STRATEGY"); v != "" {
 		c.ChunkStrategy = ChunkStrategy(v)
@@ -480,6 +488,7 @@ func (c *Config) loadFlags() error {
 	apiKey := fs.String("api-key", "", "API key for HTTP provider (optional for IAM/ADC auth)")
 	summarize := fs.Bool("summarize", false, "Generate MR summary instead of review")
 	summaryUpdateDesc := fs.Bool("summary-update-description", false, "Update MR description with the generated summary")
+	updateDesc := fs.Bool("update-description", false, "Inject review summary into MR/PR description")
 	intentFlag := fs.Bool("intent", false, "Enable two-pass intent-aware review")
 	noIntentFlag := fs.Bool("no-intent", false, "Disable intent-aware review (overrides CI default)")
 	explain := fs.Bool("explain", false, "Explain the diff instead of reviewing it")
@@ -576,6 +585,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *summaryUpdateDesc {
 		c.SummaryUpdateDescription = true
+	}
+	if *updateDesc {
+		c.UpdateDescription = true
 	}
 	if *intentFlag {
 		c.IntentReview = true

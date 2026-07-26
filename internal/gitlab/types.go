@@ -100,6 +100,16 @@ type Author struct {
 	Name     string `json:"name"`
 }
 
+type DiscussionLineRef struct {
+	NewLine int    `json:"new_line"`
+	Type    string `json:"type"` // "new"
+}
+
+type DiscussionLineRange struct {
+	Start DiscussionLineRef `json:"start"`
+	End   DiscussionLineRef `json:"end"`
+}
+
 // DiscussionPosition specifies where an inline comment should be anchored in the diff.
 type DiscussionPosition struct {
 	PositionType string `json:"position_type"`
@@ -108,8 +118,9 @@ type DiscussionPosition struct {
 	StartSHA     string `json:"start_sha"`
 	OldPath      string `json:"old_path,omitempty"`
 	NewPath      string `json:"new_path"`
-	OldLine      *int   `json:"old_line,omitempty"`
-	NewLine      *int   `json:"new_line,omitempty"`
+	OldLine      *int                 `json:"old_line,omitempty"`
+	NewLine      *int                 `json:"new_line,omitempty"`
+	LineRange    *DiscussionLineRange `json:"line_range,omitempty"`
 }
 
 // CreateDiscussionRequest is the request body for creating an inline discussion.

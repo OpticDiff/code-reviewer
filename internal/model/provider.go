@@ -29,6 +29,7 @@ type ReviewResult struct {
 type Finding struct {
 	File       string `json:"file"`
 	Line       int    `json:"line"`
+	EndLine    int    `json:"end_line,omitempty"`
 	Severity   string `json:"severity"`
 	Category   string `json:"category"`
 	Title      string `json:"title"`
@@ -172,6 +173,14 @@ func parseReviewJSON(text string) (*ReviewResult, error) {
 	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {
 		return nil, fmt.Errorf("could not parse model response as JSON: %w", err)
 	}
+
+	for i := range result.Findings {
+		f := &result.Findings[i]
+		if f.EndLine != 0 && f.EndLine < f.Line {
+			f.EndLine = 0 // Invalid range, fall back to single-line
+		}
+	}
+
 	return &result, nil
 }
 
