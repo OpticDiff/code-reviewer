@@ -200,8 +200,9 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 	return deleted, nil
 }
 
-// SubmitReview posts a complete review to the merge request.
-// It cleans previous bot comments, posts a summary note, and optionally posts inline discussions.
+// SubmitReview posts a complete review to the merge request using draft notes
+// for a single-notification experience. Falls back to individual discussions
+// if the Draft Notes API is unavailable (GitLab CE < 15.9).
 func (c *Client) SubmitReview(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
 	// 1. Clean previous bot comments.
 	deleted, err := c.CleanPreviousReviews(ctx, projectID, mrIID)
@@ -211,13 +212,91 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, mrIID string, req 
 		slog.Info(fmt.Sprintf("cleaned %d previous bot comment(s)", deleted))
 	}
 
-	// 2. Post summary note.
+	// 2. Try draft notes path (single notification).
+	if err := c.submitViaDraftNotes(ctx, projectID, mrIID, req); err != nil {
+		if !isDraftNotesUnavailable(err) {
+			return err
+		}
+
+		// Draft Notes API unavailable — fall back to individual comments.
+		slog.Warn("Draft Notes API unavailable, falling back to individual comments", "error", err)
+		return c.submitViaIndividualComments(ctx, projectID, mrIID, req)
+	}
+	return nil
+}
+
+// submitViaDraftNotes creates all comments as unpublished drafts, then publishes
+// them in a single batch. This produces exactly 1 notification to the MR author.
+func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
+	// Clean any stale unpublished drafts from a previous failed attempt.
+	if err := c.deleteAllDraftNotes(ctx, projectID, mrIID); err != nil {
+		slog.Warn("failed to clean stale draft notes", "error", err)
+	}
+
+	// Create summary draft note.
+	summaryReq := CreateDraftNoteRequest{
+		Note: req.Summary + "\n" + botMarker,
+	}
+	if _, err := c.createDraftNote(ctx, projectID, mrIID, summaryReq); err != nil {
+		return fmt.Errorf("creating summary draft: %w", err)
+	}
+
+	// Create inline draft notes.
+	if req.Version != nil && len(req.Comments) > 0 {
+		for _, comment := range req.Comments {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("context cancelled during draft creation: %w", err)
+			}
+			if comment.Path == "" || comment.Line <= 0 {
+				slog.Warn("dropping invalid review comment",
+					"path", comment.Path,
+					"line", comment.Line,
+				)
+				continue
+			}
+
+			newLine := comment.Line
+			draftReq := CreateDraftNoteRequest{
+				Note: comment.Body,
+				Position: &DiscussionPosition{
+					PositionType: "text",
+					BaseSHA:      req.Version.BaseSHA,
+					HeadSHA:      req.Version.HeadSHA,
+					StartSHA:     req.Version.StartSHA,
+					NewPath:      comment.Path,
+					OldPath:      comment.Path,
+					NewLine:      &newLine,
+				},
+			}
+			if _, err := c.createDraftNote(ctx, projectID, mrIID, draftReq); err != nil {
+				slog.Warn("failed to create inline draft, skipping",
+					"file", comment.Path,
+					"line", comment.Line,
+					"error", err,
+				)
+			}
+		}
+	}
+
+	// Publish all drafts in one batch (1 notification).
+	if err := c.publishDraftNotes(ctx, projectID, mrIID); err != nil {
+		return fmt.Errorf("publishing draft notes: %w", err)
+	}
+
+	slog.Info("posted GitLab review via draft notes", "comments", len(req.Comments))
+	return nil
+}
+
+// submitViaIndividualComments is the legacy path: PostNote + N×CreateDiscussion.
+// Used as fallback when Draft Notes API is unavailable.
+func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
+	// Post summary note.
 	if _, err := c.PostNote(ctx, projectID, mrIID, req.Summary); err != nil {
 		return fmt.Errorf("posting summary: %w", err)
 	}
 	slog.Info("posted review summary")
 
-	// 3. Post inline comments if there's a diff version.
+	// Post inline comments if there's a diff version.
 	if req.Version != nil && len(req.Comments) > 0 {
 		inlinePosted := 0
 		fallbackPosted := 0
@@ -268,6 +347,73 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, mrIID string, req 
 
 	return nil
 }
+
+// --- Draft Notes API methods ---
+
+// createDraftNote creates an unpublished draft note on an MR.
+func (c *Client) createDraftNote(ctx context.Context, projectID, mrIID string, req CreateDraftNoteRequest) (*DraftNote, error) {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s/draft_notes",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	var note DraftNote
+	if err := c.post(ctx, apiURL, req, &note); err != nil {
+		return nil, fmt.Errorf("creating draft note: %w", err)
+	}
+	return &note, nil
+}
+
+// listDraftNotes returns all unpublished draft notes on an MR.
+func (c *Client) listDraftNotes(ctx context.Context, projectID, mrIID string) ([]DraftNote, error) {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s/draft_notes",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	var notes []DraftNote
+	if err := c.get(ctx, apiURL, &notes); err != nil {
+		return nil, fmt.Errorf("listing draft notes: %w", err)
+	}
+	return notes, nil
+}
+
+// publishDraftNotes publishes all pending draft notes on an MR in a single batch.
+// This results in exactly one notification to the MR author.
+func (c *Client) publishDraftNotes(ctx context.Context, projectID, mrIID string) error {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s/draft_notes/bulk_publish",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+
+	if err := c.post(ctx, apiURL, nil, nil); err != nil {
+		return fmt.Errorf("publishing draft notes: %w", err)
+	}
+	return nil
+}
+
+// deleteAllDraftNotes deletes all unpublished draft notes on an MR.
+// Used to clean up stale drafts from a previous failed review attempt.
+func (c *Client) deleteAllDraftNotes(ctx context.Context, projectID, mrIID string) error {
+	notes, err := c.listDraftNotes(ctx, projectID, mrIID)
+	if err != nil {
+		return err
+	}
+
+	for _, n := range notes {
+		dURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s/draft_notes/%d",
+			c.baseURL, url.PathEscape(projectID), mrIID, n.ID)
+		if err := c.delete(ctx, dURL); err != nil {
+			slog.Warn("failed to delete stale draft note", "id", n.ID, "error", err)
+		}
+	}
+	return nil
+}
+
+// isDraftNotesUnavailable checks if the error indicates the Draft Notes API
+// is not available (GitLab CE < 15.9 or the endpoint doesn't exist).
+func isDraftNotesUnavailable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "404") || strings.Contains(msg, "Not Found")
+}
+
 
 // getPaginated fetches all pages of a paginated GitLab API response.
 // The decode function is called with each page's raw JSON for type-safe decoding.
