@@ -38,9 +38,9 @@ func NewClient(baseURL, token string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				// Strip auth token if redirected to a different host.
+				// Reject cross-origin redirects to prevent SSRF.
 				if len(via) > 0 && req.URL.Host != via[0].URL.Host {
-					req.Header.Del("Authorization")
+					return fmt.Errorf("refusing cross-origin redirect from %s to %s", via[0].URL.Host, req.URL.Host)
 				}
 				if len(via) >= 10 {
 					return fmt.Errorf("too many redirects")
@@ -324,53 +324,18 @@ func (c *Client) getPaginated(ctx context.Context, initialURL string, decode fun
 }
 
 func (c *Client) doRaw(ctx context.Context, method, url string) ([]byte, string, error) {
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, method, url, nil)
-		if err != nil {
-			return nil, "", err
-		}
-		req.Header.Set("Authorization", "token "+c.token)
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			return nil, "", fmt.Errorf("HTTP request failed: %w", err)
-		}
-
-		if c.isRateLimited(resp) {
-			_ = resp.Body.Close()
-			if attempt >= maxRetries {
-				return nil, "", fmt.Errorf("GitHub API rate limited after %d retries", maxRetries)
-			}
-			wait := c.retryDelay(resp.Header.Get("Retry-After"))
-			slog.Warn("GitHub rate limited, retrying",
-				"attempt", attempt+1,
-				"status", resp.StatusCode,
-				"wait", wait,
-			)
-			select {
-			case <-time.After(wait):
-				continue
-			case <-ctx.Done():
-				return nil, "", ctx.Err()
-			}
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-			_ = resp.Body.Close()
-			return nil, "", fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, string(body))
-		}
-
-		linkHeader := resp.Header.Get("Link")
-		raw, err := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if err != nil {
-			return nil, "", fmt.Errorf("reading response: %w", err)
-		}
-		return raw, linkHeader, nil
+	resp, err := c.executeWithRetry(ctx, method, url, nil, "")
+	if err != nil {
+		return nil, "", err
 	}
-	return nil, "", fmt.Errorf("GitHub API rate limited after %d retries", maxRetries)
+
+	linkHeader := resp.Header.Get("Link")
+	raw, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if err != nil {
+		return nil, "", fmt.Errorf("reading response: %w", err)
+	}
+	return raw, linkHeader, nil
 }
 
 func (c *Client) isSameOrigin(rawURL string) bool {
@@ -403,11 +368,7 @@ func parseLinkNext(header string) string {
 }
 
 func (c *Client) get(ctx context.Context, url string, out interface{}) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	return c.do(req, out)
+	return c.do(ctx, http.MethodGet, url, nil, "", out)
 }
 
 func (c *Client) post(ctx context.Context, url string, body interface{}, out interface{}) error {
@@ -415,41 +376,65 @@ func (c *Client) post(ctx context.Context, url string, body interface{}, out int
 	if err != nil {
 		return fmt.Errorf("marshaling request: %w", err)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	return c.do(req, out)
+	return c.do(ctx, http.MethodPost, url, bytes.NewReader(data), "application/json", out)
 }
 
 func (c *Client) delete(ctx context.Context, url string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	return c.do(ctx, http.MethodDelete, url, nil, "", nil)
+}
+
+func (c *Client) do(ctx context.Context, method, url string, body io.Reader, contentType string, out interface{}) error {
+	resp, err := c.executeWithRetry(ctx, method, url, body, contentType)
 	if err != nil {
 		return err
 	}
-	return c.do(req, nil)
+
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			_ = resp.Body.Close()
+			return fmt.Errorf("decoding response: %w", err)
+		}
+	}
+	_ = resp.Body.Close()
+	return nil
 }
 
-func (c *Client) do(req *http.Request, out interface{}) error {
-	req.Header.Set("Authorization", "token "+c.token)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
+// executeWithRetry handles HTTP request execution with rate-limit retry.
+// Returns the response on success. Caller must close the body.
+func (c *Client) executeWithRetry(ctx context.Context, method, url string, body io.Reader, contentType string) (*http.Response, error) {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		if attempt > 0 {
-			req = req.Clone(req.Context())
+		var reqBody io.Reader
+		if body != nil {
+			seeker, ok := body.(io.Seeker)
+			if !ok {
+				return nil, fmt.Errorf("executeWithRetry: request body must implement io.Seeker for retries")
+			}
+			if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+				return nil, fmt.Errorf("seeking request body: %w", err)
+			}
+			reqBody = body
+		}
+
+		req, err := http.NewRequestWithContext(ctx, method, url, reqBody)
+		if err != nil {
+			return nil, err
+		}
+		
+		req.Header.Set("Authorization", "token "+c.token)
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+		if contentType != "" {
+			req.Header.Set("Content-Type", contentType)
 		}
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			return fmt.Errorf("HTTP request failed: %w", err)
+			return nil, fmt.Errorf("HTTP request failed: %w", err)
 		}
 
 		if c.isRateLimited(resp) {
 			_ = resp.Body.Close()
 			if attempt >= maxRetries {
-				return fmt.Errorf("GitHub API rate limited after %d retries", maxRetries)
+				return nil, fmt.Errorf("GitHub API rate limited after %d retries", maxRetries)
 			}
 			wait := c.retryDelay(resp.Header.Get("Retry-After"))
 			slog.Warn("GitHub rate limited, retrying",
@@ -460,29 +445,20 @@ func (c *Client) do(req *http.Request, out interface{}) error {
 			select {
 			case <-time.After(wait):
 				continue
-			case <-req.Context().Done():
-				return req.Context().Err()
+			case <-ctx.Done():
+				return nil, ctx.Err()
 			}
 		}
 
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 			_ = resp.Body.Close()
-			return fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, string(body))
+			return nil, fmt.Errorf("GitHub API error %d: %s", resp.StatusCode, string(bodyBytes))
 		}
 
-		defer func() { _ = resp.Body.Close() }()
-
-		if out != nil {
-			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-				return fmt.Errorf("decoding response: %w", err)
-			}
-		}
-
-		return nil
+		return resp, nil
 	}
-
-	return fmt.Errorf("GitHub API rate limited after %d retries", maxRetries)
+	return nil, fmt.Errorf("GitHub API rate limited after %d retries", maxRetries)
 }
 
 func (c *Client) retryDelay(retryAfter string) time.Duration {
