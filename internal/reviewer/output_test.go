@@ -202,21 +202,7 @@ func TestFormatInlineComment_WithoutSuggestion(t *testing.T) {
 	}
 }
 
-func TestFormatInlineComment_WithSuggestion(t *testing.T) {
-	f := model.Finding{
-		Severity:   "CRITICAL",
-		Title:      "SQL injection",
-		Body:       "Raw concat.",
-		Suggestion: "db.Query(\"SELECT * FROM t WHERE id = ?\", id)",
-	}
-	out := formatInlineComment(f)
-	if !strings.Contains(out, "```suggestion") {
-		t.Error("expected suggestion code block")
-	}
-	if !strings.Contains(out, "db.Query") {
-		t.Error("expected suggestion content")
-	}
-}
+
 
 func TestTokenUsageRendering(t *testing.T) {
 	finding := model.Finding{File: "a.go", Line: 1, Severity: "LOW", Category: "style", Title: "test", Body: "body"}

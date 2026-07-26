@@ -240,10 +240,14 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, r
 			dropped++
 			continue
 		}
+		commentBody := comment.Body
+		if comment.Suggestion != "" {
+			commentBody += fmt.Sprintf("\n\n```suggestion\n%s\n```", comment.Suggestion)
+		}
 		validComments = append(validComments, ReviewCommentRequest{
 			Path: comment.Path,
 			Line: comment.Line,
-			Body: comment.Body,
+			Body: commentBody,
 			Side: "RIGHT",
 		})
 	}

@@ -704,6 +704,26 @@ func TestLoad_FlagAndEnvOptions(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "cleanup_mode_flag",
+			args: []string{"code-reviewer", "--diff", "--cleanup-mode", "resolve"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.CleanupMode != CleanupModeResolve {
+					t.Errorf("CleanupMode = %q, want %q", cfg.CleanupMode, CleanupModeResolve)
+				}
+			},
+		},
+		{
+			name: "cleanup_mode_env",
+			args: []string{"code-reviewer", "--diff"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "CODE_REVIEWER_CLEANUP_MODE": "resolve"},
+			assert: func(t *testing.T, cfg *Config) {
+				if cfg.CleanupMode != CleanupModeResolve {
+					t.Errorf("CleanupMode = %q, want %q", cfg.CleanupMode, CleanupModeResolve)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

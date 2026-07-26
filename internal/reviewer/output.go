@@ -68,9 +68,10 @@ func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, resul
 	if cfg.CommentMode == config.CommentModeDiscussions && version != nil {
 		for _, f := range result.Findings {
 			req.Comments = append(req.Comments, vcs.ReviewComment{
-				Path: f.File,
-				Line: f.Line,
-				Body: formatInlineComment(f),
+				Path:       f.File,
+				Line:       f.Line,
+				Body:       formatInlineComment(f),
+				Suggestion: f.Suggestion,
 			})
 		}
 	}
@@ -117,9 +118,6 @@ func formatInlineComment(f model.Finding) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "%s **[%s]** %s\n\n", severityEmoji(f.Severity), f.Severity, f.Title)
 	sb.WriteString(f.Body)
-	if f.Suggestion != "" {
-		fmt.Fprintf(&sb, "\n\n```suggestion\n%s\n```", f.Suggestion)
-	}
 	return sb.String()
 }
 
