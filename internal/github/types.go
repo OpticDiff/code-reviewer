@@ -103,7 +103,7 @@ type CompareResponse struct {
 
 // CreateReviewRequest is the payload for POST /repos/{owner}/{repo}/pulls/{pr}/reviews
 type CreateReviewRequest struct {
-	// CommitID pins the review to a specific commit, preventing 422 errors on force-push.
+	// CommitID pins the review to the specific commit being reviewed.
 	CommitID string                 `json:"commit_id,omitempty"`
 	// Event is the type of review action (e.g., COMMENT, APPROVE, REQUEST_CHANGES).
 	Event    string                 `json:"event"`

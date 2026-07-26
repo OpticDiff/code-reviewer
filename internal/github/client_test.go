@@ -436,10 +436,9 @@ func TestRejectsCrossHostPagination(t *testing.T) {
 	}
 }
 
-func TestRedirect_StripsAuthCrossHost(t *testing.T) {
-	var gotAuth string
+func TestRedirect_RejectsCrossHost(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
+		t.Error("request should not reach cross-origin target")
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer target.Close()
@@ -450,10 +449,13 @@ func TestRedirect_StripsAuthCrossHost(t *testing.T) {
 	defer origin.Close()
 
 	client := NewClient(origin.URL, "secret")
-	_ = client.get(context.Background(), origin.URL, nil)
+	err := client.get(context.Background(), origin.URL, nil)
 
-	if gotAuth != "" {
-		t.Errorf("expected stripped auth, got %q", gotAuth)
+	if err == nil {
+		t.Fatal("expected error on cross-origin redirect")
+	}
+	if !strings.Contains(err.Error(), "refusing cross-origin redirect") {
+		t.Errorf("error = %q, want 'refusing cross-origin redirect'", err.Error())
 	}
 }
 

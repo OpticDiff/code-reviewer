@@ -38,9 +38,9 @@ func NewClient(baseURL, token string) *Client {
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				// Strip auth token if redirected to a different host.
+				// Reject cross-origin redirects to prevent SSRF.
 				if len(via) > 0 && req.URL.Host != via[0].URL.Host {
-					req.Header.Del("Authorization")
+					return fmt.Errorf("refusing cross-origin redirect from %s to %s", via[0].URL.Host, req.URL.Host)
 				}
 				if len(via) >= 10 {
 					return fmt.Errorf("too many redirects")
@@ -405,8 +405,12 @@ func (c *Client) executeWithRetry(ctx context.Context, method, url string, body 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		var reqBody io.Reader
 		if body != nil {
-			if seeker, ok := body.(io.Seeker); ok {
-				_, _ = seeker.Seek(0, io.SeekStart)
+			seeker, ok := body.(io.Seeker)
+			if !ok {
+				return nil, fmt.Errorf("executeWithRetry: request body must implement io.Seeker for retries")
+			}
+			if _, err := seeker.Seek(0, io.SeekStart); err != nil {
+				return nil, fmt.Errorf("seeking request body: %w", err)
 			}
 			reqBody = body
 		}
