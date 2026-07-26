@@ -200,6 +200,75 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 	return deleted, nil
 }
 
+// SubmitReview posts a complete review to the merge request.
+// It cleans previous bot comments, posts a summary note, and optionally posts inline discussions.
+func (c *Client) SubmitReview(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
+	// 1. Clean previous bot comments.
+	deleted, err := c.CleanPreviousReviews(ctx, projectID, mrIID)
+	if err != nil {
+		slog.Warn("failed to clean previous reviews", "error", err)
+	} else if deleted > 0 {
+		slog.Info(fmt.Sprintf("cleaned %d previous bot comment(s)", deleted))
+	}
+
+	// 2. Post summary note.
+	if _, err := c.PostNote(ctx, projectID, mrIID, req.Summary); err != nil {
+		return fmt.Errorf("posting summary: %w", err)
+	}
+	slog.Info("posted review summary")
+
+	// 3. Post inline comments if there's a diff version.
+	if req.Version != nil && len(req.Comments) > 0 {
+		inlinePosted := 0
+		fallbackPosted := 0
+
+		for _, comment := range req.Comments {
+			if err := ctx.Err(); err != nil {
+				slog.Warn("context canceled, stopping inline comment posting", "error", err)
+				break
+			}
+			newLine := comment.Line
+			inlineReq := vcs.InlineCommentRequest{
+				Body: comment.Body,
+				Position: &vcs.InlineCommentPosition{
+					BaseSHA:  req.Version.BaseSHA,
+					HeadSHA:  req.Version.HeadSHA,
+					StartSHA: req.Version.StartSHA,
+					NewPath:  comment.Path,
+					OldPath:  comment.Path,
+					NewLine:  &newLine,
+				},
+			}
+
+			if err := c.CreateDiscussion(ctx, projectID, mrIID, inlineReq); err != nil {
+				slog.Warn("failed to create inline discussion, posting as note instead",
+					"file", comment.Path,
+					"line", comment.Line,
+					"error", err,
+				)
+				// Fallback: post as a regular note.
+				noteBody := fmt.Sprintf("**%s:%d** — %s", comment.Path, comment.Line, comment.Body)
+				if _, err := c.PostNote(ctx, projectID, mrIID, noteBody); err != nil {
+					slog.Error("failed to post fallback note", "error", err)
+				} else {
+					fallbackPosted++
+				}
+			} else {
+				inlinePosted++
+			}
+
+			time.Sleep(apiRateDelay) // Rate limit.
+		}
+		slog.Info("posted inline comments",
+			"discussions", inlinePosted,
+			"fallback_notes", fallbackPosted,
+			"total_findings", len(req.Comments),
+		)
+	}
+
+	return nil
+}
+
 // getPaginated fetches all pages of a paginated GitLab API response.
 // The decode function is called with each page's raw JSON for type-safe decoding.
 // Uses doRaw internally, so paginated requests get the same 429 retry handling.

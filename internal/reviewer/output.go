@@ -3,9 +3,7 @@ package reviewer
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/model"
@@ -59,72 +57,25 @@ func TerminalOutput(result *model.ReviewResult) string {
 	return sb.String()
 }
 
-// PostToGitLab posts review results to a GitLab merge request.
-func PostToGitLab(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion) error {
-	projectID := cfg.CIProjectID
-	mrIID := cfg.CIMergeRequestID
-
-	// Clean previous bot comments.
-	deleted, err := client.CleanPreviousReviews(ctx, projectID, mrIID)
-	if err != nil {
-		slog.Warn("failed to clean previous reviews", "error", err)
-	} else if deleted > 0 {
-		slog.Info(fmt.Sprintf("cleaned %d previous bot comment(s)", deleted))
+// PostReview posts review results to a GitLab merge request.
+func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion) error {
+	req := vcs.SubmitReviewRequest{
+		Summary: formatSummaryNote(result),
+		Version: version,
 	}
 
-	// Post summary note.
-	summary := formatSummaryNote(result)
-	if _, err := client.PostNote(ctx, projectID, mrIID, summary); err != nil {
-		return fmt.Errorf("posting summary: %w", err)
-	}
-	slog.Info("posted review summary")
-
-	// In discussions mode, also post inline comments.
 	if cfg.CommentMode == config.CommentModeDiscussions && version != nil {
-		inlinePosted := 0
-		fallbackPosted := 0
 		for _, f := range result.Findings {
-			if err := ctx.Err(); err != nil {
-				slog.Warn("context canceled, stopping inline comment posting", "error", err)
-				break
-			}
-			newLine := f.Line
-			req := vcs.InlineCommentRequest{
+			req.Comments = append(req.Comments, vcs.ReviewComment{
+				Path: f.File,
+				Line: f.Line,
 				Body: formatInlineComment(f),
-				Position: &vcs.InlineCommentPosition{
-					BaseSHA:  version.BaseSHA,
-					HeadSHA:  version.HeadSHA,
-					StartSHA: version.StartSHA,
-					NewPath:  f.File,
-					OldPath:  f.File,
-					NewLine:  &newLine,
-				},
-			}
-
-			if err := client.CreateDiscussion(ctx, projectID, mrIID, req); err != nil {
-				slog.Warn("failed to create inline discussion, posting as note instead",
-					"file", f.File,
-					"line", f.Line,
-					"error", err,
-				)
-				// Fallback: post as a regular note.
-				noteBody := fmt.Sprintf("**%s:%d** — %s", f.File, f.Line, formatInlineComment(f))
-				if _, err := client.PostNote(ctx, projectID, mrIID, noteBody); err != nil {
-					slog.Error("failed to post fallback note", "error", err)
-				} else {
-					fallbackPosted++
-				}
-			} else {
-				inlinePosted++
-			}
-
-			time.Sleep(100 * time.Millisecond) // Rate limit.
+			})
 		}
-		slog.Info("posted inline comments",
-			"discussions", inlinePosted,
-			"fallback_notes", fallbackPosted,
-			"total_findings", len(result.Findings),
-		)
+	}
+
+	if err := client.SubmitReview(ctx, cfg.CIProjectID, cfg.CIMergeRequestID, req); err != nil {
+		return err
 	}
 
 	return nil

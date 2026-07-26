@@ -56,6 +56,10 @@ type mockVCS struct {
 	cleanErr        error
 	compareFiles    []string
 	compareFilesErr error
+
+	submitReviewCalls int
+	submitReviewReq   *vcs.SubmitReviewRequest
+	submitReviewErr   error
 }
 
 func (m *mockVCS) GetMRChanges(ctx context.Context, projectID, mrIID string) (*vcs.MRChanges, error) {
@@ -98,6 +102,18 @@ func (m *mockVCS) DeleteNote(ctx context.Context, projectID, mrIID string, noteI
 func (m *mockVCS) CleanPreviousReviews(ctx context.Context, projectID, mrIID string) (int, error) {
 	m.cleanCalls++
 	return m.cleanResult, m.cleanErr
+}
+
+func (m *mockVCS) SubmitReview(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
+	m.submitReviewCalls++
+	m.submitReviewReq = &req
+	if m.submitReviewErr != nil {
+		return m.submitReviewErr
+	}
+	// Delegate to individual methods so tests asserting on postNoteCalls/cleanCalls still pass.
+	_, _ = m.CleanPreviousReviews(ctx, projectID, mrIID)
+	_, _ = m.PostNote(ctx, projectID, mrIID, req.Summary)
+	return nil
 }
 
 // ---------------------------------------------------------------------------

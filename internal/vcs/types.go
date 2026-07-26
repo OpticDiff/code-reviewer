@@ -63,3 +63,21 @@ type InlineCommentRequest struct {
 	Body     string
 	Position *InlineCommentPosition
 }
+
+// ReviewComment is a pre-formatted inline comment for a batched review
+// submission. Unlike InlineCommentRequest, it carries only the essential
+// positioning info — the platform client handles SHA context internally.
+type ReviewComment struct {
+	Path string // File path relative to repo root.
+	Line int    // Line number in the new file.
+	Body string // Pre-formatted markdown body.
+}
+
+// SubmitReviewRequest is the payload for submitting a complete code review
+// as a single atomic operation. On GitHub this maps to a single API call
+// (POST /pulls/{pr}/reviews). On GitLab it maps to PostNote + N×CreateDiscussion.
+type SubmitReviewRequest struct {
+	Summary  string          // Top-level review body (markdown).
+	Comments []ReviewComment // Inline comments anchored to diff positions.
+	Version  *DiffVersion    // SHA context for inline comment positioning (may be nil).
+}
