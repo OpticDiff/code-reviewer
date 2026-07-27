@@ -7,17 +7,26 @@ import (
 
 func TestParseSummaryJSON(t *testing.T) {
 	tests := []struct {
-		name    string
-		input   string
-		wantErr string
+		name               string
+		input              string
+		wantErr            string
+		wantTitle          string
+		wantClassification string
+		wantRiskLevel      string
 	}{
 		{
-			name:  "valid_json",
-			input: `{"title":"Fix auth","description":"...","intent":"...","classification":"fix","scope_areas":["auth"],"breaking_changes":[],"risk_level":"low","confidence":0.9}`,
+			name:               "valid_json",
+			input:              `{"title":"Fix auth","description":"...","intent":"...","classification":"fix","scope_areas":["auth"],"breaking_changes":[],"risk_level":"low","confidence":0.9}`,
+			wantTitle:          "Fix auth",
+			wantClassification: "fix",
+			wantRiskLevel:      "low",
 		},
 		{
-			name:  "code_fenced",
-			input: "```json\n" + `{"title":"Fix auth","description":"...","intent":"...","classification":"fix","scope_areas":["auth"],"breaking_changes":[],"risk_level":"low","confidence":0.9}` + "\n```",
+			name:               "code_fenced",
+			input:              "```json\n" + `{"title":"Fix auth","description":"...","intent":"...","classification":"fix","scope_areas":["auth"],"breaking_changes":[],"risk_level":"low","confidence":0.9}` + "\n```",
+			wantTitle:          "Fix auth",
+			wantClassification: "fix",
+			wantRiskLevel:      "low",
 		},
 		{
 			name:    "missing_title",
@@ -40,12 +49,18 @@ func TestParseSummaryJSON(t *testing.T) {
 			wantErr: "JSON",
 		},
 		{
-			name:  "prose_wrapped",
-			input: "Here is the summary:\n" + `{"title":"Fix","description":"...","intent":"...","classification":"fix","scope_areas":["auth"],"breaking_changes":[],"risk_level":"low","confidence":0.9}` + "\nHope that helps!",
+			name:               "prose_wrapped",
+			input:              "Here is the summary:\n" + `{"title":"Fix","description":"...","intent":"...","classification":"fix","scope_areas":["auth"],"breaking_changes":[],"risk_level":"low","confidence":0.9}` + "\nHope that helps!",
+			wantTitle:          "Fix",
+			wantClassification: "fix",
+			wantRiskLevel:      "low",
 		},
 		{
-			name:  "extra_fields",
-			input: `{"title":"Fix auth","description":"...","intent":"...","classification":"fix","scope_areas":["auth"],"breaking_changes":[],"risk_level":"low","confidence":0.9, "unknown_field": "test"}`,
+			name:               "extra_fields",
+			input:              `{"title":"Fix auth","description":"...","intent":"...","classification":"fix","scope_areas":["auth"],"breaking_changes":[],"risk_level":"low","confidence":0.9, "unknown_field": "test"}`,
+			wantTitle:          "Fix auth",
+			wantClassification: "fix",
+			wantRiskLevel:      "low",
 		},
 	}
 
@@ -67,10 +82,14 @@ func TestParseSummaryJSON(t *testing.T) {
 			if res == nil {
 				t.Fatal("expected non-nil result")
 			}
-			if tt.name == "valid_json" || tt.name == "code_fenced" || tt.name == "prose_wrapped" || tt.name == "extra_fields" {
-				if res.Title == "" || res.Classification == "" || res.RiskLevel == "" {
-					t.Errorf("missing required fields in successful parse: %+v", res)
-				}
+			if tt.wantTitle != "" && res.Title != tt.wantTitle {
+				t.Errorf("Title = %q, want %q", res.Title, tt.wantTitle)
+			}
+			if tt.wantClassification != "" && res.Classification != tt.wantClassification {
+				t.Errorf("Classification = %q, want %q", res.Classification, tt.wantClassification)
+			}
+			if tt.wantRiskLevel != "" && res.RiskLevel != tt.wantRiskLevel {
+				t.Errorf("RiskLevel = %q, want %q", res.RiskLevel, tt.wantRiskLevel)
 			}
 		})
 	}

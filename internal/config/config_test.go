@@ -972,6 +972,7 @@ func TestLoadGitHubCIEnv(t *testing.T) {
 	os.Args = []string{"code-reviewer", "--ci"}
 
 	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "") // Clear competing GitLab CI variable.
 	t.Setenv("GITHUB_ACTIONS", "true")
 	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
 	t.Setenv("GITHUB_EVENT_NAME", "pull_request")

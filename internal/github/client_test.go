@@ -969,5 +969,8 @@ func TestSubmitReview_SingleLine(t *testing.T) {
 	if comment.StartLine != nil {
 		t.Errorf("StartLine = %v, want nil", comment.StartLine)
 	}
+	if comment.Side != "RIGHT" {
+		t.Errorf("Side = %q, want RIGHT", comment.Side)
+	}
 }
 
