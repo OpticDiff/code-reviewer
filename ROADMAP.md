@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.5.1 — Prompt quality, pre-push hook, intent-aware review, explain, and fix**
+Current status: **v0.6.0 — GitHub support, multi-line comments, code suggestions, and review lifecycle**
 
 ## ✅ v0.1 — Foundation (Done)
 
@@ -52,7 +52,13 @@ Current status: **v0.5.1 — Prompt quality, pre-push hook, intent-aware review,
 
 ## 🔜 v0.6 — Platform Expansion
 
-- [ ] **GitHub support** — `internal/github/` client implementing `VCSClient` interface, PR review comments, GitHub Actions integration
+- [x] **GitHub support** — `internal/github/` client implementing `VCSClient` interface, PR review comments, GitHub Actions integration
+- [x] **Code suggestions** — Platform-specific suggestion rendering
+- [x] **Resolve discussions mode** — Opt-in `cleanup_mode`
+- [x] **MR/PR description update** — Update with review summary
+- [x] **Multi-line comments and suggestions**
+- [x] **GitLab Draft Notes API** — For single-notification reviews
+- [x] **SSRF hardening and tech debt cleanup**
 - [ ] **GitHub Actions workflow** — Drop-in `.github/workflows/code-review.yml` example
 - [ ] **Pre-commit.com listing** — Register in the pre-commit hook registry for discovery
 

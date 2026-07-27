@@ -29,6 +29,13 @@ comment_mode: notes
 
 # update_description: false  # Inject review summary into MR/PR description
 
+# output_json: false         # Output results as JSON instead of posting
+
+# summarize: false           # Generate MR summary instead of review
+# summary_update_description: false # Update MR description with the generated summary
+
+# intent_review: true        # Enable two-pass intent-aware review (default: true in CI)
+
 # How to handle diffs that exceed the model's context window.
 # fail: error out with a helpful message (default, forces smaller MRs)
 # split: auto-split into chunks and merge results
@@ -80,5 +87,4 @@ extra_rules: |
 #   --models / --consensus-threshold (multi-model consensus)
 #   --api-key / REVIEW_API_KEY
 #   --no-context, --incremental, --sarif, --no-color
-#   --summarize
 # See README.md for the full CLI flags and env vars reference.

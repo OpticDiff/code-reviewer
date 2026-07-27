@@ -965,3 +965,33 @@ func TestLoad_InvalidCleanupMode(t *testing.T) {
 		t.Errorf("error = %q, want mention of 'invalid cleanup-mode'", err.Error())
 	}
 }
+
+func TestLoadGitHubCIEnv(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--ci"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "") // Clear competing GitLab CI variable.
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_EVENT_NAME", "pull_request")
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	// Also need GITHUB_REF so it parses MR IID
+	t.Setenv("GITHUB_REF", "refs/pull/42/merge")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.Platform != "github" {
+		t.Errorf("Platform = %q, want 'github'", cfg.Platform)
+	}
+	if cfg.CIProjectID != "owner/repo" {
+		t.Errorf("CIProjectID = %q, want 'owner/repo'", cfg.CIProjectID)
+	}
+	if cfg.CIMergeRequestID != "42" {
+		t.Errorf("CIMergeRequestID = %q, want '42'", cfg.CIMergeRequestID)
+	}
+}

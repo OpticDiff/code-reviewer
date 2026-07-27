@@ -847,3 +847,130 @@ func TestGetPRChanges_PaginatedFiles(t *testing.T) {
 	}
 }
 
+func TestGetDescription_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"body": "PR description"}`))
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	desc, err := client.GetDescription(context.Background(), "owner/repo", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if desc != "PR description" {
+		t.Errorf("GetDescription() = %q, want 'PR description'", desc)
+	}
+}
+
+func TestSetDescription_Success(t *testing.T) {
+	var gotBody string
+	var gotMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		var req struct {
+			Body string `json:"body"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotBody = req.Body
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	err := client.SetDescription(context.Background(), "owner/repo", "1", "new desc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodPatch {
+		t.Errorf("Method = %q, want PATCH", gotMethod)
+	}
+	if gotBody != "new desc" {
+		t.Errorf("Body = %q, want 'new desc'", gotBody)
+	}
+}
+
+func TestSubmitReview_MultiLine(t *testing.T) {
+	var gotReq CreateReviewRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&gotReq)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "Summary",
+		Comments: []vcs.ReviewComment{
+			{Path: "a.go", Line: 10, EndLine: 15, Body: "msg1"},
+		},
+	}
+	err := client.SubmitReview(context.Background(), "owner/repo", "1", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(gotReq.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(gotReq.Comments))
+	}
+	comment := gotReq.Comments[0]
+	if comment.Line != 15 {
+		t.Errorf("Line = %d, want 15", comment.Line)
+	}
+	if comment.StartLine == nil || *comment.StartLine != 10 {
+		t.Errorf("StartLine = %v, want 10", comment.StartLine)
+	}
+	if comment.Side != "RIGHT" {
+		t.Errorf("Side = %q, want RIGHT", comment.Side)
+	}
+}
+
+func TestSubmitReview_SingleLine(t *testing.T) {
+	var gotReq CreateReviewRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&gotReq)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "Summary",
+		Comments: []vcs.ReviewComment{
+			{Path: "a.go", Line: 10, EndLine: 0, Body: "msg1"},
+		},
+	}
+	err := client.SubmitReview(context.Background(), "owner/repo", "1", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(gotReq.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(gotReq.Comments))
+	}
+	comment := gotReq.Comments[0]
+	if comment.Line != 10 {
+		t.Errorf("Line = %d, want 10", comment.Line)
+	}
+	if comment.StartLine != nil {
+		t.Errorf("StartLine = %v, want nil", comment.StartLine)
+	}
+	if comment.Side != "RIGHT" {
+		t.Errorf("Side = %q, want RIGHT", comment.Side)
+	}
+}
+
