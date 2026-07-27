@@ -109,6 +109,31 @@ func (c *Client) GetMRVersions(ctx context.Context, projectID, prNumber string) 
 	}, nil
 }
 
+// GetDescription returns the current body of a pull request.
+func (c *Client) GetDescription(ctx context.Context, owner, prNumber string) (string, error) {
+	apiURL := fmt.Sprintf("%s/repos/%s/pulls/%s", c.baseURL, owner, prNumber)
+	var pr struct {
+		Body string `json:"body"`
+	}
+	if err := c.get(ctx, apiURL, &pr); err != nil {
+		return "", fmt.Errorf("getting PR description: %w", err)
+	}
+	return pr.Body, nil
+}
+
+// SetDescription updates the body of a pull request.
+func (c *Client) SetDescription(ctx context.Context, owner, prNumber, description string) error {
+	apiURL := fmt.Sprintf("%s/repos/%s/pulls/%s", c.baseURL, owner, prNumber)
+	type descReq struct {
+		Body string `json:"body"`
+	}
+	data, err := json.Marshal(descReq{Body: description})
+	if err != nil {
+		return err
+	}
+	return c.do(ctx, http.MethodPatch, apiURL, bytes.NewReader(data), "application/json", nil)
+}
+
 // CompareCommits returns the list of files changed between two commits.
 func (c *Client) CompareCommits(ctx context.Context, projectID, from, to string) ([]string, error) {
 	apiURL := fmt.Sprintf("%s/repos/%s/compare/%s...%s", c.baseURL, projectID, url.PathEscape(from), url.PathEscape(to))
@@ -244,12 +269,18 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, r
 		if comment.Suggestion != "" {
 			commentBody += fmt.Sprintf("\n\n```suggestion\n%s\n```", comment.Suggestion)
 		}
-		validComments = append(validComments, ReviewCommentRequest{
+		rc := ReviewCommentRequest{
 			Path: comment.Path,
 			Line: comment.Line,
 			Body: commentBody,
 			Side: "RIGHT",
-		})
+		}
+		if comment.EndLine > comment.Line {
+			startLine := comment.Line
+			rc.StartLine = &startLine
+			rc.Line = comment.EndLine
+		}
+		validComments = append(validComments, rc)
 	}
 	if dropped > 0 {
 		slog.Info("pre-validation filtered comments", "valid", len(validComments), "dropped", dropped)

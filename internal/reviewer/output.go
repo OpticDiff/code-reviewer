@@ -3,6 +3,7 @@ package reviewer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
@@ -40,7 +41,11 @@ func TerminalOutput(result *model.ReviewResult) string {
 	for _, file := range fileOrder {
 		fmt.Fprintf(&sb, "## File: %s\n", file)
 		for _, f := range byFile[file] {
-			fmt.Fprintf(&sb, "### L%d: [%s] %s\n", f.Line, f.Severity, f.Title)
+			if f.EndLine > 0 && f.EndLine > f.Line {
+				fmt.Fprintf(&sb, "### L%d-%d: [%s] %s\n", f.Line, f.EndLine, f.Severity, f.Title)
+			} else {
+				fmt.Fprintf(&sb, "### L%d: [%s] %s\n", f.Line, f.Severity, f.Title)
+			}
 			sb.WriteString(f.Body + "\n")
 			if f.Suggestion != "" {
 				fmt.Fprintf(&sb, "\n```suggestion\n%s\n```\n", f.Suggestion)
@@ -70,13 +75,35 @@ func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, resul
 			req.Comments = append(req.Comments, vcs.ReviewComment{
 				Path:       f.File,
 				Line:       f.Line,
+				EndLine:    f.EndLine,
 				Body:       formatInlineComment(f),
 				Suggestion: f.Suggestion,
 			})
 		}
 	}
 
-	return client.SubmitReview(ctx, cfg.CIProjectID, cfg.CIMergeRequestID, req)
+	if err := client.SubmitReview(ctx, cfg.CIProjectID, cfg.CIMergeRequestID, req); err != nil {
+		return err
+	}
+
+	if cfg.UpdateDescription {
+		if updater, ok := client.(vcs.DescriptionUpdater); ok {
+			section := buildDescriptionSection(formatSummaryNote(result))
+			existing, err := updater.GetDescription(ctx, cfg.CIProjectID, cfg.CIMergeRequestID)
+			if err != nil {
+				slog.Warn("failed to get description for update", "error", err)
+			} else {
+				newDesc := replaceDescriptionSection(existing, section)
+				if err := updater.SetDescription(ctx, cfg.CIProjectID, cfg.CIMergeRequestID, newDesc); err != nil {
+					slog.Warn("failed to update description", "error", err)
+				} else {
+					slog.Info("updated MR/PR description with review summary")
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func formatSummaryNote(result *model.ReviewResult) string {

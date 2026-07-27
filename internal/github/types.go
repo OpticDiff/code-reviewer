@@ -117,6 +117,8 @@ type CreateReviewRequest struct {
 type ReviewCommentRequest struct {
 	// Path is the file path for the comment.
 	Path string `json:"path"`
+	// StartLine is the start line number for the comment (optional).
+	StartLine *int `json:"start_line,omitempty"`
 	// Line is the line number for the comment.
 	Line int    `json:"line"`
 	// Body is the text content of the inline comment.

@@ -27,6 +27,8 @@ comment_mode: notes
 
 # cleanup_mode: delete    # How to handle previous bot comments (delete or resolve)
 
+# update_description: false  # Inject review summary into MR/PR description
+
 # How to handle diffs that exceed the model's context window.
 # fail: error out with a helpful message (default, forces smaller MRs)
 # split: auto-split into chunks and merge results

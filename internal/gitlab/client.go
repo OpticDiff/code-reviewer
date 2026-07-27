@@ -107,6 +107,27 @@ func (c *Client) GetMRVersions(ctx context.Context, projectID, mrIID string) ([]
 	return result, nil
 }
 
+// GetDescription returns the current description of a merge request.
+func (c *Client) GetDescription(ctx context.Context, projectID, mrIID string) (string, error) {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s", c.baseURL, url.PathEscape(projectID), mrIID)
+	var mr struct {
+		Description string `json:"description"`
+	}
+	if err := c.get(ctx, apiURL, &mr); err != nil {
+		return "", fmt.Errorf("getting MR description: %w", err)
+	}
+	return mr.Description, nil
+}
+
+// SetDescription updates the description of a merge request.
+func (c *Client) SetDescription(ctx context.Context, projectID, mrIID, description string) error {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s", c.baseURL, url.PathEscape(projectID), mrIID)
+	type descReq struct {
+		Description string `json:"description"`
+	}
+	return c.put(ctx, apiURL, descReq{Description: description}, nil)
+}
+
 // PostNote creates a simple note (comment) on a merge request.
 func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/notes", c.baseURL, url.PathEscape(projectID), mrIID)
@@ -137,6 +158,12 @@ func (c *Client) CreateDiscussion(ctx context.Context, projectID, mrIID string, 
 			NewPath:      req.Position.NewPath,
 			OldLine:      req.Position.OldLine,
 			NewLine:      req.Position.NewLine,
+		}
+		if req.Position.EndLine != nil && req.Position.NewLine != nil {
+			glReq.Position.LineRange = &DiscussionLineRange{
+				Start: DiscussionLineRef{NewLine: *req.Position.NewLine, Type: "new"},
+				End:   DiscussionLineRef{NewLine: *req.Position.EndLine, Type: "new"},
+			}
 		}
 	}
 
@@ -333,7 +360,12 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 			newLine := comment.Line
 			noteBody := comment.Body
 			if comment.Suggestion != "" {
-				noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
+				if comment.EndLine > comment.Line {
+					offset := comment.EndLine - comment.Line
+					noteBody += fmt.Sprintf("\n\n```suggestion:-%d+0\n%s\n```", offset, comment.Suggestion)
+				} else {
+					noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
+				}
 			}
 			draftReq := CreateDraftNoteRequest{
 				Note: noteBody + "\n" + botMarker,
@@ -346,6 +378,12 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 					OldPath:      comment.Path,
 					NewLine:      &newLine,
 				},
+			}
+			if comment.EndLine > comment.Line {
+				draftReq.Position.LineRange = &DiscussionLineRange{
+					Start: DiscussionLineRef{NewLine: comment.Line, Type: "new"},
+					End:   DiscussionLineRef{NewLine: comment.EndLine, Type: "new"},
+				}
 			}
 			if _, err := c.createDraftNote(ctx, projectID, mrIID, draftReq); err != nil {
 				// Fallback: post as a regular note so feedback is not lost.
@@ -398,7 +436,12 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 			newLine := comment.Line
 			noteBody := comment.Body
 			if comment.Suggestion != "" {
-				noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
+				if comment.EndLine > comment.Line {
+					offset := comment.EndLine - comment.Line
+					noteBody += fmt.Sprintf("\n\n```suggestion:-%d+0\n%s\n```", offset, comment.Suggestion)
+				} else {
+					noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
+				}
 			}
 			inlineReq := vcs.InlineCommentRequest{
 				Body: noteBody,
@@ -410,6 +453,10 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 					OldPath:  comment.Path,
 					NewLine:  &newLine,
 				},
+			}
+			if comment.EndLine > comment.Line {
+				endLine := comment.EndLine
+				inlineReq.Position.EndLine = &endLine
 			}
 
 			if err := c.CreateDiscussion(ctx, projectID, mrIID, inlineReq); err != nil {

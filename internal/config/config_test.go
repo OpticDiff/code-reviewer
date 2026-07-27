@@ -734,6 +734,26 @@ func TestLoad_FlagAndEnvOptions(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "update_description_flag",
+			args: []string{"code-reviewer", "--diff", "--update-description"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project"},
+			assert: func(t *testing.T, cfg *Config) {
+				if !cfg.UpdateDescription {
+					t.Errorf("UpdateDescription = false, want true")
+				}
+			},
+		},
+		{
+			name: "update_description_env",
+			args: []string{"code-reviewer", "--diff"},
+			env:  map[string]string{"GOOGLE_CLOUD_PROJECT": "test-project", "CODE_REVIEWER_UPDATE_DESCRIPTION": "true"},
+			assert: func(t *testing.T, cfg *Config) {
+				if !cfg.UpdateDescription {
+					t.Errorf("UpdateDescription = false, want true")
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
