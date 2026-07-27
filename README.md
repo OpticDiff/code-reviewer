@@ -1,6 +1,6 @@
 # code-reviewer
 
-AI-powered code review CLI for GitLab merge requests. Uses Vertex AI (Gemini, Claude, Mistral) to analyze diffs and post actionable findings as inline comments or summary notes.
+AI-powered code review CLI for GitHub pull requests and GitLab merge requests. Uses Vertex AI (Gemini, Claude, Mistral) or any OpenAI-compatible endpoint to analyze diffs and post actionable findings as inline comments.
 
 ## Install
 
@@ -45,6 +45,12 @@ cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
 - **Fix mode** — `--fix` applies suggested code fixes directly to the working tree (v0.5.0)
 - **Pre-push hook** — `code-reviewer hook install` sets up automatic review before `git push` (v0.5.1)
 - **Configurable** — CLI flags, env vars, per-repo `.code-reviewer.yaml`, or `REVIEW.md`
+- **GitHub support** — Full PR review integration: inline comments, code suggestions, previous review cleanup (v0.6.0)
+- **Code suggestions** — AI-generated fix suggestions rendered as platform-native suggestion blocks (v0.6.0)
+- **Multi-line comments** — Findings can span line ranges for more precise feedback (v0.6.0)
+- **Description update** — `--update-description` injects review summary into MR/PR description with idempotent markers (v0.6.0)
+- **Review cleanup** — `--cleanup-mode` controls how previous bot reviews are handled: `delete` (default) or `resolve` (v0.6.0)
+- **GitLab Draft Notes** — Reviews posted as draft notes and published atomically for a single notification (v0.6.0)
 
 ## Quick Start
 
@@ -114,6 +120,45 @@ code-review:
 
 See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
 
+### GitHub Actions
+
+Add to `.github/workflows/code-review.yml`:
+
+```yaml
+name: Code Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SA }}
+
+      - name: Install code-reviewer
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.6.0
+
+      - name: Review PR
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: code-reviewer --ci
+```
+
+The `GITHUB_TOKEN` is provided automatically by GitHub Actions. The tool detects the GitHub environment and posts review comments on the PR.
+
 ## Configuration
 
 Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer.yaml` > defaults**.
@@ -122,7 +167,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 
 | Flag | Description | Default |
 |---|---|---|
-| `--ci` | Run in GitLab CI mode | — |
+| `--ci` | Run in CI mode (auto-detects GitHub/GitLab) | — |
 | `--diff [ref]` | Review local git diff | `origin/HEAD` |
 | `--files f1,f2` | Review specific files | — |
 | `--model` | Vertex AI model ID | `gemini-2.5-flash` |
@@ -150,6 +195,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--no-intent` | Disable intent-aware review (overrides CI default) | `false` |
 | `--explain` | Explain the diff instead of reviewing it | `false` |
 | `--fix` | Apply suggested fixes to the working tree | `false` |
+| `--update-description` | Inject review summary into MR/PR description | `false` |
+| `--cleanup-mode` | How to handle previous reviews: `delete` or `resolve` | `delete` |
 | `--version` | Print version and exit | — |
 | `hook install` | Install a pre-push git hook | — |
 | `hook uninstall` | Remove the pre-push git hook | — |
@@ -177,6 +224,9 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_API_URL` | OpenAI-compatible API endpoint | — |
 | `REVIEW_API_KEY` | API key for HTTP provider | — |
 | `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
+| `GITHUB_TOKEN` | GitHub API token (auto-set in GitHub Actions) | Required for GitHub |
+| `CODE_REVIEWER_UPDATE_DESCRIPTION` | Update MR/PR description with summary | `false` |
+| `CODE_REVIEWER_CLEANUP_MODE` | Previous review cleanup mode | `delete` |
 
 ### Per-Repo Config
 
@@ -196,6 +246,8 @@ extra_rules: |
   Check that zerolog is used instead of log/fmt.
 max_tokens: 50000  # Optional: cap total tokens per review
 api_url: http://localhost:11434/v1  # Optional: use a self-hosted model
+update_description: false  # Inject summary into MR/PR description
+cleanup_mode: delete       # delete or resolve
 ```
 
 See [`.code-reviewer.example.yaml`](.code-reviewer.example.yaml) for all options.
@@ -295,7 +347,7 @@ Also works with the [pre-commit](https://pre-commit.com) framework:
 ```yaml
 # .pre-commit-config.yaml
 - repo: https://github.com/OpticDiff/code-reviewer
-  rev: v0.5.1
+  rev: v0.6.0
   hooks:
     - id: code-review
       stages: [pre-push]
@@ -378,6 +430,13 @@ gcloud auth application-default login
 | `CI_JOB_TOKEN` | Notes API (simple comments) | Automatic, zero config |
 | Project Access Token | Notes + Discussions API (inline diff) | Settings → Access Tokens, `api` scope |
 
+### GitHub API
+
+| Token Type | Capabilities | Setup |
+|---|---|---|
+| `GITHUB_TOKEN` (Actions) | PR review comments, suggestions | Automatic in GitHub Actions |
+| Personal Access Token | PR reviews outside CI | `repo` scope required |
+
 ## Context Window Handling
 
 Large MRs may exceed the model's context window. The `--chunk-strategy` flag controls behavior:
@@ -419,8 +478,8 @@ CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https
 Releases are automated via [GoReleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
 
 ```bash
-git tag -a v0.5.1 -m "v0.5.1"
-git push origin v0.5.1
+git tag -a v0.6.0 -m "v0.6.0"
+git push origin v0.6.0
 # → GitHub Actions: test → build 6 binaries → publish to Releases
 ```
 
