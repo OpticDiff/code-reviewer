@@ -1236,3 +1236,317 @@ func TestSubmitReview_DraftNotes_StaleDraftCleanupFailure(t *testing.T) {
 		t.Errorf("error = %q, want contains 'stale draft note(s) remain'", err.Error())
 	}
 }
+
+func TestGetDescription_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"description": "existing description"}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	desc, err := client.GetDescription(context.Background(), "proj", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if desc != "existing description" {
+		t.Errorf("GetDescription() = %q, want %q", desc, "existing description")
+	}
+}
+
+func TestSetDescription_Success(t *testing.T) {
+	var gotMethod string
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, `{}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	err := client.SetDescription(context.Background(), "proj", "1", "new desc")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotMethod != http.MethodPut {
+		t.Errorf("method = %q, want %q", gotMethod, http.MethodPut)
+	}
+	if !strings.Contains(gotBody, `"description":"new desc"`) {
+		t.Errorf("body = %q, want it to contain %q", gotBody, `"description":"new desc"`)
+	}
+}
+
+func TestGetMRVersions_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `[
+			{"id": 1, "head_commit_sha": "abc", "base_commit_sha": "def", "start_commit_sha": "ghi"},
+			{"id": 2, "head_commit_sha": "jkl", "base_commit_sha": "mno", "start_commit_sha": "pqr"}
+		]`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	versions, err := client.GetMRVersions(context.Background(), "proj", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("got %d versions, want 2", len(versions))
+	}
+	if versions[0].HeadSHA != "abc" || versions[0].BaseSHA != "def" || versions[0].StartSHA != "ghi" {
+		t.Errorf("version 0 mapping incorrect: %+v", versions[0])
+	}
+	if versions[1].HeadSHA != "jkl" {
+		t.Errorf("version 1 mapping incorrect: %+v", versions[1])
+	}
+}
+
+func TestResolveDiscussion_Success(t *testing.T) {
+	var gotMethod string
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprint(w, `{}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	err := client.ResolveDiscussion(context.Background(), "proj", "1", "abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if gotMethod != http.MethodPut {
+		t.Errorf("method = %q, want %q", gotMethod, http.MethodPut)
+	}
+	if !strings.Contains(gotBody, `"resolved":true`) {
+		t.Errorf("body = %q, want it to contain resolved:true", gotBody)
+	}
+}
+
+func TestResolvePreviousReviews(t *testing.T) {
+	var mu sync.Mutex
+	resolvedIDs := make(map[string]bool)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_, _ = fmt.Fprint(w, `[
+				{"id": "d1", "notes": [{"id": 1, "body": "bot comment\n<!-- code-reviewer -->"}]},
+				{"id": "d2", "notes": [{"id": 2, "body": "human comment, no marker"}]},
+				{"id": "d3", "notes": [{"id": 3, "body": "another bot\n<!-- code-reviewer -->"}]}
+			]`)
+			return
+		}
+		if r.Method == http.MethodPut {
+			parts := strings.Split(r.URL.Path, "/")
+			id := parts[len(parts)-1]
+			mu.Lock()
+			resolvedIDs[id] = true
+			mu.Unlock()
+			_, _ = fmt.Fprint(w, `{}`)
+			return
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	count, err := client.ResolvePreviousReviews(context.Background(), "proj", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("resolved count = %d, want 2", count)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if !resolvedIDs["d1"] {
+		t.Errorf("d1 was not resolved")
+	}
+	if !resolvedIDs["d3"] {
+		t.Errorf("d3 was not resolved")
+	}
+	if resolvedIDs["d2"] {
+		t.Errorf("d2 should not be resolved")
+	}
+}
+
+func TestListDiscussions_Pagination(t *testing.T) {
+	var mu sync.Mutex
+	requestCount := 0
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requestCount++
+		reqNum := requestCount
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		if reqNum == 1 {
+			page2URL := fmt.Sprintf("http://%s%s?per_page=100&sort=asc&page=2", r.Host, r.URL.Path)
+			w.Header().Set("Link", fmt.Sprintf("<%s>; rel=\"next\"", page2URL))
+			_, _ = fmt.Fprint(w, `[{"id": "d1"}, {"id": "d2"}]`)
+		} else {
+			_, _ = fmt.Fprint(w, `[{"id": "d3"}]`)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	got, err := client.ListDiscussions(context.Background(), "proj", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	totalRequests := requestCount
+	mu.Unlock()
+
+	if totalRequests != 2 {
+		t.Errorf("expected 2 HTTP requests, got %d", totalRequests)
+	}
+
+	if len(got) != 3 {
+		t.Fatalf("got %d discussions, want 3", len(got))
+	}
+}
+
+func ptr[T any](v T) *T {
+	return &v
+}
+
+func TestCreateDiscussion_MultiLine(t *testing.T) {
+	var gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = fmt.Fprint(w, `{}`)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.InlineCommentRequest{
+		Body: "multi-line",
+		Position: &vcs.InlineCommentPosition{
+			NewLine: ptr(10),
+			EndLine: ptr(15),
+		},
+	}
+	err := client.CreateDiscussion(context.Background(), "proj", "1", req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(gotBody, `"line_range"`) {
+		t.Errorf("body missing line_range: %s", gotBody)
+	}
+	if !strings.Contains(gotBody, `"new_line":10`) || !strings.Contains(gotBody, `"new_line":15`) {
+		t.Errorf("body missing start or end line: %s", gotBody)
+	}
+}
+
+func TestSubmitReview_MultiLineDraftNote(t *testing.T) {
+	var gotDraft string
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/bulk_publish"):
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/draft_notes"):
+			body, _ := io.ReadAll(r.Body)
+			if strings.Contains(string(body), "suggestion") {
+				gotDraft = string(body)
+			}
+			_, _ = w.Write([]byte(`{"id":1}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "Review",
+		Version: &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"},
+		Comments: []vcs.ReviewComment{
+			{Path: "a.go", Line: 10, EndLine: 15, Body: "fix", Suggestion: "better code"},
+		},
+	}
+	if err := client.SubmitReview(context.Background(), "proj", "1", req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(gotDraft, `"line_range"`) {
+		t.Errorf("draft missing line_range: %s", gotDraft)
+	}
+	if !strings.Contains(gotDraft, "suggestion:-5+0") {
+		t.Errorf("draft missing suggestion format: %s", gotDraft)
+	}
+}
+
+func TestSubmitReview_SingleLineSuggestion(t *testing.T) {
+	var gotDraft string
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/bulk_publish"):
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/draft_notes"):
+			body, _ := io.ReadAll(r.Body)
+			if strings.Contains(string(body), "suggestion") {
+				gotDraft = string(body)
+			}
+			_, _ = w.Write([]byte(`{"id":1}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "Review",
+		Version: &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"},
+		Comments: []vcs.ReviewComment{
+			{Path: "a.go", Line: 10, Body: "fix", Suggestion: "code"},
+		},
+	}
+	if err := client.SubmitReview(context.Background(), "proj", "1", req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(gotDraft, "suggestion:-0+0") {
+		t.Errorf("draft missing single line suggestion format: %s", gotDraft)
+	}
+}
