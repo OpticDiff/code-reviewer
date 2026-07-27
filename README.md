@@ -135,6 +135,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
@@ -166,7 +167,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 
 | Flag | Description | Default |
 |---|---|---|
-| `--ci` | Run in GitLab CI mode | — |
+| `--ci` | Run in CI mode (auto-detects GitHub/GitLab) | — |
 | `--diff [ref]` | Review local git diff | `origin/HEAD` |
 | `--files f1,f2` | Review specific files | — |
 | `--model` | Vertex AI model ID | `gemini-2.5-flash` |

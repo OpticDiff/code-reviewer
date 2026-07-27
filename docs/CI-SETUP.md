@@ -133,6 +133,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       pull-requests: write # Required to post PR comments
     steps:
       - uses: actions/checkout@v4
@@ -169,6 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       pull-requests: write # For PR comments
       security-events: write # For SARIF upload
     steps:
