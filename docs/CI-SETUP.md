@@ -118,11 +118,12 @@ GitLab CI automatically sets these variables in MR pipelines:
 
 ## GitHub Actions
 
-While code-reviewer's VCS integration targets GitLab, the `--diff` mode works anywhere. Use it in GitHub Actions to get review output as a PR comment:
+code-reviewer has native integration with GitHub Pull Requests. It automatically detects the GitHub Actions environment, uses the provided `GITHUB_TOKEN` to authenticate, and posts findings as inline comments and PR summaries.
+
+### Standard Setup
 
 ```yaml
 name: Code Review
-
 on:
   pull_request:
     types: [opened, synchronize]
@@ -131,47 +132,72 @@ jobs:
   review:
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write
       contents: read
+      pull-requests: write # Required to post PR comments
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for accurate diffs
+          fetch-depth: 0
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SA }}
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@latest  # Pin to a specific version in production
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.6.0
 
-      - name: Run review
+      - name: Review PR
         env:
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
-        run: |
-          code-reviewer --diff origin/${{ github.base_ref }} --json > review.json
-
-      - name: Post results
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const review = JSON.parse(fs.readFileSync('review.json', 'utf8'));
-            if (review.findings.length === 0) return;
-            let body = `## 🔍 Code Review — ${review.findings.length} finding(s)\n\n`;
-            body += `${review.summary}\n\n`;
-            for (const f of review.findings) {
-              body += `### ${f.severity} — ${f.title}\n`;
-              body += `📁 \`${f.file}:${f.line}\` | Category: ${f.category}\n\n`;
-              body += `${f.body}\n\n`;
-              if (f.suggestion) body += `\`\`\`suggestion\n${f.suggestion}\n\`\`\`\n\n`;
-            }
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: body.slice(0, 65536)
-            });
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: code-reviewer --ci
 ```
 
-> **Note:** This uses `--diff` mode (not `--ci`), which doesn't require GitLab-specific environment variables. The `--json` flag produces machine-parseable output for scripting.
+### GitHub Code Scanning (SARIF)
+
+If you want findings to show up in the GitHub Security tab (Code Scanning alerts) in addition to PR comments, generate a SARIF file and upload it:
+
+```yaml
+name: Security Review
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # For PR comments
+      security-events: write # For SARIF upload
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SA }}
+
+      - name: Install code-reviewer
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.6.0
+
+      - name: Review PR
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: code-reviewer --ci --sarif results.sarif --focus security
+        continue-on-error: true
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+```
+
+> **Note:** The `GITHUB_TOKEN` needs `pull-requests: write` to post reviews and `security-events: write` to upload SARIF results.
 
 ## Authentication
 
