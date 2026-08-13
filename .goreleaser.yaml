@@ -27,7 +27,7 @@ archives:
 
 dockers:
   - image_templates:
-      - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}"
+      - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}-amd64"
     dockerfile: Dockerfile
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -59,7 +59,7 @@ dockers:
 docker_manifests:
   - name_template: "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}"
     image_templates:
-      - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}"
+      - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}-amd64"
       - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}-arm64"
 
 brews:
