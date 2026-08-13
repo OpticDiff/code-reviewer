@@ -25,6 +25,43 @@ archives:
       - goos: windows
         format: zip
 
+dockers:
+  - image_templates:
+      - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}"
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.description=AI-powered code review CLI for GitHub and GitLab"
+      - "--label=org.opencontainers.image.url=https://github.com/OpticDiff/code-reviewer"
+      - "--label=org.opencontainers.image.source=https://github.com/OpticDiff/code-reviewer"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+    use: buildx
+  - image_templates:
+      - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}-arm64"
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.description=AI-powered code review CLI for GitHub and GitLab"
+      - "--label=org.opencontainers.image.url=https://github.com/OpticDiff/code-reviewer"
+      - "--label=org.opencontainers.image.source=https://github.com/OpticDiff/code-reviewer"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.licenses=Apache-2.0"
+    use: buildx
+    goarch: arm64
+
+docker_manifests:
+  - name_template: "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}"
+      - "ghcr.io/opticdiff/{{ .ProjectName }}:{{ .Version }}-arm64"
+
 brews:
   - repository:
       owner: OpticDiff
