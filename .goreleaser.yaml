@@ -25,6 +25,25 @@ archives:
       - goos: windows
         format: zip
 
+dockers_v2:
+  - images:
+      - "ghcr.io/opticdiff/{{ .ProjectName }}"
+    tags:
+      - "{{ .Version }}"
+    dockerfile: Dockerfile
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      org.opencontainers.image.title: "{{ .ProjectName }}"
+      org.opencontainers.image.description: "AI-powered code review CLI for GitHub and GitLab"
+      org.opencontainers.image.url: https://github.com/OpticDiff/code-reviewer
+      org.opencontainers.image.source: https://github.com/OpticDiff/code-reviewer
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.created: "{{ .Date }}"
+      org.opencontainers.image.revision: "{{ .FullCommit }}"
+      org.opencontainers.image.licenses: Apache-2.0
+
 brews:
   - repository:
       owner: OpticDiff

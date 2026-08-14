@@ -18,6 +18,10 @@ mise use -g ubi:OpticDiff/code-reviewer
 # Go
 go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@latest
 
+# Docker
+docker pull ghcr.io/opticdiff/code-reviewer:1.0.0
+docker run --rm ghcr.io/opticdiff/code-reviewer:1.0.0 --help
+
 # Pre-built binary from GitHub Releases
 # https://github.com/OpticDiff/code-reviewer/releases
 
