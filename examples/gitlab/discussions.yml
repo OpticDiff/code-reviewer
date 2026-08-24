@@ -1,0 +1,43 @@
+# ============================================================================
+# GitLab CI configuration with inline diff discussion comments
+#
+# Features:
+# - Uses Project Access Token (PAT) with 'api' scope to create inline discussions
+# - Posts comments anchored directly to modified lines in the MR diff
+# - Supports automated comment cleanup on re-push
+#
+# Setup Instructions:
+# 1. In your GitLab project, go to Settings > Access Tokens.
+# 2. Create a token named "code-reviewer" with Role "Developer" and Scope "api".
+# 3. Add the token as a masked CI/CD variable named CODE_REVIEWER_TOKEN in Settings > CI/CD > Variables.
+# ============================================================================
+
+stages:
+  - review
+
+code-review-discussions:
+  stage: review
+  image: ghcr.io/opticdiff/code-reviewer:0.7.0
+
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+  variables:
+    GOOGLE_CLOUD_PROJECT: "my-gcp-project"
+    GOOGLE_CLOUD_LOCATION: "us-central1"
+
+    # Project Access Token with 'api' scope allows creating inline line-anchored discussions
+    GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
+
+    # 'discussions' mode posts comments anchored directly to changed lines in the MR diff
+    REVIEW_COMMENT_MODE: "discussions"
+
+    # Minimum severity threshold (low, medium, high, critical)
+    REVIEW_MIN_SEVERITY: "low"
+
+    REVIEW_MODEL: "gemini-2.5-flash"
+
+  script:
+    - code-reviewer --ci --incremental
+
+  allow_failure: true

@@ -1,0 +1,66 @@
+# ============================================================================
+# GitHub Actions workflow for code-reviewer with SARIF Security Reporting
+#
+# Features:
+# - Runs AI code review and generates SARIF 2.1.0 report
+# - Uploads findings to GitHub Code Scanning (Security alerts tab)
+# - Uses continue-on-error on review step so SARIF upload runs even if review flags issues
+# ============================================================================
+
+name: Security Code Review (SARIF)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Required permissions:
+# - contents: read         -> Clone the repository and read diffs
+# - id-token: write         -> Authenticate via Workload Identity Federation
+# - pull-requests: write    -> Post inline comments on the PR
+# - security-events: write  -> Upload SARIF reports to GitHub Code Scanning tab
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+  security-events: write
+
+jobs:
+  review:
+    name: Security Review & SARIF Upload
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full git history is required for accurate base/head diff calculation
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Authenticate to Google Cloud using Workload Identity Federation (keyless auth)
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SA }}
+
+      # Run code-reviewer, outputting findings both as PR comments and SARIF 2.1.0 report.
+      # continue-on-error ensures SARIF report upload step still executes if findings trigger exit codes.
+      - name: Run code-reviewer
+        id: review
+        uses: OpticDiff/code-reviewer-action@v1
+        continue-on-error: true
+        with:
+          project-id: ${{ secrets.GCP_PROJECT }}
+          model: gemini-2.5-flash
+          sarif: results.sarif
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          extra-args: "--focus security"
+
+      # Upload the SARIF report to GitHub Advanced Security / Code Scanning
+      - name: Upload SARIF report
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.review.outcome != 'skipped'
+        with:
+          sarif_file: results.sarif
+          category: code-reviewer-ai

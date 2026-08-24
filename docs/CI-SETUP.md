@@ -1,5 +1,11 @@
 # CI Setup & Operations Guide
 
+> **⚠️ This document is deprecated.** For up-to-date CI/CD examples, see:
+> - **GitHub Actions**: [OpticDiff/code-reviewer-action](https://github.com/OpticDiff/code-reviewer-action) and [`examples/github/`](../examples/github/)
+> - **GitLab CI**: [`examples/gitlab/`](../examples/gitlab/)
+> - **AWS Bedrock**: [`examples/bedrock/`](../examples/bedrock/)
+> - **Git Hooks**: [`examples/hooks/`](../examples/hooks/)
+
 How to run code-reviewer in CI/CD pipelines, authenticate with models and VCS, and configure every option.
 
 ## GitLab CI

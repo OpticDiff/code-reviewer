@@ -1,0 +1,59 @@
+# ============================================================================
+# GitHub Actions workflow for code-reviewer with AWS Bedrock via LiteLLM
+#
+# Features:
+# - Uses LiteLLM sidecar service container as an OpenAI-compatible proxy to AWS Bedrock
+# - Configures AWS credentials using GitHub Actions OIDC (aws-actions/configure-aws-credentials@v4)
+# - Invokes AWS Bedrock models (e.g., Anthropic Claude 3.5 Sonnet, Amazon Nova, Llama 3.3)
+# ============================================================================
+
+name: AWS Bedrock Code Review (LiteLLM)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  id-token: write # Required for AWS OIDC authentication (role assumption)
+  pull-requests: write
+
+jobs:
+  review:
+    name: Bedrock Review via LiteLLM Proxy
+    runs-on: ubuntu-latest
+
+    # LiteLLM proxy container translates OpenAI API calls to AWS Bedrock Converse / Invoke APIs
+    services:
+      litellm:
+        image: ghcr.io/berriai/litellm:main-latest
+        ports:
+          - 4000:4000
+        env:
+          AWS_REGION_NAME: us-east-1
+          LITELLM_MASTER_KEY: sk-dummy-bedrock-token
+        options: --name litellm
+
+    steps:
+      # Full git history is required for diff calculation
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Assume AWS IAM role using GitHub Actions OIDC token
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
+
+      # Run code-reviewer pointing to the LiteLLM proxy endpoint
+      - name: Run code-reviewer
+        uses: OpticDiff/code-reviewer-action@v1
+        with:
+          model: bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          extra-args: "--api-url http://litellm:4000/v1 --api-key sk-dummy-bedrock-token"

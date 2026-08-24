@@ -1,0 +1,48 @@
+# ============================================================================
+# GitHub Actions workflow for Multi-Model Consensus Code Review
+#
+# Features:
+# - Executes Gemini 2.5 Flash and Claude Sonnet 4 in parallel on Vertex AI
+# - Findings are deduplicated and merged by file + category + line proximity
+# - Only findings with consensus threshold >= 2 are reported
+# - Dramatically minimizes false positive review comments
+# ============================================================================
+
+name: Multi-Model Consensus Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  review:
+    name: Multi-Model Consensus Review
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full git history is required for accurate base/head diff calculation
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Authenticate to Google Cloud using Workload Identity Federation
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SA }}
+
+      # Run code-reviewer with multi-model consensus flags
+      - name: Run code-reviewer
+        uses: OpticDiff/code-reviewer-action@v1
+        with:
+          project-id: ${{ secrets.GCP_PROJECT }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          extra-args: "--models gemini-2.5-flash,claude-sonnet-4 --consensus-threshold 2"
