@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.6.0 — GitHub support, multi-line comments, code suggestions, and review lifecycle**
+Current status: **v0.7.0 — in development**
 
 ## ✅ v0.1 — Foundation (Done)
 
@@ -50,7 +50,7 @@ Current status: **v0.6.0 — GitHub support, multi-line comments, code suggestio
 - [x] **Prompt quality pass** — 5 improvements to reduce false positives: precision penalty, zero-is-fine, focus-on-additions, tightened MEDIUM, suggestion guardrails (v0.5.1)
 - [x] **Pre-push hook** — `code-reviewer hook install` sets up automatic review before `git push`; `.pre-commit-hooks.yaml` for pre-commit framework (v0.5.1)
 
-## 🔜 v0.6 — Platform Expansion
+## ✅ v0.6 — Platform Expansion (Done)
 
 - [x] **GitHub support** — `internal/github/` client implementing `VCSClient` interface, PR review comments, GitHub Actions integration
 - [x] **Code suggestions** — Platform-specific suggestion rendering
@@ -59,6 +59,9 @@ Current status: **v0.6.0 — GitHub support, multi-line comments, code suggestio
 - [x] **Multi-line comments and suggestions**
 - [x] **GitLab Draft Notes API** — For single-notification reviews
 - [x] **SSRF hardening and tech debt cleanup**
+
+## 🔜 v0.7 — Developer Experience & Distribution
+
 - [ ] **GitHub Actions workflow** — Drop-in `.github/workflows/code-review.yml` example
 - [ ] **Pre-commit.com listing** — Register in the pre-commit hook registry for discovery
 
