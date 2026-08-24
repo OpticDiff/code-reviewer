@@ -152,7 +152,7 @@ jobs:
           service_account: ${{ secrets.WIF_SA }}
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.6.0
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.7.0
 
       - name: Review PR
         env:
@@ -351,7 +351,7 @@ Also works with the [pre-commit](https://pre-commit.com) framework:
 ```yaml
 # .pre-commit-config.yaml
 - repo: https://github.com/OpticDiff/code-reviewer
-  rev: v0.6.0
+  rev: v0.7.0
   hooks:
     - id: code-review
       stages: [pre-push]
@@ -482,8 +482,8 @@ CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https
 Releases are automated via [GoReleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
 
 ```bash
-git tag -a v0.6.0 -m "v0.6.0"
-git push origin v0.6.0
+git tag -a v0.7.0 -m "v0.7.0"
+git push origin v0.7.0
 # → GitHub Actions: test → build 6 binaries → publish to Releases
 ```
 
