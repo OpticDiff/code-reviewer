@@ -230,7 +230,7 @@ func TestPostReview_PassesSuggestionAndCleanupMode(t *testing.T) {
 			}
 			version := &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"}
 
-			if err := PostReview(context.Background(), cfg, mockClient, result, version); err != nil {
+			if err := PostReview(context.Background(), cfg, mockClient, result, version, nil); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
@@ -391,7 +391,7 @@ func (m *outputMockVCS) DeleteNote(context.Context, string, string, int) error {
 	return nil
 }
 
-func (m *outputMockVCS) CleanPreviousReviews(context.Context, string, string) (int, error) {
+func (m *outputMockVCS) CleanPreviousReviews(context.Context, string, string, []string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.cleanCalls++
@@ -450,7 +450,7 @@ func TestPostReview_BuildsSubmitRequest(t *testing.T) {
 		ID: 1, HeadSHA: "head", BaseSHA: "base", StartSHA: "start",
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, version)
+	err := PostReview(context.Background(), cfg, mockClient, result, version, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -490,7 +490,7 @@ func TestPostReview_NotesMode_NoComments(t *testing.T) {
 		},
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, nil)
+	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -517,7 +517,7 @@ func TestPostReview_UpdateDescription(t *testing.T) {
 		Summary: "Summary update",
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, nil)
+	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

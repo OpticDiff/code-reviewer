@@ -62,12 +62,14 @@ func TerminalOutput(result *model.ReviewResult) string {
 	return sb.String()
 }
 
-// PostReview posts review results to a GitLab merge request.
-func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion) error {
+// PostReview posts review results to a GitLab merge request or GitHub pull request.
+// If changedFiles is non-nil, only cleans previous comments on those files (incremental mode).
+func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion, changedFiles []string) error {
 	req := vcs.SubmitReviewRequest{
-		Summary:     formatSummaryNote(result),
-		Version:     version,
-		CleanupMode: string(cfg.CleanupMode),
+		Summary:      formatSummaryNote(result),
+		Version:      version,
+		CleanupMode:  string(cfg.CleanupMode),
+		ChangedFiles: changedFiles,
 	}
 
 	if cfg.CommentMode == config.CommentModeDiscussions && version != nil {

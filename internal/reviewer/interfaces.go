@@ -23,7 +23,7 @@ type VCSClient interface {
 	CreateDiscussion(ctx context.Context, projectID, mrIID string, req vcs.InlineCommentRequest) error
 	ListBotNotes(ctx context.Context, projectID, mrIID string) ([]vcs.Comment, error)
 	DeleteNote(ctx context.Context, projectID, mrIID string, noteID int) error
-	CleanPreviousReviews(ctx context.Context, projectID, mrIID string) (int, error)
+	CleanPreviousReviews(ctx context.Context, projectID, mrIID string, changedFiles []string) (int, error)
 	// SubmitReview posts a complete code review as a single atomic operation.
 	// On GitHub: single POST /pulls/{pr}/reviews (1 API call, 1 notification).
 	// On GitLab: CleanPreviousReviews + PostNote(summary) + N×CreateDiscussion.

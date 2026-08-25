@@ -54,7 +54,7 @@ func (c *capturingVCS) SubmitReview(ctx context.Context, projectID, mrIID string
 	}
 	
 	// Delegate to CleanPreviousReviews
-	if _, err := c.CleanPreviousReviews(ctx, projectID, mrIID); err != nil {
+	if _, err := c.CleanPreviousReviews(ctx, projectID, mrIID, req.ChangedFiles); err != nil {
 		return err
 	}
 	

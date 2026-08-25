@@ -83,10 +83,11 @@ type ReviewComment struct {
 // as a single atomic operation. On GitHub this maps to a single API call
 // (POST /pulls/{pr}/reviews). On GitLab it maps to PostNote + N×CreateDiscussion.
 type SubmitReviewRequest struct {
-	Summary     string          // Top-level review body (markdown).
-	Comments    []ReviewComment // Inline comments anchored to diff positions.
-	Version     *DiffVersion    // SHA context for inline comment positioning (may be nil).
-	CleanupMode string          // "delete" or "resolve" — controls how old bot comments are handled.
+	Summary      string          // Top-level review body (markdown).
+	Comments     []ReviewComment // Inline comments anchored to diff positions.
+	Version      *DiffVersion    // SHA context for inline comment positioning (may be nil).
+	CleanupMode  string          // "delete" or "resolve" — controls how old bot comments are handled.
+	ChangedFiles []string        // If set, only clean comments referencing these files (incremental mode).
 }
 
 // DescriptionUpdater is implemented by VCS clients that support updating

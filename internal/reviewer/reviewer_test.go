@@ -99,7 +99,7 @@ func (m *mockVCS) DeleteNote(ctx context.Context, projectID, mrIID string, noteI
 	return nil
 }
 
-func (m *mockVCS) CleanPreviousReviews(ctx context.Context, projectID, mrIID string) (int, error) {
+func (m *mockVCS) CleanPreviousReviews(ctx context.Context, projectID, mrIID string, changedFiles []string) (int, error) {
 	m.cleanCalls++
 	return m.cleanResult, m.cleanErr
 }
@@ -111,7 +111,7 @@ func (m *mockVCS) SubmitReview(ctx context.Context, projectID, mrIID string, req
 		return m.submitReviewErr
 	}
 	// Delegate to individual methods so tests asserting on postNoteCalls/cleanCalls still pass.
-	if _, err := m.CleanPreviousReviews(ctx, projectID, mrIID); err != nil {
+	if _, err := m.CleanPreviousReviews(ctx, projectID, mrIID, req.ChangedFiles); err != nil {
 		return fmt.Errorf("cleaning previous reviews: %w", err)
 	}
 	if _, err := m.PostNote(ctx, projectID, mrIID, req.Summary); err != nil {
