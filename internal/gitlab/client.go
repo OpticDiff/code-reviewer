@@ -242,21 +242,52 @@ func (c *Client) DeleteNote(ctx context.Context, projectID, mrIID string, noteID
 // If changedFiles is non-empty, only notes referencing those files are deleted;
 // the summary note is always deleted so it can be replaced with an updated one.
 func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID string, changedFiles []string) (int, error) {
+	deleted := 0
+
+	if len(changedFiles) > 0 {
+		changedSet := make(map[string]bool, len(changedFiles))
+		for _, f := range changedFiles {
+			changedSet[f] = true
+		}
+
+		discussions, err := c.ListDiscussions(ctx, projectID, mrIID)
+		if err != nil {
+			return 0, err
+		}
+		for _, d := range discussions {
+			for _, n := range d.Notes {
+				if strings.Contains(n.Body, botMarker) && n.Position != nil && changedSet[n.Position.NewPath] {
+					if err := c.DeleteNote(ctx, projectID, mrIID, n.ID); err != nil {
+						continue
+					}
+					deleted++
+					time.Sleep(apiRateDelay)
+				}
+			}
+		}
+
+		notes, err := c.ListBotNotes(ctx, projectID, mrIID)
+		if err != nil {
+			return deleted, err
+		}
+		for _, n := range notes {
+			if strings.Contains(n.Body, "## 📋 Code Review Summary") {
+				if err := c.DeleteNote(ctx, projectID, mrIID, n.ID); err != nil {
+					continue
+				}
+				deleted++
+				time.Sleep(apiRateDelay)
+			}
+		}
+		return deleted, nil
+	}
+
 	notes, err := c.ListBotNotes(ctx, projectID, mrIID)
 	if err != nil {
 		return 0, err
 	}
 
-	changedSet := make(map[string]bool, len(changedFiles))
-	for _, f := range changedFiles {
-		changedSet[f] = true
-	}
-
-	deleted := 0
 	for _, n := range notes {
-		if len(changedSet) > 0 && !noteReferencesFiles(n.Body, changedSet) {
-			continue // Preserve findings for unchanged files.
-		}
 		if err := c.DeleteNote(ctx, projectID, mrIID, n.ID); err != nil {
 			// Non-fatal: may not have permission to delete all notes.
 			continue
@@ -267,47 +298,54 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 	return deleted, nil
 }
 
-// noteReferencesFiles returns true if the note body references any file in the set,
-// or if the note is a summary note (which should always be replaced).
-func noteReferencesFiles(body string, files map[string]bool) bool {
-	// Summary notes always get replaced.
-	if strings.Contains(body, "## 📋 Code Review Summary") {
-		return true
-	}
-	// Check if the note body mentions any changed file path.
-	for f := range files {
-		if strings.Contains(body, f) {
-			return true
-		}
-	}
-	return false
-}
-
 // ResolvePreviousReviews resolves all bot-tagged discussions on an MR.
-func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID string) (int, error) {
+func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID string, changedFiles []string) (int, error) {
 	discussions, err := c.ListDiscussions(ctx, projectID, mrIID)
 	if err != nil {
 		return 0, err
 	}
 
+	changedSet := make(map[string]bool, len(changedFiles))
+	for _, f := range changedFiles {
+		changedSet[f] = true
+	}
+
 	resolved := 0
 	for _, d := range discussions {
 		isBotDiscussion := false
+		hasMatchingPosition := false
+		isNonPositioned := true
+
 		for _, n := range d.Notes {
 			if strings.Contains(n.Body, botMarker) {
 				isBotDiscussion = true
-				break
+			}
+			if n.Position != nil {
+				isNonPositioned = false
+				if len(changedFiles) > 0 && changedSet[n.Position.NewPath] {
+					hasMatchingPosition = true
+				}
 			}
 		}
+
 		if isBotDiscussion {
-			if err := c.ResolveDiscussion(ctx, projectID, mrIID, d.ID); err != nil {
-				continue
+			shouldResolve := false
+			if len(changedFiles) == 0 {
+				shouldResolve = true
+			} else if isNonPositioned || hasMatchingPosition {
+				shouldResolve = true
 			}
-			resolved++
-			select {
-			case <-time.After(apiRateDelay):
-			case <-ctx.Done():
-				return resolved, ctx.Err()
+
+			if shouldResolve {
+				if err := c.ResolveDiscussion(ctx, projectID, mrIID, d.ID); err != nil {
+					continue
+				}
+				resolved++
+				select {
+				case <-time.After(apiRateDelay):
+				case <-ctx.Done():
+					return resolved, ctx.Err()
+				}
 			}
 		}
 	}
@@ -320,7 +358,7 @@ func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID st
 func (c *Client) SubmitReview(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
 	// 1. Clean previous bot comments.
 	if req.CleanupMode == "resolve" {
-		resolved, err := c.ResolvePreviousReviews(ctx, projectID, mrIID)
+		resolved, err := c.ResolvePreviousReviews(ctx, projectID, mrIID, req.ChangedFiles)
 		if err != nil {
 			slog.Warn("failed to resolve previous reviews", "error", err)
 		} else if resolved > 0 {
