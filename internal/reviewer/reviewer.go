@@ -91,6 +91,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 
 	// Step 2b: Incremental review — filter to only files changed in latest push.
+	var incrementalChangedFiles []string // tracks which files changed (for selective cleanup)
 	if r.cfg.Incremental && r.cfg.CIMode && r.glClient != nil {
 		versions, verr := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
 		if verr == nil {
@@ -107,11 +108,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				slog.Warn("failed to compare commits for incremental review, falling back to full review", "error", cerr)
 			} else {
 				before := len(diffs)
+				incrementalChangedFiles = changedFiles
 				diffs = filterByFiles(diffs, changedFiles)
 				slog.Info("incremental review",
 					"total_files", before,
 					"changed_files", len(changedFiles),
 					"reviewing", len(diffs),
+					"preserved", before-len(diffs),
 				)
 			}
 		} else {
@@ -319,7 +322,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			result.Summary = formatIntentMarkdown(intentSummary) + result.Summary
 		}
 
-		if err := PostReview(ctx, r.cfg, r.glClient, result, version); err != nil {
+		if err := PostReview(ctx, r.cfg, r.glClient, result, version, incrementalChangedFiles); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
 	}

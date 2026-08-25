@@ -217,8 +217,11 @@ func (c *Client) DeleteNote(ctx context.Context, projectID, prNumber string, not
 	return nil
 }
 
-// CleanPreviousReviews deletes all bot-tagged notes on an issue/PR.
-func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, prNumber string) (int, error) {
+// CleanPreviousReviews deletes bot-tagged notes on an issue/PR.
+// If changedFiles is non-empty, only notes referencing those files are deleted;
+// summary notes are always deleted. On GitHub, issue comments are typically
+// summary-only (inline comments are part of reviews), so all bot comments are deleted.
+func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, prNumber string, changedFiles []string) (int, error) {
 	notes, err := c.ListBotNotes(ctx, projectID, prNumber)
 	if err != nil {
 		return 0, err
@@ -246,7 +249,7 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, r
 	if req.CleanupMode == "resolve" {
 		slog.Warn("GitHub does not support resolving previous reviews; falling back to delete mode")
 	}
-	deleted, err := c.CleanPreviousReviews(ctx, projectID, prNumber)
+	deleted, err := c.CleanPreviousReviews(ctx, projectID, prNumber, req.ChangedFiles)
 	if err != nil {
 		slog.Warn("failed to clean previous reviews", "error", err)
 	} else if deleted > 0 {

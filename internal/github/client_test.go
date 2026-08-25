@@ -368,7 +368,7 @@ func TestCleanPreviousReviews_ContinuesOnDeleteError(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "token")
-	count, err := client.CleanPreviousReviews(context.Background(), "proj", "1")
+	count, err := client.CleanPreviousReviews(context.Background(), "proj", "1", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

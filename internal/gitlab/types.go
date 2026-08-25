@@ -75,11 +75,12 @@ func (v *DiffVersion) toVCS() vcs.DiffVersion {
 
 // Note represents a comment on an MR.
 type Note struct {
-	ID        int       `json:"id"`
-	Body      string    `json:"body"`
-	Author    Author    `json:"author"`
-	System    bool      `json:"system"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        int                 `json:"id"`
+	Body      string              `json:"body"`
+	Author    Author              `json:"author"`
+	System    bool                `json:"system"`
+	CreatedAt time.Time           `json:"created_at"`
+	Position  *DiscussionPosition `json:"position,omitempty"`
 }
 
 // toVCS converts a GitLab note to the platform-agnostic type.
