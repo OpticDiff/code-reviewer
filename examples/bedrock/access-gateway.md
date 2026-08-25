@@ -111,11 +111,11 @@ jobs:
         uses: OpticDiff/code-reviewer-action@v1
         with:
           model: anthropic.claude-3-5-sonnet-20241022-v2:0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           extra-args: >-
             --api-url https://bedrock-gateway.corp.internal/v1
             --api-key ${{ secrets.BEDROCK_GATEWAY_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ### GitLab CI

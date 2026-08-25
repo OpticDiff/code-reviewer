@@ -35,18 +35,17 @@ npx husky init
 
 ## 3. Create the Pre-Push Hook
 
-Create the `.husky/pre-push` hook file:
+Create the `.husky/pre-push` hook file. Husky v9+ uses plain scripts (no bootstrap shim needed):
 
 ```bash
 cat << 'EOF' > .husky/pre-push
-#!/usr/bin/env sh
-. "$(dirname "$0")/_/husky.sh"
-
 echo "🔍 Running code-reviewer pre-push check..."
 
-# Run code-reviewer against the upstream tracking branch.
-# If no upstream branch is set, defaults to origin/main.
-UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "origin/main")
+# Review unpushed changes against the upstream tracking branch.
+# Falls back to the remote HEAD branch if no upstream is set.
+UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || \
+  UPSTREAM=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null) || \
+  UPSTREAM="origin/main"
 
 code-reviewer --diff "$UPSTREAM" --min-severity high
 

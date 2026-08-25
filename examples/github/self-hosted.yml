@@ -58,12 +58,11 @@ jobs:
           echo "Model qwen3:8b ready."
 
       # Run code-reviewer pointing to the Ollama OpenAI-compatible endpoint.
-      # When the action runs in container network, 'http://ollama:11434/v1' resolves to the service container.
-      # On host runner, 'http://localhost:11434/v1' also maps to the published port.
+      # On host runners with mapped ports, use localhost (not the service label).
       - name: Run code-reviewer
         uses: OpticDiff/code-reviewer-action@v1
         with:
           model: qwen3:8b
-          extra-args: "--api-url http://ollama:11434/v1"
+          extra-args: "--api-url http://localhost:11434/v1"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

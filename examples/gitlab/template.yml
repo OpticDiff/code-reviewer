@@ -9,8 +9,9 @@
 # USAGE EXAMPLE in a consuming repository's .gitlab-ci.yml:
 #
 # include:
-#   - remote: 'https://raw.githubusercontent.com/OpticDiff/code-reviewer/main/examples/gitlab/template.yml'
-#   # Or from a central GitLab project:
+#   # Pin to a specific tag for reproducibility:
+#   - remote: 'https://raw.githubusercontent.com/OpticDiff/code-reviewer/v0.7.0/examples/gitlab/template.yml'
+#   # Or from a central GitLab project (preferred for internal use):
 #   # - project: 'devsecops/ci-templates'
 #   #   ref: 'v1.0.0'
 #   #   file: '/templates/code-review.gitlab-ci.yml'
@@ -56,9 +57,10 @@
   script:
     - code-reviewer --ci --incremental
 
+  # Use reports:sarif (not reports:sast) for SARIF 2.1.0 files
   artifacts:
     reports:
-      sast: results.sarif
+      sarif: results.sarif
     paths:
       - results.sarif
     when: always

@@ -27,7 +27,7 @@ flowchart LR
 
 ### Step 1: Start the LiteLLM Proxy
 
-You can run LiteLLM locally using Docker:
+You can run LiteLLM locally using Docker. AWS credentials are passed from your environment:
 
 ```bash
 docker run -d --name litellm-proxy \
@@ -35,7 +35,6 @@ docker run -d --name litellm-proxy \
   -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
   -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
   -e AWS_REGION_NAME="us-east-1" \
-  -e LITELLM_MASTER_KEY="sk-litellm-local" \
   ghcr.io/berriai/litellm:main-latest \
   --port 4000
 ```
@@ -54,7 +53,6 @@ Execute `code-reviewer` targeting your local LiteLLM proxy:
 ```bash
 code-reviewer --diff \
   --api-url http://localhost:4000/v1 \
-  --api-key sk-litellm-local \
   --model bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
 ```
 
@@ -62,7 +60,6 @@ You can also persist this in `.code-reviewer.yaml`:
 
 ```yaml
 api_url: http://localhost:4000/v1
-api_key: sk-litellm-local
 model: bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
 focus: [bugs, security]
 min_severity: low
@@ -74,7 +71,7 @@ min_severity: low
 
 ### GitHub Actions (with OIDC)
 
-In GitHub Actions, run LiteLLM as a `services:` container and authenticate using AWS OIDC without long-lived secret keys:
+In GitHub Actions, start LiteLLM as a step after AWS authentication so it inherits the OIDC-derived credentials:
 
 ```yaml
 name: Bedrock Code Review
@@ -90,15 +87,6 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
-    services:
-      litellm:
-        image: ghcr.io/berriai/litellm:main-latest
-        ports:
-          - 4000:4000
-        env:
-          AWS_REGION_NAME: us-east-1
-          LITELLM_MASTER_KEY: sk-ci-token
-        options: --name litellm
 
     steps:
       - uses: actions/checkout@v4
@@ -112,16 +100,35 @@ jobs:
           aws-region: us-east-1
           audience: sts.amazonaws.com
 
+      # Start LiteLLM after AWS auth so it gets the credentials
+      - name: Start LiteLLM proxy
+        run: |
+          docker run -d --name litellm \
+            -p 4000:4000 \
+            -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
+            -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+            -e AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN}" \
+            -e AWS_REGION_NAME="us-east-1" \
+            ghcr.io/berriai/litellm:main-latest \
+            --port 4000
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4000/health && break || sleep 2
+          done
+
       - name: Run code-reviewer
         uses: OpticDiff/code-reviewer-action@v1
         with:
           model: bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+          extra-args: "--api-url http://localhost:4000/v1"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          extra-args: "--api-url http://litellm:4000/v1 --api-key sk-ci-token"
 ```
 
 ### GitLab CI (with AWS IAM OIDC)
+
+> **Note**: GitLab CI supports [OIDC authentication to AWS](https://docs.gitlab.com/ee/ci/cloud_services/aws/).
+> Configure an AWS IAM OIDC identity provider for your GitLab instance, then use `web_identity_token_file`
+> in your CI job. See the linked docs for the full setup.
 
 ```yaml
 stages:
@@ -138,10 +145,12 @@ bedrock-review:
   variables:
     AWS_DEFAULT_REGION: "us-east-1"
     REVIEW_API_URL: "http://litellm:4000/v1"
-    REVIEW_API_KEY: "sk-ci-token"
     REVIEW_MODEL: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
     GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
     REVIEW_COMMENT_MODE: "discussions"
+    # AWS credentials: use CI/CD variables (Settings > CI/CD > Variables)
+    # Set AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY as masked/protected variables
+    # Or configure OIDC: https://docs.gitlab.com/ee/ci/cloud_services/aws/
   script:
     - code-reviewer --ci --incremental
   allow_failure: true

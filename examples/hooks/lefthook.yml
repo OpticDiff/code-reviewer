@@ -20,10 +20,7 @@ pre-push:
 
   commands:
     code-review:
-      # Review unpushed diff against upstream tracking branch (or origin/HEAD)
-      # Blocks git push if findings meet or exceed 'high' severity
+      # Review local diff against the merge-base with the remote default branch.
+      # --diff without an argument uses git merge-base detection automatically.
+      # Blocks git push if findings meet or exceed 'high' severity.
       run: code-reviewer --diff --min-severity high
-      # Environment variables passed to code-reviewer
-      env:
-        GOOGLE_CLOUD_PROJECT: "my-gcp-project"
-        NO_COLOR: "false"

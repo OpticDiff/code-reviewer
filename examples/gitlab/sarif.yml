@@ -3,7 +3,7 @@
 #
 # Features:
 # - Generates SARIF 2.1.0 report of code review findings
-# - Uploads findings as a GitLab SAST report artifact for the Security & Compliance tab
+# - Uploads findings via GitLab artifacts:reports:sarif for the Security tab
 # - Focuses on security findings with Gemini 2.5 Pro
 # - allow_failure: false optionally enforces a security quality gate
 # ============================================================================
@@ -39,9 +39,10 @@ security-review-sarif:
   allow_failure: false
 
   # Publish SARIF report to GitLab's Security & Compliance dashboard
+  # Use reports:sarif (not reports:sast) for SARIF 2.1.0 files
   artifacts:
     reports:
-      sast: results.sarif
+      sarif: results.sarif
     paths:
       - results.sarif
     when: always

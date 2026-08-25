@@ -66,9 +66,15 @@ description = "Analyze diff and apply recommended code fixes"
 run = "code-reviewer --diff origin/main --fix"
 
 # Pre-push verification task
+# Uses upstream if set, falls back to origin/HEAD, then origin/main
 [tasks."review:pre-push"]
 description = "Pre-push check: block on high or critical severity issues"
-run = "code-reviewer --diff @{upstream} --min-severity high"
+run = """
+UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || \
+  UPSTREAM=$(git rev-parse --abbrev-ref origin/HEAD 2>/dev/null) || \
+  UPSTREAM="origin/main"
+code-reviewer --diff "$UPSTREAM" --min-severity high
+"""
 ```
 
 ---
