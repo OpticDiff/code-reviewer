@@ -113,6 +113,7 @@ type Config struct {
 	OutputJSON  bool
 	NoColor     bool   // Disable ANSI color output.
 	SARIFOutput string // Path to write SARIF 2.1.0 output file.
+	AuditLog    string // Path to write JSONL audit log.
 	ProxyURL    string // Optional: LLM proxy URL for observability (e.g., Candela).
 	UpdateDescription bool
 
@@ -173,6 +174,7 @@ type repoConfig struct {
 	ExcludedPatterns []string `yaml:"excluded_patterns"`
 	ExtraRules       string   `yaml:"extra_rules"`
 	OutputJSON       bool     `yaml:"output_json"`
+	AuditLog                 string   `yaml:"audit_log"`
 	CustomPrompt             string   `yaml:"custom_prompt"`
 	ProxyURL                 string   `yaml:"proxy_url"`
 	MaxTokens                int      `yaml:"max_tokens"`
@@ -343,6 +345,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.OutputJSON {
 		c.OutputJSON = true
 	}
+	if rc.AuditLog != "" {
+		c.AuditLog = rc.AuditLog
+	}
 	if rc.CustomPrompt != "" {
 		c.CustomPrompt = rc.CustomPrompt
 	}
@@ -437,6 +442,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("SARIF_OUTPUT"); v != "" {
 		c.SARIFOutput = v
 	}
+	if v := os.Getenv("REVIEW_AUDIT_LOG"); v != "" {
+		c.AuditLog = v
+	}
 	if v := os.Getenv("REVIEW_MODELS"); v != "" {
 		c.Models = splitAndTrim(v)
 	}
@@ -504,6 +512,7 @@ func (c *Config) loadFlags() error {
 	customPrompt := fs.String("custom-prompt", "", "Path to a custom system prompt file")
 	noColor := fs.Bool("no-color", false, "Disable ANSI color output")
 	sarifOutput := fs.String("sarif", "", "Write SARIF 2.1.0 output to the given file path")
+	auditLog := fs.String("audit-log", "", "Write structured JSONL audit log to file")
 	models := fs.String("models", "", "Comma-separated list of models for consensus review")
 	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
 	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
@@ -576,6 +585,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *sarifOutput != "" {
 		c.SARIFOutput = *sarifOutput
+	}
+	if *auditLog != "" {
+		c.AuditLog = *auditLog
 	}
 	if *models != "" {
 		c.Models = splitAndTrim(*models)

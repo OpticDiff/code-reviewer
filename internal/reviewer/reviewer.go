@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
@@ -66,9 +67,27 @@ func NewWithDiffSource(cfg *config.Config, provider ModelReviewer, glClient VCSC
 func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var scopeAssessment *ScopeAssessment
 
+	// Hoist variables captured by the audit defer.
+	var diffs []diff.FileDiff
+	var skippedFiles []string
+	var allFindings []model.Finding
+	var totalUsage model.TokenUsage
+
+	start := time.Now()
+
+	// Deferred audit log: writes one record per run regardless of exit path.
+	defer func() {
+		if r.cfg.AuditLog == "" {
+			return
+		}
+		entry := buildAuditEntry(r.cfg, diffs, skippedFiles, allFindings, &totalUsage, time.Since(start))
+		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
+			slog.Warn("failed to write audit log", "error", err)
+		}
+	}()
+
 	// Step 1: Get diffs.
 	slog.Info("fetching diffs", "mode", r.cfg.Mode())
-	var diffs []diff.FileDiff
 	var mrTitle, mrDesc string
 	var err error
 	var cachedVersions []vcs.DiffVersion
@@ -147,7 +166,6 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	diff.SortByPriority(diffs)
 
 	// Step 2d: Pre-flight budget check.
-	var skippedFiles []string
 	estimate := EstimateCost(diffs)
 	if r.cfg.MaxTokens > 0 && estimate.TotalEstimate > r.cfg.MaxTokens {
 		diffs, skippedFiles = TrimToBudget(diffs, r.cfg.MaxTokens)
@@ -199,7 +217,6 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Pass 1: Intent inference (if enabled).
 	var intentContext string
 	var intentSummary *model.SummaryResult
-	var totalUsage model.TokenUsage
 	if r.cfg.IntentReview {
 		if sp, ok := r.provider.(model.SummarizeProvider); ok {
 			fullDiff := buildNumberedDiff(diffs)
@@ -235,7 +252,6 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
 	}
 	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, intentContext)
-	var allFindings []model.Finding
 	var summary string
 
 	for i, chunk := range chunks {
@@ -360,6 +376,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			fmt.Print(summary)
 		}
 	}
+
+
 
 	return len(allFindings), nil
 }
