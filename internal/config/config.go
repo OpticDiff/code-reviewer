@@ -113,6 +113,7 @@ type Config struct {
 	OutputJSON  bool
 	NoColor     bool   // Disable ANSI color output.
 	SARIFOutput string // Path to write SARIF 2.1.0 output file.
+	AuditLog    string // Path to write JSONL audit log.
 	ProxyURL    string // Optional: LLM proxy URL for observability (e.g., Candela).
 	UpdateDescription bool
 
@@ -156,6 +157,10 @@ type Config struct {
 
 	// Budget.
 	MaxTokens int // Maximum total tokens per review (0 = unlimited).
+
+	// Scope enforcement.
+	MaxFiles    int
+	ScopeAction string
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -169,9 +174,12 @@ type repoConfig struct {
 	ExcludedPatterns []string `yaml:"excluded_patterns"`
 	ExtraRules       string   `yaml:"extra_rules"`
 	OutputJSON       bool     `yaml:"output_json"`
+	AuditLog                 string   `yaml:"audit_log"`
 	CustomPrompt             string   `yaml:"custom_prompt"`
 	ProxyURL                 string   `yaml:"proxy_url"`
 	MaxTokens                int      `yaml:"max_tokens"`
+	MaxFiles                 int      `yaml:"max_files"`
+	ScopeAction              string   `yaml:"scope_action"`
 	APIURL                   string   `yaml:"api_url"`
 	Summarize                bool     `yaml:"summarize"`
 	SummaryUpdateDescription bool     `yaml:"summary_update_description"`
@@ -204,6 +212,7 @@ func Load() (*Config, error) {
 		GitHubBaseURL:    "https://api.github.com",
 		SkipDraftMRs:     true,
 		ExcludedPatterns: DefaultExcludedPatterns,
+		ScopeAction:      "warn",
 	}
 
 	// Layer 1: .code-reviewer.yaml (if exists).
@@ -336,6 +345,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.OutputJSON {
 		c.OutputJSON = true
 	}
+	if rc.AuditLog != "" {
+		c.AuditLog = rc.AuditLog
+	}
 	if rc.CustomPrompt != "" {
 		c.CustomPrompt = rc.CustomPrompt
 	}
@@ -344,6 +356,12 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	}
 	if rc.MaxTokens > 0 {
 		c.MaxTokens = rc.MaxTokens
+	}
+	if rc.MaxFiles > 0 {
+		c.MaxFiles = rc.MaxFiles
+	}
+	if rc.ScopeAction != "" {
+		c.ScopeAction = rc.ScopeAction
 	}
 	if rc.APIURL != "" {
 		c.APIURL = rc.APIURL
@@ -424,6 +442,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("SARIF_OUTPUT"); v != "" {
 		c.SARIFOutput = v
 	}
+	if v := os.Getenv("REVIEW_AUDIT_LOG"); v != "" {
+		c.AuditLog = v
+	}
 	if v := os.Getenv("REVIEW_MODELS"); v != "" {
 		c.Models = splitAndTrim(v)
 	}
@@ -443,6 +464,19 @@ func (c *Config) loadEnv() {
 			// 0 = unlimited (clears any YAML cap), >0 = token budget.
 			c.MaxTokens = n
 		}
+	}
+	if v := os.Getenv("REVIEW_MAX_FILES"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_MAX_FILES", "value", v, "error", err)
+		} else if n < 0 {
+			slog.Warn("ignoring negative REVIEW_MAX_FILES", "value", n)
+		} else {
+			c.MaxFiles = n
+		}
+	}
+	if v := os.Getenv("REVIEW_SCOPE_ACTION"); v != "" {
+		c.ScopeAction = v
 	}
 	if v := os.Getenv("REVIEW_API_URL"); v != "" {
 		c.APIURL = v
@@ -478,12 +512,15 @@ func (c *Config) loadFlags() error {
 	customPrompt := fs.String("custom-prompt", "", "Path to a custom system prompt file")
 	noColor := fs.Bool("no-color", false, "Disable ANSI color output")
 	sarifOutput := fs.String("sarif", "", "Write SARIF 2.1.0 output to the given file path")
+	auditLog := fs.String("audit-log", "", "Write structured JSONL audit log to file")
 	models := fs.String("models", "", "Comma-separated list of models for consensus review")
 	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
 	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
 	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
 	noContext := fs.Bool("no-context", false, "Disable repo-aware context discovery")
 	maxTokens := fs.Int("max-tokens", 0, "Maximum total tokens (input+output) per review (0 = unlimited)")
+	maxFiles := fs.Int("max-files", 0, "Maximum files before scope warning (0 = unlimited)")
+	scopeAction := fs.String("scope-action", "warn", "Action when scope exceeded: warn or fail")
 	apiURL := fs.String("api-url", "", "OpenAI-compatible API endpoint (e.g., http://localhost:11434/v1)")
 	apiKey := fs.String("api-key", "", "API key for HTTP provider (optional for IAM/ADC auth)")
 	summarize := fs.Bool("summarize", false, "Generate MR summary instead of review")
@@ -549,6 +586,9 @@ func (c *Config) loadFlags() error {
 	if *sarifOutput != "" {
 		c.SARIFOutput = *sarifOutput
 	}
+	if *auditLog != "" {
+		c.AuditLog = *auditLog
+	}
 	if *models != "" {
 		c.Models = splitAndTrim(*models)
 	}
@@ -572,6 +612,16 @@ func (c *Config) loadFlags() error {
 				return
 			}
 			c.MaxTokens = *maxTokens
+		}
+		if f.Name == "max-files" {
+			if *maxFiles < 0 {
+				slog.Warn("ignoring negative --max-files", "value", *maxFiles)
+				return
+			}
+			c.MaxFiles = *maxFiles
+		}
+		if f.Name == "scope-action" {
+			c.ScopeAction = *scopeAction
 		}
 	})
 	if *apiURL != "" {

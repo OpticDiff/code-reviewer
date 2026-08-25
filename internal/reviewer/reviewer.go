@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
@@ -64,6 +65,9 @@ func NewWithDiffSource(cfg *config.Config, provider ModelReviewer, glClient VCSC
 
 // Run executes the full review pipeline and returns the number of findings.
 func (r *Reviewer) Run(ctx context.Context) (int, error) {
+	var scopeAssessment *ScopeAssessment
+
+	start := time.Now()
 	// Step 1: Get diffs.
 	slog.Info("fetching diffs", "mode", r.cfg.Mode())
 	var diffs []diff.FileDiff
@@ -88,6 +92,19 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		slog.Info("no files to review after filtering")
 		fmt.Println("✅ No reviewable files in diff.")
 		return 0, nil
+	}
+
+	// Step 2a: Scope enforcement — warn or fail on oversized MRs.
+	if r.cfg.MaxFiles > 0 {
+		scopeAssessment = CheckScope(diffs, r.cfg.MaxFiles)
+		LogScopeStatus(scopeAssessment)
+		if scopeAssessment.IsOversized {
+			warning := FormatScopeWarning(scopeAssessment)
+			fmt.Fprint(os.Stderr, warning)
+			if r.cfg.ScopeAction == "fail" {
+				return 0, fmt.Errorf("scope limit exceeded: %d files (max %d)", len(diffs), r.cfg.MaxFiles)
+			}
+		}
 	}
 
 	// Step 2b: Incremental review — filter to only files changed in latest push.
@@ -322,6 +339,11 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			result.Summary = formatIntentMarkdown(intentSummary) + result.Summary
 		}
 
+		// Prepend scope markdown if MR is oversized.
+		if scopeAssessment != nil && scopeAssessment.IsOversized {
+			result.Summary = FormatScopeMarkdown(scopeAssessment) + result.Summary
+		}
+
 		if err := PostReview(ctx, r.cfg, r.glClient, result, version, incrementalChangedFiles); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
@@ -338,6 +360,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			fmt.Fprint(os.Stderr, summary)
 		} else {
 			fmt.Print(summary)
+		}
+	}
+
+	if r.cfg.AuditLog != "" {
+		entry := buildAuditEntry(r.cfg, diffs, skippedFiles, allFindings, &totalUsage, time.Since(start))
+		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
+			slog.Warn("failed to write audit log", "error", err)
 		}
 	}
 
