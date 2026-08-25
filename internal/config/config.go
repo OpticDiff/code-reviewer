@@ -156,6 +156,10 @@ type Config struct {
 
 	// Budget.
 	MaxTokens int // Maximum total tokens per review (0 = unlimited).
+
+	// Scope enforcement.
+	MaxFiles    int
+	ScopeAction string
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -172,6 +176,8 @@ type repoConfig struct {
 	CustomPrompt             string   `yaml:"custom_prompt"`
 	ProxyURL                 string   `yaml:"proxy_url"`
 	MaxTokens                int      `yaml:"max_tokens"`
+	MaxFiles                 int      `yaml:"max_files"`
+	ScopeAction              string   `yaml:"scope_action"`
 	APIURL                   string   `yaml:"api_url"`
 	Summarize                bool     `yaml:"summarize"`
 	SummaryUpdateDescription bool     `yaml:"summary_update_description"`
@@ -204,6 +210,7 @@ func Load() (*Config, error) {
 		GitHubBaseURL:    "https://api.github.com",
 		SkipDraftMRs:     true,
 		ExcludedPatterns: DefaultExcludedPatterns,
+		ScopeAction:      "warn",
 	}
 
 	// Layer 1: .code-reviewer.yaml (if exists).
@@ -345,6 +352,12 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.MaxTokens > 0 {
 		c.MaxTokens = rc.MaxTokens
 	}
+	if rc.MaxFiles > 0 {
+		c.MaxFiles = rc.MaxFiles
+	}
+	if rc.ScopeAction != "" {
+		c.ScopeAction = rc.ScopeAction
+	}
 	if rc.APIURL != "" {
 		c.APIURL = rc.APIURL
 	}
@@ -444,6 +457,19 @@ func (c *Config) loadEnv() {
 			c.MaxTokens = n
 		}
 	}
+	if v := os.Getenv("REVIEW_MAX_FILES"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_MAX_FILES", "value", v, "error", err)
+		} else if n < 0 {
+			slog.Warn("ignoring negative REVIEW_MAX_FILES", "value", n)
+		} else {
+			c.MaxFiles = n
+		}
+	}
+	if v := os.Getenv("REVIEW_SCOPE_ACTION"); v != "" {
+		c.ScopeAction = v
+	}
 	if v := os.Getenv("REVIEW_API_URL"); v != "" {
 		c.APIURL = v
 	}
@@ -484,6 +510,8 @@ func (c *Config) loadFlags() error {
 	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
 	noContext := fs.Bool("no-context", false, "Disable repo-aware context discovery")
 	maxTokens := fs.Int("max-tokens", 0, "Maximum total tokens (input+output) per review (0 = unlimited)")
+	maxFiles := fs.Int("max-files", 0, "Maximum files before scope warning (0 = unlimited)")
+	scopeAction := fs.String("scope-action", "warn", "Action when scope exceeded: warn or fail")
 	apiURL := fs.String("api-url", "", "OpenAI-compatible API endpoint (e.g., http://localhost:11434/v1)")
 	apiKey := fs.String("api-key", "", "API key for HTTP provider (optional for IAM/ADC auth)")
 	summarize := fs.Bool("summarize", false, "Generate MR summary instead of review")
@@ -572,6 +600,16 @@ func (c *Config) loadFlags() error {
 				return
 			}
 			c.MaxTokens = *maxTokens
+		}
+		if f.Name == "max-files" {
+			if *maxFiles < 0 {
+				slog.Warn("ignoring negative --max-files", "value", *maxFiles)
+				return
+			}
+			c.MaxFiles = *maxFiles
+		}
+		if f.Name == "scope-action" {
+			c.ScopeAction = *scopeAction
 		}
 	})
 	if *apiURL != "" {
