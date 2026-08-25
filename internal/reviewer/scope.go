@@ -30,7 +30,7 @@ func CheckScope(diffs []diff.FileDiff, maxFiles int) *ScopeAssessment {
 // FormatScopeWarning returns a formatted warning string for oversized MRs.
 func FormatScopeWarning(a *ScopeAssessment) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("⚠️  Scope warning: %d files changed (threshold: %d).\n", a.FileCount, a.Threshold))
+	fmt.Fprintf(&sb, "⚠️  Scope warning: %d files changed (threshold: %d).\n", a.FileCount, a.Threshold)
 	sb.WriteString("    Review quality degrades significantly beyond this threshold.\n")
 	sb.WriteString("    Consider splitting this MR into smaller, focused changes.\n")
 	return sb.String()

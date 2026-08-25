@@ -69,13 +69,16 @@ func WriteAuditLog(path string, entry AuditEntry) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	data, err := json.Marshal(entry)
 	if err != nil {
+		f.Close()
 		return err
 	}
 	data = append(data, '\n')
-	_, err = f.Write(data)
-	return err
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }

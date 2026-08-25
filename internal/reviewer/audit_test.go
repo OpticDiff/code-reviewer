@@ -1,6 +1,7 @@
 package reviewer
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -61,17 +62,8 @@ func TestWriteAuditLog_Appends(t *testing.T) {
 		t.Fatalf("failed to read log file: %v", err)
 	}
 
-	// Read both lines (might contain an extra empty line)
-	lines := 0
-	for i, ch := range string(data) {
-		if ch == '\n' {
-			lines++
-			if i == len(string(data))-1 {
-				// Don't count trailing newline as a distinct line for data
-			}
-		}
-	}
-	
+	lines := bytes.Count(data, []byte("\n"))
+
 	if lines != 2 {
 		t.Errorf("expected 2 lines, got %d lines", lines)
 	}
