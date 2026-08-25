@@ -64,21 +64,22 @@ func buildAuditEntry(cfg *config.Config, diffs []diff.FileDiff, skippedFiles []s
 }
 
 // WriteAuditLog appends a single JSON line to the audit log file.
-func WriteAuditLog(path string, entry AuditEntry) error {
+func WriteAuditLog(path string, entry AuditEntry) (retErr error) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closeErr := f.Close(); retErr == nil {
+			retErr = closeErr
+		}
+	}()
 
 	data, err := json.Marshal(entry)
 	if err != nil {
-		f.Close()
 		return err
 	}
 	data = append(data, '\n')
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	return f.Close()
+	_, err = f.Write(data)
+	return err
 }
