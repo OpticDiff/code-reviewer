@@ -34,6 +34,7 @@ docker run -d --name litellm-proxy \
   -p 4000:4000 \
   -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
   -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+  -e AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN}" \
   -e AWS_REGION_NAME="us-east-1" \
   ghcr.io/berriai/litellm:main-latest \
   --port 4000
@@ -111,9 +112,20 @@ jobs:
             -e AWS_REGION_NAME="us-east-1" \
             ghcr.io/berriai/litellm:main-latest \
             --port 4000
+          # Wait for LiteLLM to be ready (fail if it doesn't start in 60s)
+          READY=false
           for i in $(seq 1 30); do
-            curl -sf http://localhost:4000/health && break || sleep 2
+            if curl -sf --max-time 2 http://localhost:4000/health; then
+              READY=true
+              break
+            fi
+            sleep 2
           done
+          if [ "$READY" != "true" ]; then
+            echo "::error::LiteLLM proxy failed to start"
+            docker logs litellm
+            exit 1
+          fi
 
       - name: Run code-reviewer
         uses: OpticDiff/code-reviewer-action@v1

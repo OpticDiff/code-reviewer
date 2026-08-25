@@ -42,7 +42,9 @@ jobs:
           aws-region: us-east-1
           audience: sts.amazonaws.com
 
-      # Start LiteLLM as a background process AFTER AWS auth so it inherits credentials
+      # Start LiteLLM after AWS auth so it gets the credentials.
+      # NOTE: For production, pin the LiteLLM image to an audited digest:
+      #   ghcr.io/berriai/litellm@sha256:<digest>
       - name: Start LiteLLM proxy
         run: |
           docker run -d --name litellm \
@@ -53,10 +55,20 @@ jobs:
             -e AWS_REGION_NAME="us-east-1" \
             ghcr.io/berriai/litellm:main-latest \
             --port 4000
-          # Wait for LiteLLM to be ready
+          # Wait for LiteLLM to be ready (fail if it doesn't start in 60s)
+          READY=false
           for i in $(seq 1 30); do
-            curl -sf http://localhost:4000/health && break || sleep 2
+            if curl -sf --max-time 2 http://localhost:4000/health; then
+              READY=true
+              break
+            fi
+            sleep 2
           done
+          if [ "$READY" != "true" ]; then
+            echo "::error::LiteLLM proxy failed to start"
+            docker logs litellm
+            exit 1
+          fi
 
       # Run code-reviewer pointing to the local LiteLLM proxy endpoint
       - name: Run code-reviewer

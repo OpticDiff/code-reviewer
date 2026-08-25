@@ -4,7 +4,8 @@
 # Features:
 # - Runs AI code review and generates SARIF 2.1.0 report
 # - Uploads findings to GitHub Code Scanning (Security alerts tab)
-# - The action handles SARIF upload automatically when sarif input is set
+# - Uses explicit upload step with if: always() to ensure SARIF uploads
+#   even when code-reviewer exits non-zero (findings detected)
 # ============================================================================
 
 name: Security Code Review (SARIF)
@@ -43,15 +44,22 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SA }}
 
-      # Run code-reviewer with SARIF output.
-      # The action uploads SARIF to Code Scanning automatically when sarif is set.
+      # Run code-reviewer with SARIF output via extra-args (not the built-in sarif input)
+      # so we control the upload step separately with if: always().
       - name: Run code-reviewer
+        id: review
         uses: OpticDiff/code-reviewer-action@v1
-        continue-on-error: true
         with:
           model: gemini-2.5-flash
-          sarif: results.sarif
-          extra-args: "--focus security"
+          extra-args: "--focus security --sarif results.sarif"
         env:
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Upload SARIF independently — runs even when review finds issues (exit 1)
+      - name: Upload SARIF report
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.review.outcome != 'skipped'
+        with:
+          sarif_file: results.sarif
+          category: code-reviewer
