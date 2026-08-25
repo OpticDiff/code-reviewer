@@ -31,7 +31,11 @@ type AuditEntry struct {
 func buildAuditEntry(cfg *config.Config, diffs []diff.FileDiff, skippedFiles []string, findings []model.Finding, usage *model.TokenUsage, duration time.Duration) AuditEntry {
 	files := make([]string, 0, len(diffs))
 	for _, d := range diffs {
-		files = append(files, d.NewPath)
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		files = append(files, path)
 	}
 
 	severityCounts := make(map[string]int)
