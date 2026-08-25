@@ -1,0 +1,26 @@
+# ============================================================================
+# Lefthook configuration for code-reviewer (https://github.com/evilmartians/lefthook)
+#
+# Description:
+# Runs code-reviewer as a pre-push hook to detect high and critical severity
+# issues locally before pushing code to the remote repository.
+#
+# Installation:
+# 1. Install lefthook: brew install lefthook (or go install github.com/evilmartians/lefthook@latest)
+# 2. Add this file as 'lefthook.yml' in your repository root
+# 3. Run 'lefthook install'
+# ============================================================================
+
+pre-push:
+  parallel: false
+  # Skip running the review hook during merges, interactive rebases, or rebase continues
+  skip:
+    - merge
+    - rebase
+
+  commands:
+    code-review:
+      # Review local diff against the merge-base with the remote default branch.
+      # --diff without an argument uses git merge-base detection automatically.
+      # Blocks git push if findings meet or exceed 'high' severity.
+      run: code-reviewer --diff --min-severity high

@@ -1,0 +1,52 @@
+# ============================================================================
+# Minimal GitHub Actions workflow for code-reviewer
+#
+# Features:
+# - Uses the reusable OpticDiff/code-reviewer-action@v1 action
+# - Authenticates to Google Cloud Vertex AI via Workload Identity Federation (WIF)
+# - Inspects full git diff on Pull Requests (opened, synchronize, reopened)
+# - Posts inline review comments and code suggestions directly on the PR
+# ============================================================================
+
+name: Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Minimum required permissions:
+# - contents: read       -> Clone the repository and inspect git diffs
+# - id-token: write       -> Authenticate to GCP using Workload Identity Federation (OIDC)
+# - pull-requests: write  -> Post inline review comments and PR review summaries
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full git history is required for accurate base/head diff calculation
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Authenticate to Google Cloud using Workload Identity Federation (keyless auth)
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SA }}
+
+      # Run the code-reviewer reusable action
+      - name: Run code-reviewer
+        uses: OpticDiff/code-reviewer-action@v1
+        with:
+          project-id: ${{ secrets.GCP_PROJECT }}
+          model: gemini-2.5-flash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

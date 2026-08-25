@@ -1,6 +1,6 @@
 # code-reviewer
 
-AI-powered code review CLI for GitHub pull requests and GitLab merge requests. Uses Vertex AI (Gemini, Claude, Mistral) or any OpenAI-compatible endpoint to analyze diffs and post actionable findings as inline comments.
+AI-powered code review CLI for GitHub pull requests and GitLab merge requests. Works with Ollama, Vertex AI (Gemini, Claude, Mistral), AWS Bedrock (via LiteLLM), or any OpenAI-compatible endpoint.
 
 ## Install
 
@@ -126,42 +126,31 @@ See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
 
 ### GitHub Actions
 
-Add to `.github/workflows/code-review.yml`:
+Use the [reusable action](https://github.com/OpticDiff/code-reviewer-action) for the simplest setup:
 
 ```yaml
-name: Code Review
-on:
-  pull_request:
-    types: [opened, synchronize]
-
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.WIF_SA }}
-
-      - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.7.0
-
-      - name: Review PR
-        env:
-          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: code-reviewer --ci
+# Self-hosted (Ollama) — zero auth, no cloud
+- uses: OpticDiff/code-reviewer-action@v1
+  with:
+    model: qwen3:8b
+    extra-args: --api-url http://ollama:11434/v1
+  env:
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-The `GITHUB_TOKEN` is provided automatically by GitHub Actions. The tool detects the GitHub environment and posts review comments on the PR.
+```yaml
+# Vertex AI — production quality
+- uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+    service_account: ${{ secrets.WIF_SA }}
+- uses: OpticDiff/code-reviewer-action@v1
+  env:
+    GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
+    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+See [`examples/github/`](examples/github/) for complete workflows: [basic](examples/github/basic.yml), [SARIF + Code Scanning](examples/github/sarif.yml), [self-hosted Ollama](examples/github/self-hosted.yml), [multi-model consensus](examples/github/consensus.yml), [AWS Bedrock](examples/github/bedrock.yml).
 
 ## Configuration
 
@@ -358,16 +347,36 @@ Also works with the [pre-commit](https://pre-commit.com) framework:
       args: [--min-severity, high]
 ```
 
+Other hook managers work too:
+
+```yaml
+# lefthook.yml
+pre-push:
+  commands:
+    code-review:
+      run: code-reviewer --diff --min-severity high
+```
+
+```bash
+# Husky (Node/JS projects)
+npx husky add .husky/pre-push "code-reviewer --diff --min-severity high"
+```
+
+See [`examples/hooks/`](examples/hooks/) for lefthook, Husky, and mise configurations.
+
 ## Models
 
-All models are accessed via Vertex AI using Application Default Credentials (ADC). No separate API keys needed.
+| Model | Tier | Context | Provider | Best For |
+|---|---|---|---|---|
+| `gemini-2.5-flash` | ⭐ Recommended | 1M | Vertex AI | Fast CI reviews (default) |
+| `gemini-2.5-pro` | ⭐⭐ Best | 1M | Vertex AI | Deep analysis |
+| `claude-sonnet-4` | ⭐⭐ Best | 200k | Vertex AI | Code-focused reviews |
+| `mistral-medium-3` | ⭐ Good | 128k | Vertex AI | Alternative perspective |
+| `qwen3:32b` | ⭐ Good | 32k | Ollama / self-hosted | Local, no cloud needed (32GB RAM) |
+| `qwen3:8b` | Demo | 32k | Ollama / self-hosted | Quick local demo (8GB RAM) |
+| Any model | Varies | Varies | `--api-url` | Any OpenAI-compatible endpoint |
 
-| Model | Flag Value | Best For |
-|---|---|---|
-| Gemini 2.5 Flash | `gemini-2.5-flash` | Fast CI reviews (default) |
-| Gemini 2.5 Pro | `gemini-2.5-pro` | Deep analysis |
-| Claude Sonnet 4 | `claude-sonnet-4` | Code-focused reviews |
-| Mistral Medium | `mistral-medium-3` | Alternative perspective |
+Vertex AI models use [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials). Self-hosted models use `--api-url` pointed at any OpenAI-compatible endpoint (Ollama, vLLM, Cloud Run, LiteLLM for Bedrock).
 
 ### Multi-Model Consensus
 

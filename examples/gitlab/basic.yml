@@ -1,0 +1,41 @@
+# ============================================================================
+# Minimal GitLab CI configuration for code-reviewer
+#
+# Features:
+# - Uses CI_JOB_TOKEN for zero-configuration authentication
+# - Posts findings as a high-level review note on the Merge Request
+# - Uses --incremental to review only files changed in the latest push
+# - allow_failure: true prevents review findings from blocking the pipeline
+# ============================================================================
+
+stages:
+  - review
+
+code-review:
+  stage: review
+  image: ghcr.io/opticdiff/code-reviewer:0.7.0
+
+  # Only trigger pipeline on merge request events
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+  variables:
+    # Google Cloud configuration for Vertex AI
+    GOOGLE_CLOUD_PROJECT: "my-gcp-project"
+    GOOGLE_CLOUD_LOCATION: "us-central1"
+
+    # Built-in GitLab token (CI_JOB_TOKEN has sufficient permissions for the Notes API)
+    GITLAB_TOKEN: $CI_JOB_TOKEN
+
+    # 'notes' mode posts a single summary note to the MR discussion feed
+    REVIEW_COMMENT_MODE: "notes"
+
+    # Default model
+    REVIEW_MODEL: "gemini-2.5-flash"
+
+  script:
+    # --ci auto-detects MR context (CI_PROJECT_ID, CI_MERGE_REQUEST_IID)
+    # --incremental restricts review to files changed in the latest push
+    - code-reviewer --ci --incremental
+
+  allow_failure: true

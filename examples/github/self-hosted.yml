@@ -1,0 +1,68 @@
+# ============================================================================
+# GitHub Actions workflow for code-reviewer with Self-Hosted Ollama
+#
+# Features:
+# - Runs Ollama as a service container (sidecar) in GitHub Actions
+# - No cloud credentials (GCP/AWS) required — zero external API egress
+# - Pulls lightweight model (qwen3:8b) inside the Ollama container
+# - Posts review comments using OpticDiff/code-reviewer-action@v1
+# ============================================================================
+
+name: Self-Hosted Code Review (Ollama)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Ollama Local Review
+    runs-on: ubuntu-latest
+
+    # Run Ollama as a sidecar service container accessible via hostname 'ollama' or 'localhost'
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+        options: --name ollama
+
+    steps:
+      # Full git history is required for diff calculation
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # --------------------------------------------------------------------------
+      # Model Caching Tip (for self-hosted runners or persistent volume setups):
+      # To avoid downloading the Ollama model on every workflow run, you can cache
+      # the Ollama data directory (~/.ollama / /root/.ollama) using actions/cache:
+      #
+      # - name: Cache Ollama models
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: ~/.ollama
+      #     key: ollama-models-${{ runner.os }}-qwen3-8b
+      # --------------------------------------------------------------------------
+
+      # Pull the model inside the Ollama container via the Ollama REST API
+      - name: Pull Ollama Model
+        run: |
+          echo "Pulling model qwen3:8b into Ollama service..."
+          curl -s -X POST http://localhost:11434/api/pull -d '{"name": "qwen3:8b", "stream": false}'
+          echo "Model qwen3:8b ready."
+
+      # Run code-reviewer pointing to the Ollama OpenAI-compatible endpoint.
+      # On host runners with mapped ports, use localhost (not the service label).
+      - name: Run code-reviewer
+        uses: OpticDiff/code-reviewer-action@v1
+        with:
+          model: qwen3:8b
+          extra-args: "--api-url http://localhost:11434/v1"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

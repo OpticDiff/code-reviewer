@@ -1,0 +1,68 @@
+# ============================================================================
+# Reusable GitLab CI Job Template for code-reviewer
+#
+# Description:
+# This file defines the hidden job '.code-review' that centralizes code-reviewer
+# pipeline configuration across an organization.
+#
+# ============================================================================
+# USAGE EXAMPLE in a consuming repository's .gitlab-ci.yml:
+#
+# include:
+#   # Pin to a specific tag for reproducibility:
+#   - remote: 'https://raw.githubusercontent.com/OpticDiff/code-reviewer/v0.7.0/examples/gitlab/template.yml'
+#   # Or from a central GitLab project (preferred for internal use):
+#   # - project: 'devsecops/ci-templates'
+#   #   ref: 'v1.0.0'
+#   #   file: '/templates/code-review.gitlab-ci.yml'
+#
+# stages:
+#   - test
+#   - review
+#
+# pr-review:
+#   extends: .code-review
+#   variables:
+#     REVIEW_MIN_SEVERITY: "medium"
+#     REVIEW_FOCUS: "security,bugs"
+#     GOOGLE_CLOUD_PROJECT: "my-production-project"
+# ============================================================================
+
+.code-review:
+  stage: review
+  image: ghcr.io/opticdiff/code-reviewer:0.7.0
+
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+  variables:
+    # Google Cloud defaults (can be overridden in child job)
+    GOOGLE_CLOUD_PROJECT: "my-gcp-project"
+    GOOGLE_CLOUD_LOCATION: "us-central1"
+
+    # Default authentication uses CI_JOB_TOKEN for notes mode
+    # Override with $CODE_REVIEWER_TOKEN for inline discussions mode
+    GITLAB_TOKEN: $CI_JOB_TOKEN
+    REVIEW_COMMENT_MODE: "notes"
+
+    # Review tuning
+    REVIEW_MODEL: "gemini-2.5-flash"
+    REVIEW_FOCUS: "all"
+    REVIEW_MIN_SEVERITY: "low"
+    REVIEW_CHUNK_STRATEGY: "split"
+
+    # SARIF security report destination
+    SARIF_OUTPUT: "results.sarif"
+
+  script:
+    - code-reviewer --ci --incremental
+
+  # Use reports:sarif (not reports:sast) for SARIF 2.1.0 files
+  artifacts:
+    reports:
+      sarif: results.sarif
+    paths:
+      - results.sarif
+    when: always
+
+  allow_failure: true

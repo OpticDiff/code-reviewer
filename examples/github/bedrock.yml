@@ -1,0 +1,80 @@
+# ============================================================================
+# GitHub Actions workflow for code-reviewer with AWS Bedrock via LiteLLM
+#
+# Features:
+# - Authenticates to AWS using OIDC (no long-lived keys)
+# - Starts LiteLLM proxy as a step (after AWS auth, so credentials are available)
+# - Invokes AWS Bedrock models (e.g., Anthropic Claude 3.5 Sonnet)
+#
+# Note: LiteLLM is run as a step (not a service container) because service
+# containers start before steps and cannot receive the OIDC-derived AWS
+# credentials from configure-aws-credentials.
+# ============================================================================
+
+name: AWS Bedrock Code Review (LiteLLM)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  id-token: write # Required for AWS OIDC authentication (role assumption)
+  pull-requests: write
+
+jobs:
+  review:
+    name: Bedrock Review via LiteLLM Proxy
+    runs-on: ubuntu-latest
+
+    steps:
+      # Full git history is required for diff calculation
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Assume AWS IAM role using GitHub Actions OIDC token
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
+
+      # Start LiteLLM after AWS auth so it gets the credentials.
+      # NOTE: For production, pin the LiteLLM image to an audited digest:
+      #   ghcr.io/berriai/litellm@sha256:<digest>
+      - name: Start LiteLLM proxy
+        run: |
+          docker run -d --name litellm \
+            -p 4000:4000 \
+            -e AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
+            -e AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+            -e AWS_SESSION_TOKEN="${AWS_SESSION_TOKEN}" \
+            -e AWS_REGION_NAME="us-east-1" \
+            ghcr.io/berriai/litellm:main-latest \
+            --port 4000
+          # Wait for LiteLLM to be ready (fail if it doesn't start in 60s)
+          READY=false
+          for i in $(seq 1 30); do
+            if curl -sf --max-time 2 http://localhost:4000/health; then
+              READY=true
+              break
+            fi
+            sleep 2
+          done
+          if [ "$READY" != "true" ]; then
+            echo "::error::LiteLLM proxy failed to start"
+            docker logs litellm
+            exit 1
+          fi
+
+      # Run code-reviewer pointing to the local LiteLLM proxy endpoint
+      - name: Run code-reviewer
+        uses: OpticDiff/code-reviewer-action@v1
+        with:
+          model: bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+          extra-args: "--api-url http://localhost:4000/v1"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

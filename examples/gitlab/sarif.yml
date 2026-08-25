@@ -1,0 +1,48 @@
+# ============================================================================
+# GitLab CI configuration for code-reviewer with SARIF Security Reporting
+#
+# Features:
+# - Generates SARIF 2.1.0 report of code review findings
+# - Uploads findings via GitLab artifacts:reports:sarif for the Security tab
+# - Focuses on security findings with Gemini 2.5 Pro
+# - allow_failure: false optionally enforces a security quality gate
+# ============================================================================
+
+stages:
+  - review
+
+security-review-sarif:
+  stage: review
+  image: ghcr.io/opticdiff/code-reviewer:0.7.0
+
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+  variables:
+    GOOGLE_CLOUD_PROJECT: "my-gcp-project"
+    GOOGLE_CLOUD_LOCATION: "us-central1"
+    GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
+    REVIEW_COMMENT_MODE: "discussions"
+
+    # Targeted security review configuration
+    REVIEW_MODEL: "gemini-2.5-pro"
+    REVIEW_FOCUS: "security"
+    REVIEW_MIN_SEVERITY: "high"
+
+    # Output file for SARIF 2.1.0 data
+    SARIF_OUTPUT: "results.sarif"
+
+  script:
+    - code-reviewer --ci --incremental
+
+  # Set to false to block MR merge if high or critical security findings are identified
+  allow_failure: false
+
+  # Publish SARIF report to GitLab's Security & Compliance dashboard
+  # Use reports:sarif (not reports:sast) for SARIF 2.1.0 files
+  artifacts:
+    reports:
+      sarif: results.sarif
+    paths:
+      - results.sarif
+    when: always
