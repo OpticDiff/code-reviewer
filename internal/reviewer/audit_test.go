@@ -93,7 +93,7 @@ func TestBuildAuditEntry(t *testing.T) {
 	usage := &model.TokenUsage{TotalTokens: 1500}
 	duration := 500 * time.Millisecond
 
-	entry := buildAuditEntry(cfg, diffs, skipped, findings, usage, duration)
+	entry := buildAuditEntry(cfg, diffs, skipped, findings, 0, usage, duration)
 
 	if entry.Model != "gemini-test" {
 		t.Errorf("expected model gemini-test, got %s", entry.Model)
@@ -135,7 +135,7 @@ func TestBuildAuditEntry_SeverityCounts(t *testing.T) {
 		{Severity: "LOW"},
 	}
 
-	entry := buildAuditEntry(cfg, nil, nil, findings, nil, 0)
+	entry := buildAuditEntry(cfg, nil, nil, findings, 0, nil, 0)
 
 	if entry.SeverityCounts["HIGH"] != 2 {
 		t.Errorf("expected 2 HIGH, got %d", entry.SeverityCounts["HIGH"])

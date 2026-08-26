@@ -74,6 +74,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var skippedFiles []string
 	var allFindings []model.Finding
 	var totalUsage model.TokenUsage
+	var dedupedCount int
 
 	start := time.Now()
 
@@ -82,7 +83,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		if r.cfg.AuditLog == "" {
 			return
 		}
-		entry := buildAuditEntry(r.cfg, diffs, skippedFiles, allFindings, &totalUsage, time.Since(start))
+		entry := buildAuditEntry(r.cfg, diffs, skippedFiles, allFindings, dedupedCount, &totalUsage, time.Since(start))
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -306,6 +307,11 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Step 5: Validate line references.
 	allFindings = ValidateFindings(allFindings, diffs)
+
+	// Step 5b: Deduplicate findings across chunks.
+	preDedupCount := len(allFindings)
+	allFindings = DeduplicateFindings(allFindings)
+	dedupedCount = preDedupCount - len(allFindings)
 
 	// Step 6: Filter by severity.
 	// Preserve raw count for auto-approve safety: approval must consider ALL
