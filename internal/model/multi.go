@@ -183,18 +183,6 @@ func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
 	return merged
 }
 
-// findingsMatch returns true if two findings refer to the same issue:
-// same file, within 3 lines of each other, and same category.
-func findingsMatch(a, b Finding) bool {
-	if a.File != b.File {
-		return false
-	}
-	if a.Category != b.Category {
-		return false
-	}
-	lineDiff := a.Line - b.Line
-	if lineDiff < 0 {
-		lineDiff = -lineDiff
-	}
-	return lineDiff <= 3
-}
+// findingsMatch is a local alias for the shared FindingsMatch function.
+// Kept for backward compatibility within this file.
+var findingsMatch = FindingsMatch
