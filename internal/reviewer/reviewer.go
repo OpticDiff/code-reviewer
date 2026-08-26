@@ -27,12 +27,13 @@ type DiffSource interface {
 
 // Reviewer orchestrates the full review pipeline.
 type Reviewer struct {
-	cfg             *config.Config
-	provider        ModelReviewer
-	glClient        VCSClient
-	diffSource      DiffSource
-	contextProvider ctxpkg.Provider
-	mrDraft         bool
+	cfg              *config.Config
+	provider         ModelReviewer
+	glClient         VCSClient
+	diffSource       DiffSource
+	contextProvider  ctxpkg.Provider
+	mrDraft          bool
+	parseFailedFiles []string // files whose diffs failed to parse (unreviewed)
 }
 
 // New creates a new Reviewer.
@@ -375,8 +376,11 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 		// Step 7c: Auto-approve if all safety guards pass.
 		if r.cfg.AutoApprove {
+			// Include parse-failed files as unreviewed — they were never
+			// sent to the model, so approval would be incomplete.
+			allSkipped := append(skippedFiles, r.parseFailedFiles...)
 			decision := EvaluateAutoApprove(r.cfg, len(diffs), rawFindingsCount,
-				skippedFiles, budgetExceeded,
+				allSkipped, budgetExceeded,
 				scopeAssessment != nil && scopeAssessment.IsOversized,
 				anyTruncated, r.mrDraft)
 			if decision.Approved {
@@ -468,6 +472,7 @@ func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, str
 		parsed, err := diff.Parse(strings.NewReader("diff --git a/" + change.OldPath + " b/" + change.NewPath + "\n" + change.Diff))
 		if err != nil {
 			slog.Warn("failed to parse diff for file", "file", change.NewPath, "error", err)
+			r.parseFailedFiles = append(r.parseFailedFiles, change.NewPath)
 			continue
 		}
 		diffs = append(diffs, parsed...)
