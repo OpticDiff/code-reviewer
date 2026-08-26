@@ -83,7 +83,7 @@ func TestEvaluateAutoApprove(t *testing.T) {
 			filesReviewed: 3,
 			skippedFiles:  []string{"big.go", "huge.go"},
 			wantApproved:  false,
-			wantReason:    "2 file(s) skipped by token budget",
+			wantReason:    "2 file(s) not reviewed (budget trim or parse failure)",
 		},
 		{
 			name:           "budget exceeded",

@@ -40,7 +40,7 @@ func EvaluateAutoApprove(
 		return ApprovalDecision{Reason: "no files were reviewed"}
 	}
 	if len(skippedFiles) > 0 {
-		return ApprovalDecision{Reason: fmt.Sprintf("%d file(s) skipped by token budget", len(skippedFiles))}
+		return ApprovalDecision{Reason: fmt.Sprintf("%d file(s) not reviewed (budget trim or parse failure)", len(skippedFiles))}
 	}
 	if budgetExceeded {
 		return ApprovalDecision{Reason: "runtime token budget exceeded before all chunks reviewed"}
