@@ -100,6 +100,8 @@ type DescriptionUpdater interface {
 // VCSApprover is implemented by VCS clients that support approving MRs/PRs.
 // This is a separate interface for interface segregation — not all platforms
 // or token scopes may support approvals.
+// headSHA pins the approval to the reviewed revision. On GitLab, a mismatched
+// SHA returns 409 Conflict. On GitHub, it sets commit_id on the review.
 type VCSApprover interface {
-	ApproveReview(ctx context.Context, projectID, reviewID string) error
+	ApproveReview(ctx context.Context, projectID, reviewID, headSHA string) error
 }

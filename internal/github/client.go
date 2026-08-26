@@ -339,11 +339,13 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, r
 }
 
 // ApproveReview approves a pull request by submitting an APPROVE review.
-func (c *Client) ApproveReview(ctx context.Context, projectID, prNumber string) error {
+// headSHA pins the approval to the reviewed commit via commit_id.
+func (c *Client) ApproveReview(ctx context.Context, projectID, prNumber, headSHA string) error {
 	apiURL := fmt.Sprintf("%s/repos/%s/pulls/%s/reviews", c.baseURL, projectID, prNumber)
 	req := CreateReviewRequest{
-		Event: "APPROVE",
-		Body:  "✅ AI Code Reviewer: 0 findings. Auto-approved.",
+		CommitID: headSHA,
+		Event:    "APPROVE",
+		Body:     "✅ AI Code Reviewer: 0 findings. Auto-approved.",
 	}
 	return c.post(ctx, apiURL, req, nil)
 }

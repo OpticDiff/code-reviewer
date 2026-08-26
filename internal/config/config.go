@@ -497,8 +497,12 @@ func (c *Config) loadEnv() {
 			c.NoIntentReview = true
 		}
 	}
-	if v := os.Getenv("REVIEW_AUTO_APPROVE"); strings.EqualFold(v, "true") || v == "1" {
-		c.AutoApprove = true
+	if v := os.Getenv("REVIEW_AUTO_APPROVE"); v != "" {
+		if strings.EqualFold(v, "true") || v == "1" {
+			c.AutoApprove = true
+		} else if strings.EqualFold(v, "false") || v == "0" {
+			c.AutoApprove = false
+		}
 	}
 }
 
@@ -662,9 +666,11 @@ func (c *Config) loadFlags() error {
 	if *fix {
 		c.Fix = true
 	}
-	if *autoApprove {
-		c.AutoApprove = true
-	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "auto-approve" {
+			c.AutoApprove = *autoApprove
+		}
+	})
 	return nil
 }
 

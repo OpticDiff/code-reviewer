@@ -307,6 +307,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	allFindings = ValidateFindings(allFindings, diffs)
 
 	// Step 6: Filter by severity.
+	// Preserve raw count for auto-approve safety: approval must consider ALL
+	// findings regardless of severity filter, not just the displayed subset.
+	rawFindingsCount := len(allFindings)
 	allFindings = filterBySeverity(allFindings, r.cfg.MinSeverity)
 	slog.Info(fmt.Sprintf("%d finding(s) at or above %s severity", len(allFindings), r.cfg.MinSeverity))
 
@@ -372,13 +375,20 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 		// Step 7c: Auto-approve if all safety guards pass.
 		if r.cfg.AutoApprove {
-			decision := EvaluateAutoApprove(r.cfg, len(diffs), len(allFindings),
+			decision := EvaluateAutoApprove(r.cfg, len(diffs), rawFindingsCount,
 				skippedFiles, budgetExceeded,
 				scopeAssessment != nil && scopeAssessment.IsOversized,
 				anyTruncated, r.mrDraft)
 			if decision.Approved {
 				if approver, ok := r.glClient.(vcs.VCSApprover); ok {
-					if err := approver.ApproveReview(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID); err != nil {
+					// Pin approval to the reviewed HEAD SHA to prevent
+					// approving unreviewed pushes that land between
+					// diff retrieval and approval.
+					var headSHA string
+					if version != nil {
+						headSHA = version.HeadSHA
+					}
+					if err := approver.ApproveReview(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID, headSHA); err != nil {
 						return len(allFindings), fmt.Errorf("auto-approve failed: %w\n\nEnsure your token has the required permissions:\n  GitHub: 'pull-requests: write'\n  GitLab: 'api' scope", err)
 					}
 					slog.Info("auto-approved MR/PR", "reason", decision.Reason)
