@@ -128,6 +128,21 @@ func (c *Client) SetDescription(ctx context.Context, projectID, mrIID, descripti
 	return c.put(ctx, apiURL, descReq{Description: description}, nil)
 }
 
+// ApproveReview approves a merge request via the GitLab API.
+// headSHA pins the approval to the reviewed revision; GitLab returns 409
+// Conflict if it no longer matches the MR head.
+func (c *Client) ApproveReview(ctx context.Context, projectID, mrIID, headSHA string) error {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s/approve",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+	var body interface{}
+	if headSHA != "" {
+		body = struct {
+			SHA string `json:"sha"`
+		}{SHA: headSHA}
+	}
+	return c.post(ctx, apiURL, body, nil)
+}
+
 // PostNote creates a simple note (comment) on a merge request.
 func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/notes", c.baseURL, url.PathEscape(projectID), mrIID)

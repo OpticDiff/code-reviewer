@@ -155,6 +155,9 @@ type Config struct {
 	// Fix mode.
 	Fix bool // Apply suggested fixes to the working tree.
 
+	// Auto-approve.
+	AutoApprove bool // Automatically approve MR/PR when review finds no issues.
+
 	// Budget.
 	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 
@@ -185,6 +188,7 @@ type repoConfig struct {
 	SummaryUpdateDescription bool     `yaml:"summary_update_description"`
 	UpdateDescription        *bool    `yaml:"update_description"`
 	IntentReview             *bool    `yaml:"intent_review"`
+	AutoApprove              *bool    `yaml:"auto_approve"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -381,6 +385,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 			c.NoIntentReview = true // Explicit false prevents CI auto-enable.
 		}
 	}
+	if rc.AutoApprove != nil {
+		c.AutoApprove = *rc.AutoApprove
+	}
 	return nil
 }
 
@@ -490,6 +497,13 @@ func (c *Config) loadEnv() {
 			c.NoIntentReview = true
 		}
 	}
+	if v := os.Getenv("REVIEW_AUTO_APPROVE"); v != "" {
+		if strings.EqualFold(v, "true") || v == "1" {
+			c.AutoApprove = true
+		} else if strings.EqualFold(v, "false") || v == "0" {
+			c.AutoApprove = false
+		}
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -530,6 +544,7 @@ func (c *Config) loadFlags() error {
 	noIntentFlag := fs.Bool("no-intent", false, "Disable intent-aware review (overrides CI default)")
 	explain := fs.Bool("explain", false, "Explain the diff instead of reviewing it")
 	fix := fs.Bool("fix", false, "Apply suggested fixes to the working tree after review")
+	autoApprove := fs.Bool("auto-approve", false, "Automatically approve MR/PR when review finds no issues (CI mode only)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -651,6 +666,11 @@ func (c *Config) loadFlags() error {
 	if *fix {
 		c.Fix = true
 	}
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "auto-approve" {
+			c.AutoApprove = *autoApprove
+		}
+	})
 	return nil
 }
 
@@ -804,6 +824,12 @@ func (c *Config) validate() error {
 	}
 	if c.Fix && c.Summarize {
 		return fmt.Errorf("--fix and --summarize are mutually exclusive")
+	}
+	if c.AutoApprove && !c.CIMode {
+		return fmt.Errorf("--auto-approve requires --ci mode")
+	}
+	if c.AutoApprove && c.DryRun {
+		return fmt.Errorf("--auto-approve cannot be used with --dry-run")
 	}
 
 	return nil

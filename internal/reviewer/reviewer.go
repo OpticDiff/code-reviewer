@@ -32,6 +32,7 @@ type Reviewer struct {
 	glClient        VCSClient
 	diffSource      DiffSource
 	contextProvider ctxpkg.Provider
+	mrDraft         bool
 }
 
 // New creates a new Reviewer.
@@ -253,6 +254,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, intentContext)
 	var summary string
+	
+	budgetExceeded := false
+	anyTruncated := false
 
 	for i, chunk := range chunks {
 		slog.Info(fmt.Sprintf("reviewing chunk %d/%d (%d files, ~%d tokens)",
@@ -275,6 +279,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			totalUsage.OutputTokens += result.Usage.OutputTokens
 			totalUsage.TotalTokens += result.Usage.TotalTokens
 		}
+		if result.Truncated {
+			anyTruncated = true
+		}
 
 		// Runtime budget safety net — stop if actual usage exceeds limit.
 		if r.cfg.MaxTokens > 0 && totalUsage.TotalTokens >= int64(r.cfg.MaxTokens) {
@@ -283,6 +290,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				"limit", r.cfg.MaxTokens,
 				"chunks_completed", i+1,
 				"chunks_total", len(chunks))
+			budgetExceeded = true
 			break
 		}
 	}
@@ -299,6 +307,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	allFindings = ValidateFindings(allFindings, diffs)
 
 	// Step 6: Filter by severity.
+	// Preserve raw count for auto-approve safety: approval must consider ALL
+	// findings regardless of severity filter, not just the displayed subset.
+	rawFindingsCount := len(allFindings)
 	allFindings = filterBySeverity(allFindings, r.cfg.MinSeverity)
 	slog.Info(fmt.Sprintf("%d finding(s) at or above %s severity", len(allFindings), r.cfg.MinSeverity))
 
@@ -361,6 +372,49 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		if err := PostReview(ctx, r.cfg, r.glClient, result, version, incrementalChangedFiles); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
+
+		// Step 7c: Auto-approve if all safety guards pass.
+		if r.cfg.AutoApprove {
+			decision := EvaluateAutoApprove(r.cfg, len(diffs), rawFindingsCount,
+				skippedFiles, budgetExceeded,
+				scopeAssessment != nil && scopeAssessment.IsOversized,
+				anyTruncated, r.mrDraft)
+			if decision.Approved {
+				if approver, ok := r.glClient.(vcs.VCSApprover); ok {
+					// Pin approval to the reviewed HEAD SHA to prevent
+					// approving unreviewed pushes that land between
+					// diff retrieval and approval.
+					// version may be nil when CommentMode is "notes",
+					// so fetch versions specifically for the SHA if needed.
+					headSHA := ""
+					if version != nil {
+						headSHA = version.HeadSHA
+					} else if len(cachedVersions) > 0 {
+						headSHA = cachedVersions[0].HeadSHA
+					} else {
+						vers, verr := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
+						if verr == nil && len(vers) > 0 {
+							headSHA = vers[0].HeadSHA
+						}
+					}
+					if headSHA == "" {
+						slog.Warn("auto-approve skipped: could not determine reviewed HEAD SHA")
+						fmt.Println("ℹ️  Auto-approve skipped: could not determine reviewed HEAD SHA")
+					} else {
+						if err := approver.ApproveReview(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID, headSHA); err != nil {
+							return len(allFindings), fmt.Errorf("auto-approve failed: %w\n\nEnsure your token has the required permissions:\n  GitHub: 'pull-requests: write'\n  GitLab: 'api' scope", err)
+						}
+						slog.Info("auto-approved MR/PR", "reason", decision.Reason, "head_sha", headSHA)
+						fmt.Printf("✅ %s\n", decision.Reason)
+					}
+				} else {
+					slog.Warn("auto-approve enabled but VCS client does not support approvals")
+				}
+			} else {
+				slog.Info("auto-approve skipped", "reason", decision.Reason)
+				fmt.Printf("ℹ️  Auto-approve skipped: %s\n", decision.Reason)
+			}
+		}
 	}
 
 	// Step 8: Apply fixes if requested.
@@ -400,6 +454,8 @@ func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, str
 	if err != nil {
 		return nil, "", "", err
 	}
+
+	r.mrDraft = mr.Draft
 
 	// Check if draft and should skip.
 	if r.cfg.SkipDraftMRs && mr.Draft {

@@ -9,10 +9,12 @@ type ExplainProvider interface {
 
 // Explain sends a diff to the model and returns a free-form explanation.
 func (p *Provider) Explain(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, error) {
-	return p.generateRaw(ctx, systemPrompt, userPrompt)
+	text, usage, _, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	return text, usage, err
 }
 
 // Explain sends a diff to the model via the OpenAI-compatible API and returns a free-form explanation.
 func (p *HTTPProvider) Explain(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, error) {
-	return p.generateRaw(ctx, systemPrompt, userPrompt)
+	text, usage, _, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	return text, usage, err
 }

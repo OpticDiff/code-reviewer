@@ -20,9 +20,10 @@ type TokenUsage struct {
 
 // ReviewResult is the structured output from the model.
 type ReviewResult struct {
-	Summary  string      `json:"summary"`
-	Findings []Finding   `json:"findings"`
-	Usage    *TokenUsage `json:"usage,omitempty"`
+	Summary   string      `json:"summary"`
+	Findings  []Finding   `json:"findings"`
+	Usage     *TokenUsage `json:"usage,omitempty"`
+	Truncated bool        `json:"truncated,omitempty"`
 }
 
 // Finding is a single review comment from the model.
@@ -69,7 +70,7 @@ func NewProvider(ctx context.Context, project, location, modelName, proxyURL str
 
 // Review sends a diff to the model for review and returns structured findings.
 func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error) {
-	text, usage, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	text, usage, truncated, err := p.generateRaw(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -81,12 +82,13 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 	}
 
 	review.Usage = usage
+	review.Truncated = truncated
 	return review, nil
 }
 
 // generateRaw sends a prompt to the model and returns the raw text response
 // along with token usage. This is the shared core used by both Review and Summarize.
-func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, error) {
+func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, bool, error) {
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
 		Temperature:       genai.Ptr(float32(0.2)),
@@ -117,12 +119,17 @@ func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt str
 		result, genErr = p.client.Models.GenerateContent(ctx, p.modelName, []*genai.Content{genai.NewContentFromText(userPrompt, genai.RoleUser)}, config)
 		return genErr
 	}, retryOpts); err != nil {
-		return "", nil, fmt.Errorf("generating content: %w", err)
+		return "", nil, false, fmt.Errorf("generating content: %w", err)
 	}
 
 	text := extractText(result)
 	if text == "" {
-		return "", nil, fmt.Errorf("empty response from model")
+		return "", nil, false, fmt.Errorf("empty response from model")
+	}
+
+	var truncated bool
+	if len(result.Candidates) > 0 {
+		truncated = result.Candidates[0].FinishReason == genai.FinishReasonMaxTokens
 	}
 
 	var usage *TokenUsage
@@ -134,7 +141,7 @@ func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt str
 		}
 	}
 
-	return text, usage, nil
+	return text, usage, truncated, nil
 }
 
 // Close releases resources held by the provider.
