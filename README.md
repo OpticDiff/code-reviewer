@@ -55,6 +55,10 @@ cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
 - **Description update** — `--update-description` injects review summary into MR/PR description with idempotent markers (v0.6.0)
 - **Review cleanup** — `--cleanup-mode` controls how previous bot reviews are handled: `delete` (default) or `resolve` (v0.6.0)
 - **GitLab Draft Notes** — Reviews posted as draft notes and published atomically for a single notification (v0.6.0)
+- **Smart incremental** — Preserves review findings for unchanged files across pushes, only re-reviews modified files (v0.7.0)
+- **Scope enforcement** — `--max-files` and `--scope-action` warn or fail when MRs exceed a file count threshold (v0.7.0)
+- **Audit trail** — `--audit-log` writes structured JSONL audit records per review: config, files, findings, token usage, duration (v0.7.0)
+- **Auto-approve** — `--auto-approve` automatically approves MR/PR when review finds zero issues, with 9 safety guards including SHA pinning (v0.8.0)
 
 ## Quick Start
 
@@ -122,6 +126,24 @@ code-review:
     - code-reviewer --ci
 ```
 
+```yaml
+# With auto-approve on clean reviews
+code-review:
+  stage: review
+  image: gcr.io/$PROJECT/code-reviewer:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GITLAB_TOKEN: $CODE_REVIEWER_TOKEN  # PAT with api scope (required for approvals)
+    REVIEW_COMMENT_MODE: "discussions"
+  script:
+    - code-reviewer --ci --auto-approve --audit-log review.jsonl
+  artifacts:
+    paths:
+      - review.jsonl
+    when: always
+```
+
 See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
 
 ### GitHub Actions
@@ -139,12 +161,14 @@ Use the [reusable action](https://github.com/OpticDiff/code-reviewer-action) for
 ```
 
 ```yaml
-# Vertex AI — production quality
+# Vertex AI with auto-approve
 - uses: google-github-actions/auth@v2
   with:
     workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
     service_account: ${{ secrets.WIF_SA }}
 - uses: OpticDiff/code-reviewer-action@v1
+  with:
+    extra-args: --auto-approve --audit-log review.jsonl
   env:
     GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -178,6 +202,10 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--no-color` | Disable ANSI color output | `false` |
 | `--no-context` | Disable repo-aware cross-file context injection | `false` |
 | `--max-tokens` | Maximum total tokens per review (0 = unlimited) | `0` |
+| `--max-files` | Maximum files before scope enforcement (0 = unlimited) | `0` |
+| `--scope-action` | Action when scope exceeded: `warn` or `fail` | `warn` |
+| `--audit-log` | Write structured JSONL audit log to file | — |
+| `--auto-approve` | Automatically approve MR/PR on clean review (CI mode only) | `false` |
 | `--api-url` | OpenAI-compatible API endpoint (e.g., `http://localhost:11434/v1`) | — |
 | `--api-key` | API key for HTTP provider (optional for IAM/ADC auth) | — |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
@@ -214,6 +242,10 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
 | `REVIEW_MAX_TOKENS` | Maximum total tokens per review (0 = unlimited) | `0` |
+| `REVIEW_MAX_FILES` | Maximum files before scope enforcement (0 = unlimited) | `0` |
+| `REVIEW_SCOPE_ACTION` | Action when scope exceeded: `warn` or `fail` | `warn` |
+| `REVIEW_AUDIT_LOG` | Write audit log to this file path | — |
+| `REVIEW_AUTO_APPROVE` | Automatically approve on clean review (`true`/`false`) | `false` |
 | `REVIEW_API_URL` | OpenAI-compatible API endpoint | — |
 | `REVIEW_API_KEY` | API key for HTTP provider | — |
 | `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
@@ -241,6 +273,10 @@ max_tokens: 50000  # Optional: cap total tokens per review
 api_url: http://localhost:11434/v1  # Optional: use a self-hosted model
 update_description: false  # Inject summary into MR/PR description
 cleanup_mode: delete       # delete or resolve
+auto_approve: false     # Auto-approve MR/PR when zero findings (CI mode)
+audit_log: review.jsonl # Write audit trail
+max_files: 30           # Scope enforcement: warn when MR exceeds 30 files
+scope_action: warn      # warn or fail
 ```
 
 See [`.code-reviewer.example.yaml`](.code-reviewer.example.yaml) for all options.
@@ -261,6 +297,37 @@ code-reviewer --diff --api-url http://gpu-server:8000/v1 --model meta-llama/Llam
 
 # With Candela proxy (observability + routing)
 code-reviewer --diff --api-url http://candela:8080/v1 --model gemini-2.5-flash
+```
+
+### Auto-Approve
+
+When enabled, the tool automatically approves the MR/PR via the platform API if the review finds zero issues. **Opt-in only.**
+
+```bash
+code-reviewer --ci --auto-approve
+```
+
+All safety guards must pass:
+
+| Guard | What it checks |
+|---|---|
+| Zero findings | Review found no issues (pre-severity-filter) |
+| Files reviewed > 0 | Model actually reviewed something |
+| No skipped files | Token budget didn't trim any files |
+| Budget not exceeded | Runtime token limit wasn't hit mid-review |
+| Scope not oversized | MR doesn't exceed `--max-files` limit |
+| Not truncated | Model response wasn't cut short |
+| Not draft | MR/PR is not in draft/WIP state |
+| CI mode, not dry-run | Running in real CI pipeline |
+| SHA pinned | Approval targets the exact reviewed commit |
+
+If any guard fails, the reason is printed and approval is skipped.
+
+Approval failures (e.g. missing token permissions) exit non-zero:
+
+```
+GitHub: ensure 'pull-requests: write' permission
+GitLab: ensure token has 'api' scope
 ```
 
 ### REVIEW.md
