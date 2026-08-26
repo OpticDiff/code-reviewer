@@ -32,6 +32,7 @@ type Reviewer struct {
 	glClient        VCSClient
 	diffSource      DiffSource
 	contextProvider ctxpkg.Provider
+	mrDraft         bool
 }
 
 // New creates a new Reviewer.
@@ -253,6 +254,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, intentContext)
 	var summary string
+	
+	budgetExceeded := false
+	anyTruncated := false
 
 	for i, chunk := range chunks {
 		slog.Info(fmt.Sprintf("reviewing chunk %d/%d (%d files, ~%d tokens)",
@@ -275,6 +279,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			totalUsage.OutputTokens += result.Usage.OutputTokens
 			totalUsage.TotalTokens += result.Usage.TotalTokens
 		}
+		if result.Truncated {
+			anyTruncated = true
+		}
 
 		// Runtime budget safety net — stop if actual usage exceeds limit.
 		if r.cfg.MaxTokens > 0 && totalUsage.TotalTokens >= int64(r.cfg.MaxTokens) {
@@ -283,6 +290,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				"limit", r.cfg.MaxTokens,
 				"chunks_completed", i+1,
 				"chunks_total", len(chunks))
+			budgetExceeded = true
 			break
 		}
 	}
@@ -361,6 +369,28 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		if err := PostReview(ctx, r.cfg, r.glClient, result, version, incrementalChangedFiles); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
+
+		// Step 7c: Auto-approve if all safety guards pass.
+		if r.cfg.AutoApprove {
+			decision := EvaluateAutoApprove(r.cfg, len(diffs), len(allFindings),
+				skippedFiles, budgetExceeded,
+				scopeAssessment != nil && scopeAssessment.IsOversized,
+				anyTruncated, r.mrDraft)
+			if decision.Approved {
+				if approver, ok := r.glClient.(vcs.VCSApprover); ok {
+					if err := approver.ApproveReview(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID); err != nil {
+						return len(allFindings), fmt.Errorf("auto-approve failed: %w\n\nEnsure your token has the required permissions:\n  GitHub: 'pull-requests: write'\n  GitLab: 'api' scope", err)
+					}
+					slog.Info("auto-approved MR/PR", "reason", decision.Reason)
+					fmt.Printf("✅ %s\n", decision.Reason)
+				} else {
+					slog.Warn("auto-approve enabled but VCS client does not support approvals")
+				}
+			} else {
+				slog.Info("auto-approve skipped", "reason", decision.Reason)
+				fmt.Printf("ℹ️  Auto-approve skipped: %s\n", decision.Reason)
+			}
+		}
 	}
 
 	// Step 8: Apply fixes if requested.
@@ -400,6 +430,8 @@ func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, str
 	if err != nil {
 		return nil, "", "", err
 	}
+
+	r.mrDraft = mr.Draft
 
 	// Check if draft and should skip.
 	if r.cfg.SkipDraftMRs && mr.Draft {

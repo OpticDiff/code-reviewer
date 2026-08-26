@@ -16,7 +16,7 @@ type SummarizeProvider interface {
 // It reuses the same model call infrastructure as Review but parses the response
 // as SummaryResult instead of ReviewResult.
 func (p *Provider) Summarize(ctx context.Context, systemPrompt, userPrompt string) (*SummaryResult, error) {
-	result, usage, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	result, usage, _, err := p.generateRaw(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +32,7 @@ func (p *Provider) Summarize(ctx context.Context, systemPrompt, userPrompt strin
 
 // Summarize sends a diff to the model for summarization via the OpenAI-compatible API.
 func (p *HTTPProvider) Summarize(ctx context.Context, systemPrompt, userPrompt string) (*SummaryResult, error) {
-	text, usage, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	text, usage, _, err := p.generateRaw(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}

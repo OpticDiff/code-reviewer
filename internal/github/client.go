@@ -338,6 +338,16 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, r
 	return nil
 }
 
+// ApproveReview approves a pull request by submitting an APPROVE review.
+func (c *Client) ApproveReview(ctx context.Context, projectID, prNumber string) error {
+	apiURL := fmt.Sprintf("%s/repos/%s/pulls/%s/reviews", c.baseURL, projectID, prNumber)
+	req := CreateReviewRequest{
+		Event: "APPROVE",
+		Body:  "✅ AI Code Reviewer: 0 findings. Auto-approved.",
+	}
+	return c.post(ctx, apiURL, req, nil)
+}
+
 // is422 checks if an error is a GitHub API 422 Unprocessable Entity response.
 func is422(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "GitHub API error 422")

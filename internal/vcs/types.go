@@ -96,3 +96,10 @@ type DescriptionUpdater interface {
 	GetDescription(ctx context.Context, projectID, mrIID string) (string, error)
 	SetDescription(ctx context.Context, projectID, mrIID, description string) error
 }
+
+// VCSApprover is implemented by VCS clients that support approving MRs/PRs.
+// This is a separate interface for interface segregation — not all platforms
+// or token scopes may support approvals.
+type VCSApprover interface {
+	ApproveReview(ctx context.Context, projectID, reviewID string) error
+}

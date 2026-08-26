@@ -128,6 +128,13 @@ func (c *Client) SetDescription(ctx context.Context, projectID, mrIID, descripti
 	return c.put(ctx, apiURL, descReq{Description: description}, nil)
 }
 
+// ApproveReview approves a merge request via the GitLab API.
+func (c *Client) ApproveReview(ctx context.Context, projectID, mrIID string) error {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s/approve",
+		c.baseURL, url.PathEscape(projectID), mrIID)
+	return c.post(ctx, apiURL, nil, nil)
+}
+
 // PostNote creates a simple note (comment) on a merge request.
 func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/notes", c.baseURL, url.PathEscape(projectID), mrIID)

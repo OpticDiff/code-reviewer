@@ -110,6 +110,7 @@ type chatResponse struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
 	Usage *struct {
 		PromptTokens     int64 `json:"prompt_tokens"`
@@ -120,7 +121,7 @@ type chatResponse struct {
 
 // Review sends a diff to the model for review and returns structured findings.
 func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error) {
-	text, usage, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	text, usage, truncated, err := p.generateRaw(ctx, systemPrompt, userPrompt)
 	if err != nil {
 		return nil, err
 	}
@@ -131,12 +132,13 @@ func (p *HTTPProvider) Review(ctx context.Context, systemPrompt, userPrompt stri
 	}
 
 	review.Usage = usage
+	review.Truncated = truncated
 	return review, nil
 }
 
 // generateRaw sends a prompt via the OpenAI-compatible API and returns the raw
 // text response along with token usage. Used by both Review and Summarize.
-func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, error) {
+func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, bool, error) {
 	reqBody := chatRequest{
 		Model: p.modelName,
 		Messages: []chatMessage{
@@ -148,7 +150,7 @@ func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt
 
 	payload, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", nil, fmt.Errorf("marshaling request: %w", err)
+		return "", nil, false, fmt.Errorf("marshaling request: %w", err)
 	}
 
 	endpoint := p.baseURL + "/chat/completions"
@@ -207,22 +209,24 @@ func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt
 
 		return nil
 	}, retryOpts); err != nil {
-		return "", nil, fmt.Errorf("generating content: %w", err)
+		return "", nil, false, fmt.Errorf("generating content: %w", err)
 	}
 
 	var chatResp chatResponse
 	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		return "", nil, fmt.Errorf("parsing response JSON: %w (raw: %s)", err, truncateBytes(respBody, 500))
+		return "", nil, false, fmt.Errorf("parsing response JSON: %w (raw: %s)", err, truncateBytes(respBody, 500))
 	}
 
 	if len(chatResp.Choices) == 0 {
-		return "", nil, fmt.Errorf("empty response from model (no choices)")
+		return "", nil, false, fmt.Errorf("empty response from model (no choices)")
 	}
 
 	text := chatResp.Choices[0].Message.Content
 	if text == "" {
-		return "", nil, fmt.Errorf("empty content in model response")
+		return "", nil, false, fmt.Errorf("empty content in model response")
 	}
+
+	truncated := chatResp.Choices[0].FinishReason == "length"
 
 	slog.Debug("raw model response", "length", len(text))
 
@@ -235,7 +239,7 @@ func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt
 		}
 	}
 
-	return text, usage, nil
+	return text, usage, truncated, nil
 }
 
 // Close is a no-op for the HTTP provider.
