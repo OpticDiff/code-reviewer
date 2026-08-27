@@ -1,5 +1,12 @@
 # code-reviewer
 
+[![CI](https://github.com/OpticDiff/code-reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/OpticDiff/code-reviewer/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/OpticDiff/code-reviewer)](https://github.com/OpticDiff/code-reviewer/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/OpticDiff/code-reviewer)](https://goreportcard.com/report/github.com/OpticDiff/code-reviewer)
+[![License](https://img.shields.io/github/license/OpticDiff/code-reviewer)](LICENSE)
+[![GitHub Action](https://img.shields.io/badge/action-OpticDiff%2Fcode--reviewer--action-blue?logo=github)](https://github.com/OpticDiff/code-reviewer-action)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://pre-commit.com)
+
 AI-powered code review CLI for GitHub pull requests and GitLab merge requests. Works with Ollama, Vertex AI (Gemini, Claude, Mistral), AWS Bedrock (via LiteLLM), or any OpenAI-compatible endpoint.
 
 ## Install
