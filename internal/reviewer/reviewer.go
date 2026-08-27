@@ -254,9 +254,19 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	if r.cfg.CIMode && r.cfg.CIDiffBaseSHA != "" {
 		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
 	}
-	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, intentContext)
+
+	// Combine extra_rules with formatted custom rules.
+	extraRules := r.cfg.ExtraRules
+	if rulesPrompt := config.FormatRulesPrompt(r.cfg.Rules); rulesPrompt != "" {
+		if extraRules != "" {
+			extraRules += "\n\n"
+		}
+		extraRules += rulesPrompt
+	}
+
+	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, extraRules, intentContext)
 	var summary string
-	
+
 	budgetExceeded := false
 	anyTruncated := false
 
