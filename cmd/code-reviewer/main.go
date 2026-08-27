@@ -14,6 +14,7 @@ import (
 	gh "github.com/OpticDiff/code-reviewer/internal/github"
 	"github.com/OpticDiff/code-reviewer/internal/gitlab"
 	"github.com/OpticDiff/code-reviewer/internal/hook"
+	"github.com/OpticDiff/code-reviewer/internal/initcmd"
 	"github.com/OpticDiff/code-reviewer/internal/model"
 	"github.com/OpticDiff/code-reviewer/internal/reviewer"
 )
@@ -33,6 +34,15 @@ func main() {
 	// Handle "hook" subcommand before config.Load() since it doesn't need model config.
 	if len(os.Args) >= 2 && os.Args[1] == "hook" {
 		if err := runHook(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	// Handle "init" subcommand — interactive config generator.
+	if len(os.Args) >= 2 && os.Args[1] == "init" {
+		if err := runInit(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -183,4 +193,18 @@ func runHook(args []string) error {
 	default:
 		return fmt.Errorf("unknown hook command: %q (valid: install, uninstall)", args[0])
 	}
+}
+
+// runInit dispatches the init subcommand.
+func runInit(args []string) error {
+	var opts initcmd.Options
+	for _, arg := range args {
+		switch arg {
+		case "--yes", "-y":
+			opts.Yes = true
+		case "--force":
+			opts.Force = true
+		}
+	}
+	return initcmd.Run(opts)
 }
