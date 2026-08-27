@@ -36,6 +36,11 @@ comment_mode: notes
 
 # intent_review: true        # Enable two-pass intent-aware review (default: true in CI)
 
+# Cache settings — skip re-reviewing identical file diffs.
+# cache_dir: ~/.cache/code-reviewer  # Default location
+# no_cache: false                      # Set to true to disable caching
+# cache_max_age: 7d                    # Auto-expire entries (default: 7 days)
+
 # How to handle diffs that exceed the model's context window.
 # fail: error out with a helpful message (default, forces smaller MRs)
 # split: auto-split into chunks and merge results
