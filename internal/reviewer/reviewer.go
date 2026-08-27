@@ -404,6 +404,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		slog.Info("SARIF output written", "path", r.cfg.SARIFOutput)
 	}
 
+	if r.cfg.SASTOutput != "" {
+		if err := WriteGitLabSAST(r.cfg.SASTOutput, "dev", result); err != nil {
+			return len(allFindings), fmt.Errorf("writing GitLab SAST: %w", err)
+		}
+		slog.Info("GitLab SAST output written", "path", r.cfg.SASTOutput)
+	}
+
 	// Step 7b: Output.
 	if r.cfg.DryRun || !r.cfg.CIMode {
 		if r.cfg.OutputJSON {

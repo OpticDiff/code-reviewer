@@ -48,9 +48,11 @@ code-review:
   allow_failure: true
 ```
 
-### Security Gate with SARIF
+### Security Gate with SARIF or SAST
 
-Blocks the MR on high/critical findings. SARIF output appears in GitLab's Security tab:
+Blocks the MR on high/critical findings and exposes vulnerabilities in GitLab's Security tab.
+
+**For GitLab Ultimate (SARIF):**
 
 ```yaml
 security-review:
@@ -65,7 +67,32 @@ security-review:
     REVIEW_FOCUS: "security"
     REVIEW_MIN_SEVERITY: "high"
     REVIEW_COMMENT_MODE: "discussions"
-    SARIF_OUTPUT: "gl-sast-report.json"
+    SARIF_OUTPUT: "results.sarif"
+  script:
+    - code-reviewer --ci --incremental
+  allow_failure: false
+  artifacts:
+    reports:
+      sarif: results.sarif
+    when: always
+```
+
+**For GitLab Free/Premium (SAST):**
+
+```yaml
+security-review:
+  stage: review
+  image: gcr.io/$PROJECT/code-reviewer:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GOOGLE_CLOUD_PROJECT: "my-gcp-project"
+    GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
+    REVIEW_MODEL: "gemini-2.5-pro"
+    REVIEW_FOCUS: "security"
+    REVIEW_MIN_SEVERITY: "high"
+    REVIEW_COMMENT_MODE: "discussions"
+    SAST_OUTPUT: "gl-sast-report.json"
   script:
     - code-reviewer --ci --incremental
   allow_failure: false
@@ -320,6 +347,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `output_json` | `--json` | `REVIEW_OUTPUT_JSON` | `false` | Output results as JSON to stdout |
 | — | `--no-color` | `NO_COLOR` | `false` | Disable ANSI color output |
 | — | `--sarif` | `SARIF_OUTPUT` | — | Write SARIF 2.1.0 output to file path |
+| `sast_output` | `--sast` | `SAST_OUTPUT` | — | Write GitLab SAST report to file path |
 | — | `--no-context` | — | `false` | Disable repo-aware cross-file context |
 | `max_tokens` | `--max-tokens` | `REVIEW_MAX_TOKENS` | `0` (unlimited) | Maximum total tokens per review |
 | `api_url` | `--api-url` | `REVIEW_API_URL` | — | OpenAI-compatible API endpoint URL |
