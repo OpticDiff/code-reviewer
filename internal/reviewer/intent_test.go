@@ -72,7 +72,7 @@ func TestIntentReview_InjectsContext(t *testing.T) {
 			ScopeAreas:     []string{"auth"},
 		},
 	}
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		IntentReview:  true,
 		DryRun:        true,
 		Focus:         []string{"bugs"},
@@ -99,7 +99,7 @@ func TestIntentReview_FallbackOnError(t *testing.T) {
 		reviewResult: &model.ReviewResult{Summary: "OK", Findings: nil},
 		summaryErr:   fmt.Errorf("model timeout"),
 	}
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		IntentReview:  true,
 		DryRun:        true,
 		Focus:         []string{"bugs"},
@@ -127,7 +127,7 @@ func TestIntentReview_DisabledByDefault(t *testing.T) {
 		reviewResult:  &model.ReviewResult{Summary: "OK", Findings: nil},
 		summaryResult: &model.SummaryResult{Classification: "feat"},
 	}
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		IntentReview:  false,
 		DryRun:        true,
 		Focus:         []string{"bugs"},

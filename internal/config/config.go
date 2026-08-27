@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -87,6 +88,11 @@ type Config struct {
 	DiffRef  string // empty means origin/HEAD
 	Files    []string
 	DiffMode bool // true if --diff was passed
+
+	// Cache settings.
+	CacheDir    string
+	NoCache     bool
+	CacheMaxAge time.Duration
 
 	// Model settings.
 	Model              string
@@ -177,6 +183,9 @@ type repoConfig struct {
 	CommentMode      string   `yaml:"comment_mode"`
 	CleanupMode      string   `yaml:"cleanup_mode"`
 	ChunkStrategy    string   `yaml:"chunk_strategy"`
+	CacheDir         string   `yaml:"cache_dir"`
+	NoCache          *bool    `yaml:"no_cache"`
+	CacheMaxAge      string   `yaml:"cache_max_age"` // e.g. "7d", "24h"
 	ExcludedPatterns []string `yaml:"excluded_patterns"`
 	ExtraRules       string   `yaml:"extra_rules"`
 	OutputJSON       bool     `yaml:"output_json"`
@@ -221,6 +230,7 @@ func Load() (*Config, error) {
 		SkipDraftMRs:     true,
 		ExcludedPatterns: DefaultExcludedPatterns,
 		ScopeAction:      "warn",
+		CacheMaxAge:      7 * 24 * time.Hour,
 	}
 
 	// Layer 1: .code-reviewer.yaml (if exists).
@@ -344,6 +354,19 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.ChunkStrategy != "" {
 		c.ChunkStrategy = ChunkStrategy(rc.ChunkStrategy)
 	}
+	if rc.CacheDir != "" {
+		c.CacheDir = rc.CacheDir
+	}
+	if rc.NoCache != nil {
+		c.NoCache = *rc.NoCache
+	}
+	if rc.CacheMaxAge != "" {
+		d, err := parseDuration(rc.CacheMaxAge)
+		if err != nil {
+			return fmt.Errorf("invalid cache_max_age: %w", err)
+		}
+		c.CacheMaxAge = d
+	}
 	if len(rc.ExcludedPatterns) > 0 {
 		c.ExcludedPatterns = rc.ExcludedPatterns
 	}
@@ -412,6 +435,12 @@ func (c *Config) loadEnv() {
 		if sev, err := ParseSeverity(v); err == nil {
 			c.MinSeverity = sev
 		}
+	}
+	if v := os.Getenv("REVIEW_CACHE_DIR"); v != "" {
+		c.CacheDir = v
+	}
+	if v := os.Getenv("REVIEW_NO_CACHE"); strings.EqualFold(v, "true") {
+		c.NoCache = true
 	}
 	if v := os.Getenv("REVIEW_COMMENT_MODE"); v != "" {
 		c.CommentMode = CommentMode(v)
@@ -523,6 +552,9 @@ func (c *Config) loadFlags() error {
 	diffFlag := fs.Bool("diff", false, "Review local git diff (default: against origin/HEAD)")
 	files := fs.String("files", "", "Comma-separated list of files to review")
 
+	cacheDir := fs.String("cache-dir", "", "Cache directory")
+	noCache := fs.Bool("no-cache", false, "Disable caching")
+
 	model := fs.String("model", "", "Vertex AI model ID (e.g., gemini-2.5-flash, claude-sonnet-4)")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
@@ -572,6 +604,13 @@ func (c *Config) loadFlags() error {
 	// Remaining args after --diff are the ref.
 	if c.DiffMode && fs.NArg() > 0 {
 		c.DiffRef = fs.Arg(0)
+	}
+
+	if *cacheDir != "" {
+		c.CacheDir = *cacheDir
+	}
+	if *noCache {
+		c.NoCache = true
 	}
 
 	if *model != "" {
@@ -869,4 +908,16 @@ func splitAndTrim(s string) []string {
 		}
 	}
 	return result
+}
+
+func parseDuration(s string) (time.Duration, error) {
+	if strings.HasSuffix(s, "d") {
+		daysStr := strings.TrimSuffix(s, "d")
+		days, err := strconv.Atoi(daysStr)
+		if err != nil {
+			return 0, fmt.Errorf("invalid days format: %s", s)
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(s)
 }

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpticDiff/code-reviewer/internal/cache"
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
@@ -34,6 +35,7 @@ type Reviewer struct {
 	contextProvider  ctxpkg.Provider
 	mrDraft          bool
 	parseFailedFiles []string // files whose diffs failed to parse (unreviewed)
+	cache            *cache.Cache
 }
 
 // New creates a new Reviewer.
@@ -42,6 +44,7 @@ func New(cfg *config.Config, provider ModelReviewer, glClient VCSClient) *Review
 		cfg:      cfg,
 		provider: provider,
 		glClient: glClient,
+		cache:    initCache(cfg),
 	}
 }
 
@@ -52,6 +55,7 @@ func NewWithContext(cfg *config.Config, provider ModelReviewer, glClient VCSClie
 		provider:        provider,
 		glClient:        glClient,
 		contextProvider: cp,
+		cache:           initCache(cfg),
 	}
 }
 
@@ -62,6 +66,7 @@ func NewWithDiffSource(cfg *config.Config, provider ModelReviewer, glClient VCSC
 		provider:   provider,
 		glClient:   glClient,
 		diffSource: ds,
+		cache:      initCache(cfg),
 	}
 }
 
@@ -182,6 +187,38 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
+	// Filter custom rules by changed file paths.
+	reviewFilePaths := make([]string, len(diffs))
+	for i, d := range diffs {
+		reviewFilePaths[i] = d.NewPath
+	}
+	applicableRules := config.FilterRulesByPaths(r.cfg.Rules, reviewFilePaths)
+	extraRules := r.cfg.ExtraRules
+	formattedRules := config.FormatRulesPrompt(applicableRules)
+	if formattedRules != "" {
+		if extraRules != "" {
+			extraRules += "\n\n"
+		}
+		extraRules += formattedRules
+		slog.Info(fmt.Sprintf("applying %d/%d custom rules", len(applicableRules), len(r.cfg.Rules)))
+	}
+
+	// Step 2e: Cache lookup.
+	var cachedFindings []model.Finding
+	var cacheKeys map[string]string
+	if r.cache != nil && len(diffs) > 0 {
+		promptHash := cache.PromptHash(r.cfg.CustomPrompt, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules))
+		diffs, cachedFindings, cacheKeys = cache.Partition(diffs, r.cache, r.cfg.Model, promptHash)
+		if len(cachedFindings) > 0 {
+			slog.Info("cache", "hits", len(cachedFindings), "uncached_files", len(diffs))
+		}
+	}
+
+	if len(diffs) == 0 && len(cachedFindings) == 0 {
+		slog.Info("no findings from cache and no files to review")
+		return 0, nil
+	}
+
 	// Step 3: Check context window / chunk.
 	tokenLimit := diff.TokenLimitForModel(r.cfg.Model)
 	chunker, err := diff.NewChunkStrategy(string(r.cfg.ChunkStrategy))
@@ -189,11 +226,14 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		return 0, err
 	}
 
-	chunks, err := chunker.Chunk(diffs, tokenLimit)
-	if err != nil {
-		return 0, err
+	var chunks [][]diff.FileDiff
+	if len(diffs) > 0 {
+		chunks, err = chunker.Chunk(diffs, tokenLimit)
+		if err != nil {
+			return 0, err
+		}
+		slog.Info(fmt.Sprintf("review split into %d chunk(s)", len(chunks)))
 	}
-	slog.Info(fmt.Sprintf("review split into %d chunk(s)", len(chunks)))
 
 	// Step 3b: Discover related code context.
 	var contextSnippets []model.ContextSnippet
@@ -255,21 +295,6 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
 	}
 
-	// Filter custom rules by changed file paths, then format into prompt.
-	reviewFilePaths := make([]string, len(diffs))
-	for i, d := range diffs {
-		reviewFilePaths[i] = d.NewPath
-	}
-	applicableRules := config.FilterRulesByPaths(r.cfg.Rules, reviewFilePaths)
-	extraRules := r.cfg.ExtraRules
-	if rulesPrompt := config.FormatRulesPrompt(applicableRules); rulesPrompt != "" {
-		if extraRules != "" {
-			extraRules += "\n\n"
-		}
-		extraRules += rulesPrompt
-		slog.Info(fmt.Sprintf("applying %d/%d custom rules", len(applicableRules), len(r.cfg.Rules)))
-	}
-
 	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, extraRules, intentContext)
 	var summary string
 
@@ -328,6 +353,32 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	preDedupCount := len(allFindings)
 	allFindings = DeduplicateFindings(allFindings)
 	dedupedCount = preDedupCount - len(allFindings)
+
+	// Step 5c: Store fresh findings in cache.
+	if r.cache != nil && cacheKeys != nil {
+		// Group findings by file.
+		byFile := make(map[string][]model.Finding)
+		for _, f := range allFindings {
+			byFile[f.File] = append(byFile[f.File], f)
+		}
+		
+		for _, d := range diffs { // diffs now holds only uncached
+			if key, ok := cacheKeys[d.NewPath]; ok {
+				entry := cache.Entry{
+					FilePath: d.NewPath,
+					DiffHash: cache.DiffHash(d),
+					Model:    r.cfg.Model,
+					Findings: byFile[d.NewPath],
+				}
+				if err := r.cache.Store(key, entry); err != nil {
+					slog.Debug("failed to cache findings", "file", d.NewPath, "error", err)
+				}
+			}
+		}
+	}
+
+	// Merge cached findings.
+	allFindings = append(cachedFindings, allFindings...)
 
 	// Step 6: Filter by severity.
 	// Preserve raw count for auto-approve safety: approval must consider ALL
@@ -670,4 +721,16 @@ func readReviewMDFromRef(ref string) string {
 		slog.Info("loaded REVIEW.md from trusted base ref", "ref", ref[:min(len(ref), 12)])
 	}
 	return content
+}
+
+func initCache(cfg *config.Config) *cache.Cache {
+	if cfg.NoCache {
+		return nil
+	}
+	c, err := cache.New(cfg.CacheDir, cfg.CacheMaxAge)
+	if err != nil {
+		slog.Warn("failed to initialize cache", "error", err)
+		return nil
+	}
+	return c
 }

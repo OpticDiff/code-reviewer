@@ -164,7 +164,7 @@ func integrationDiffs() []diff.FileDiff {
 
 // ciConfig returns a base CI config for integration tests.
 func ciConfig() *config.Config {
-	return &config.Config{
+	return &config.Config{NoCache: true,
 		CIMode:           true,
 		Model:            "gemini-2.5-flash",
 		ChunkStrategy:    config.ChunkStrategyFail,
