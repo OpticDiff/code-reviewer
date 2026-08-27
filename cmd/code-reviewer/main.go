@@ -204,6 +204,8 @@ func runInit(args []string) error {
 			opts.Yes = true
 		case "--force":
 			opts.Force = true
+		default:
+			return fmt.Errorf("unknown init flag: %q (valid: --yes/-y, --force)", arg)
 		}
 	}
 	return initcmd.Run(opts)

@@ -9,11 +9,25 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// chdir changes to a temp directory and registers cleanup to restore the original.
+func chdir(t *testing.T, dir string) {
+	t.Helper()
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get cwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("failed to chdir to %s: %v", dir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(origDir); err != nil {
+			t.Logf("warning: failed to restore cwd: %v", err)
+		}
+	})
+}
+
 func TestRun_Defaults(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
+	chdir(t, t.TempDir())
 
 	err := Run(Options{Yes: true})
 	if err != nil {
@@ -49,13 +63,11 @@ func TestRun_Defaults(t *testing.T) {
 }
 
 func TestRun_ExistingFile(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
+	chdir(t, t.TempDir())
 
-	// Create existing file.
-	os.WriteFile(configFileName, []byte("existing"), 0644)
+	if err := os.WriteFile(configFileName, []byte("existing"), 0644); err != nil {
+		t.Fatalf("failed to create fixture: %v", err)
+	}
 
 	err := Run(Options{Yes: true})
 	if err == nil {
@@ -67,13 +79,11 @@ func TestRun_ExistingFile(t *testing.T) {
 }
 
 func TestRun_Force(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
+	chdir(t, t.TempDir())
 
-	// Create existing file.
-	os.WriteFile(configFileName, []byte("old"), 0644)
+	if err := os.WriteFile(configFileName, []byte("old"), 0644); err != nil {
+		t.Fatalf("failed to create fixture: %v", err)
+	}
 
 	err := Run(Options{Yes: true, Force: true})
 	if err != nil {
@@ -90,10 +100,7 @@ func TestRun_Force(t *testing.T) {
 }
 
 func TestWriteConfig_ValidYAML(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
+	chdir(t, t.TempDir())
 
 	cfg := Config{
 		Model:            "gemini-2.5-pro",
@@ -141,10 +148,7 @@ func TestWriteConfig_ValidYAML(t *testing.T) {
 }
 
 func TestWriteConfig_NoMaxFiles(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
+	chdir(t, t.TempDir())
 
 	cfg := DefaultConfig()
 	if err := writeConfig(cfg); err != nil {
@@ -158,34 +162,29 @@ func TestWriteConfig_NoMaxFiles(t *testing.T) {
 }
 
 func TestDetectPlatform_GitHub(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
+	chdir(t, t.TempDir())
 
-	os.MkdirAll(filepath.Join(".github", "workflows"), 0755)
+	if err := os.MkdirAll(filepath.Join(".github", "workflows"), 0755); err != nil {
+		t.Fatalf("failed to create fixture: %v", err)
+	}
 	if p := detectPlatform(); p != "github" {
 		t.Errorf("expected github, got %q", p)
 	}
 }
 
 func TestDetectPlatform_GitLab(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
+	chdir(t, t.TempDir())
 
-	os.WriteFile(".gitlab-ci.yml", []byte("stages:"), 0644)
+	if err := os.WriteFile(".gitlab-ci.yml", []byte("stages:"), 0644); err != nil {
+		t.Fatalf("failed to create fixture: %v", err)
+	}
 	if p := detectPlatform(); p != "gitlab" {
 		t.Errorf("expected gitlab, got %q", p)
 	}
 }
 
 func TestDetectPlatform_None(t *testing.T) {
-	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	defer os.Chdir(origDir)
-	os.Chdir(dir)
+	chdir(t, t.TempDir())
 
 	if p := detectPlatform(); p != "" {
 		t.Errorf("expected empty, got %q", p)

@@ -57,6 +57,11 @@ func Run(opts Options) error {
 	cfg := DefaultConfig()
 	cfg.Platform = detectPlatform()
 
+	// Apply platform-specific defaults before prompts.
+	if cfg.Platform == "gitlab" {
+		cfg.CommentMode = "discussions"
+	}
+
 	if !opts.Yes {
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Println("🔧 code-reviewer configuration generator")
@@ -75,7 +80,9 @@ func Run(opts Options) error {
 		cfg.ChunkStrategy = prompt(reader, "Chunk strategy (fail,split)", cfg.ChunkStrategy)
 
 		maxFilesStr := prompt(reader, "Max files before scope warning (0=unlimited)", "0")
-		fmt.Sscanf(maxFilesStr, "%d", &cfg.MaxFiles)
+		if _, err := fmt.Sscanf(maxFilesStr, "%d", &cfg.MaxFiles); err != nil {
+			cfg.MaxFiles = 0
+		}
 
 		excludeDefault := strings.Join(cfg.ExcludedPatterns, ",")
 		excludeInput := prompt(reader, "Excluded patterns", excludeDefault)
@@ -85,7 +92,7 @@ func Run(opts Options) error {
 		}
 
 		if cfg.Platform == "gitlab" {
-			cfg.CommentMode = prompt(reader, "GitLab comment mode (notes,discussions)", "discussions")
+			cfg.CommentMode = prompt(reader, "GitLab comment mode (notes,discussions)", cfg.CommentMode)
 		}
 
 		cfg.ExtraRules = prompt(reader, "Custom review rules (or press Enter to skip)", "")
@@ -183,17 +190,27 @@ extra_rules: |
 # auto_approve: false                    # Auto-approve clean MRs (CI only)
 `))
 
-// writeConfig renders the template and writes the config file.
+// writeConfig renders the template to a temp file and renames it into place.
 func writeConfig(cfg Config) error {
-	f, err := os.Create(configFileName)
+	dir := filepath.Dir(configFileName)
+	tmp, err := os.CreateTemp(dir, ".code-reviewer.yaml.tmp.*")
 	if err != nil {
-		return fmt.Errorf("creating %s: %w", configFileName, err)
+		return fmt.Errorf("creating temp file: %w", err)
 	}
-	defer func() {
-		if closeErr := f.Close(); err == nil {
-			err = closeErr
-		}
-	}()
+	tmpName := tmp.Name()
 
-	return configTemplate.Execute(f, cfg)
+	if err := configTemplate.Execute(tmp, cfg); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return fmt.Errorf("writing config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, configFileName); err != nil {
+		os.Remove(tmpName)
+		return fmt.Errorf("renaming config: %w", err)
+	}
+	return nil
 }
