@@ -1,9 +1,11 @@
 package reviewer
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/model"
 )
@@ -32,9 +34,13 @@ type sarifDriver struct {
 }
 
 type sarifRule struct {
-	ID               string           `json:"id"`
-	ShortDescription sarifMessage     `json:"shortDescription"`
-	DefaultConfig    *sarifRuleConfig `json:"defaultConfiguration,omitempty"`
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name,omitempty"`
+	ShortDescription sarifMessage           `json:"shortDescription"`
+	FullDescription  *sarifMessage          `json:"fullDescription,omitempty"`
+	Help             *sarifMessage          `json:"help,omitempty"`
+	DefaultConfig    *sarifRuleConfig       `json:"defaultConfiguration,omitempty"`
+	Properties       map[string]interface{} `json:"properties,omitempty"`
 }
 
 type sarifRuleConfig struct {
@@ -42,14 +48,17 @@ type sarifRuleConfig struct {
 }
 
 type sarifResult struct {
-	RuleID    string          `json:"ruleId"`
-	Level     string          `json:"level"`
-	Message   sarifMessage    `json:"message"`
-	Locations []sarifLocation `json:"locations"`
+	RuleID              string            `json:"ruleId"`
+	RuleIndex           int               `json:"ruleIndex"`
+	Level               string            `json:"level"`
+	Message             sarifMessage      `json:"message"`
+	Locations           []sarifLocation   `json:"locations"`
+	PartialFingerprints map[string]string `json:"partialFingerprints,omitempty"`
 }
 
 type sarifMessage struct {
-	Text string `json:"text"`
+	Text     string `json:"text"`
+	Markdown string `json:"markdown,omitempty"`
 }
 
 type sarifLocation struct {
@@ -67,11 +76,12 @@ type sarifArtifactLocation struct {
 
 type sarifRegion struct {
 	StartLine int `json:"startLine"`
+	EndLine   int `json:"endLine,omitempty"`
 }
 
 // WriteSARIF writes review results in SARIF 2.1.0 format to the given path.
-func WriteSARIF(path string, result *model.ReviewResult) error {
-	report := buildSARIF(result)
+func WriteSARIF(path string, result *model.ReviewResult, version string) error {
+	report := buildSARIF(result, version)
 
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -84,44 +94,110 @@ func WriteSARIF(path string, result *model.ReviewResult) error {
 	return nil
 }
 
-func buildSARIF(result *model.ReviewResult) sarifReport {
-	// Deduplicate rules by category.
-	ruleMap := make(map[string]bool)
+func titleCase(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+func getSecuritySeverity(severity string) string {
+	switch severity {
+	case "CRITICAL":
+		return "9.5"
+	case "HIGH":
+		return "8.0"
+	case "MEDIUM":
+		return "5.0"
+	case "LOW":
+		return "2.0"
+	default:
+		return ""
+	}
+}
+
+func buildSARIF(result *model.ReviewResult, version string) sarifReport {
+	ruleMap := make(map[string]int)
 	var rules []sarifRule
+	var results []sarifResult
+
 	for _, f := range result.Findings {
 		ruleID := f.Category
 		if ruleID == "" {
 			ruleID = "general"
 		}
-		if !ruleMap[ruleID] {
-			ruleMap[ruleID] = true
+
+		// Dedup key includes severity level so that findings with the same
+		// category but different severities get separate rule entries with
+		// correct security-severity scores.
+		level := sarifLevel(f.Severity)
+		ruleKey := ruleID + ":" + level
+
+		ruleIdx, ok := ruleMap[ruleKey]
+		if !ok {
+			ruleIdx = len(rules)
+			ruleMap[ruleKey] = ruleIdx
+
+			props := make(map[string]interface{})
+			if secSev := getSecuritySeverity(f.Severity); secSev != "" {
+				props["security-severity"] = secSev
+			}
+			props["tags"] = []string{ruleID}
+
 			rules = append(rules, sarifRule{
 				ID:               ruleID,
+				Name:             titleCase(ruleID),
 				ShortDescription: sarifMessage{Text: ruleID},
+				FullDescription:  &sarifMessage{Text: titleCase(ruleID) + " issue"},
+				Help:             &sarifMessage{Text: "Please review the finding details."},
+				DefaultConfig:    &sarifRuleConfig{Level: level},
+				Properties:       props,
 			})
 		}
-	}
 
-	var results []sarifResult
-	for _, f := range result.Findings {
-		ruleID := f.Category
-		if ruleID == "" {
-			ruleID = "general"
-		}
 		line := f.Line
 		if line <= 0 {
 			line = 1
 		}
+
+		region := sarifRegion{StartLine: line}
+		if f.EndLine > 0 && f.EndLine >= line {
+			region.EndLine = f.EndLine
+		}
+
+		// SARIF requires message.text to be plain text.
+		// Markdown formatting goes only in message.markdown.
+		plainText := f.Title + "\n\n" + f.Body
+		if f.Suggestion != "" {
+			plainText += "\n\nSuggested fix:\n" + f.Suggestion
+		}
+		var markdown string
+		if f.Suggestion != "" {
+			markdown = f.Title + "\n\n" + f.Body +
+				fmt.Sprintf("\n\n**Suggested fix:**\n```suggestion\n%s\n```", f.Suggestion)
+		}
+
+		// Fingerprint uses only stable data: file path and ruleID.
+		// Excludes line number (shifts on unrelated edits) and model-generated
+		// title (wording can change between runs).
+		hashInput := fmt.Sprintf("%s:%s", f.File, ruleID)
+		hashBytes := sha256.Sum256([]byte(hashInput))
+		hashHex := fmt.Sprintf("%x", hashBytes)[:16]
+
 		results = append(results, sarifResult{
-			RuleID:  ruleID,
-			Level:   sarifLevel(f.Severity),
-			Message: sarifMessage{Text: f.Title + "\n\n" + f.Body},
+			RuleID:    ruleID,
+			RuleIndex: ruleIdx,
+			Level:     level,
+			Message:   sarifMessage{Text: plainText, Markdown: markdown},
 			Locations: []sarifLocation{{
 				PhysicalLocation: sarifPhysicalLocation{
 					ArtifactLocation: sarifArtifactLocation{URI: f.File},
-					Region:           sarifRegion{StartLine: line},
+					Region:           region,
 				},
 			}},
+			PartialFingerprints: map[string]string{
+				"primaryLocationLineHash": hashHex,
+			},
 		})
 	}
 
@@ -132,6 +208,7 @@ func buildSARIF(result *model.ReviewResult) sarifReport {
 			Tool: sarifTool{
 				Driver: sarifDriver{
 					Name:           "code-reviewer",
+					Version:        version,
 					InformationURI: "https://github.com/OpticDiff/code-reviewer",
 					Rules:          rules,
 				},

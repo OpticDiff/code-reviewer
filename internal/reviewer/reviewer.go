@@ -347,7 +347,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Step 7a: Write SARIF if requested (before posting to GitLab so it's not
 	// skipped when PostReview fails).
 	if r.cfg.SARIFOutput != "" {
-		if err := WriteSARIF(r.cfg.SARIFOutput, result); err != nil {
+		if err := WriteSARIF(r.cfg.SARIFOutput, result, "dev"); err != nil {
 			return len(allFindings), fmt.Errorf("writing SARIF: %w", err)
 		}
 		slog.Info("SARIF output written", "path", r.cfg.SARIFOutput)
