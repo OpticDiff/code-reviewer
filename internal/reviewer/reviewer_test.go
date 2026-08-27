@@ -384,7 +384,7 @@ func TestGetLocalDiffs_RejectsFlagRef(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := &Reviewer{
-				cfg: &config.Config{
+				cfg: &config.Config{NoCache: true,
 					DiffMode: true,
 					DiffRef:  tt.ref,
 				},
@@ -407,7 +407,7 @@ func TestGetLocalDiffs_AcceptsValidRef(t *testing.T) {
 	for _, ref := range validRefs {
 		t.Run(ref, func(t *testing.T) {
 			r := &Reviewer{
-				cfg: &config.Config{
+				cfg: &config.Config{NoCache: true,
 					DiffMode: true,
 					DiffRef:  ref,
 				},
@@ -423,7 +423,7 @@ func TestGetLocalDiffs_AcceptsValidRef(t *testing.T) {
 
 func TestGetFileDiffs_RejectsFlagPath(t *testing.T) {
 	r := &Reviewer{
-		cfg: &config.Config{
+		cfg: &config.Config{NoCache: true,
 			Files: []string{"good.go", "--output=/tmp/evil"},
 		},
 	}
@@ -458,7 +458,7 @@ func (m *mockDiffSource) GetDiffs(ctx context.Context) ([]diff.FileDiff, string,
 // ---------------------------------------------------------------------------
 
 func TestRun_EmptyDiffs(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		DiffMode:      true,
 		Model:         "gemini-2.5-flash",
 		ChunkStrategy: config.ChunkStrategyFail,
@@ -508,7 +508,7 @@ func TestRun_WithFindings(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		DiffMode:      true,
 		Model:         "gemini-2.5-flash",
 		ChunkStrategy: config.ChunkStrategyFail,
@@ -559,7 +559,7 @@ func TestRun_SeverityFilter(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		DiffMode:      true,
 		Model:         "gemini-2.5-flash",
 		ChunkStrategy: config.ChunkStrategyFail,
@@ -607,7 +607,7 @@ func TestRun_ModelError(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		DiffMode:      true,
 		Model:         "gemini-2.5-flash",
 		ChunkStrategy: config.ChunkStrategyFail,
@@ -631,7 +631,7 @@ func TestRun_ModelError(t *testing.T) {
 }
 
 func TestRun_DiffSourceError(t *testing.T) {
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		DiffMode:      true,
 		Model:         "gemini-2.5-flash",
 		ChunkStrategy: config.ChunkStrategyFail,
@@ -670,7 +670,7 @@ func TestRun_JSONOutput(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		DiffMode:      true,
 		Model:         "gemini-2.5-flash",
 		ChunkStrategy: config.ChunkStrategyFail,
@@ -860,7 +860,7 @@ func TestBuildNumberedDiff_OnlyRemovedLines(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNewWithDiffSource(t *testing.T) {
-	cfg := &config.Config{Model: "test"}
+	cfg := &config.Config{NoCache: true,Model: "test"}
 	mm := &mockModel{}
 	mockClient := &mockVCS{}
 	ds := &mockDiffSource{}
@@ -881,7 +881,7 @@ func TestNewWithDiffSource(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	cfg := &config.Config{Model: "test"}
+	cfg := &config.Config{NoCache: true,Model: "test"}
 	mm := &mockModel{}
 	mockClient := &mockVCS{}
 
@@ -919,7 +919,7 @@ func TestRun_TerminalOutput(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		DiffMode:      true,
 		Model:         "gemini-2.5-flash",
 		ChunkStrategy: config.ChunkStrategyFail,
@@ -964,7 +964,7 @@ func TestRun_CIModeNotes(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		CIMode:           true,
 		Model:            "gemini-2.5-flash",
 		ChunkStrategy:    config.ChunkStrategyFail,
@@ -1018,7 +1018,7 @@ func TestRun_CIModeDiscussions(t *testing.T) {
 		},
 	}
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		CIMode:           true,
 		Model:            "gemini-2.5-flash",
 		ChunkStrategy:    config.ChunkStrategyFail,
@@ -1081,7 +1081,7 @@ func makeTestDiffs(files ...string) []diff.FileDiff {
 func TestRun_IncrementalReview(t *testing.T) {
 	allDiffs := makeTestDiffs("main.go", "util.go", "docs.go")
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		CIMode:           true,
 		Model:            "gemini-2.5-flash",
 		ChunkStrategy:    config.ChunkStrategyFail,
@@ -1142,7 +1142,7 @@ func TestRun_IncrementalReview(t *testing.T) {
 func TestRun_IncrementalReview_FirstPush(t *testing.T) {
 	allDiffs := makeTestDiffs("main.go")
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		CIMode:           true,
 		Model:            "gemini-2.5-flash",
 		ChunkStrategy:    config.ChunkStrategyFail,
@@ -1186,7 +1186,7 @@ func TestRun_IncrementalReview_FirstPush(t *testing.T) {
 func TestRun_IncrementalReview_VersionErrorFallback(t *testing.T) {
 	allDiffs := makeTestDiffs("main.go")
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		CIMode:           true,
 		Model:            "gemini-2.5-flash",
 		ChunkStrategy:    config.ChunkStrategyFail,
@@ -1229,7 +1229,7 @@ func TestRun_IncrementalReview_VersionErrorFallback(t *testing.T) {
 func TestRun_IncrementalReview_CompareErrorFallback(t *testing.T) {
 	allDiffs := makeTestDiffs("main.go", "util.go")
 
-	cfg := &config.Config{
+	cfg := &config.Config{NoCache: true,
 		CIMode:           true,
 		Model:            "gemini-2.5-flash",
 		ChunkStrategy:    config.ChunkStrategyFail,
