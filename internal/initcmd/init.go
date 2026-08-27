@@ -191,25 +191,32 @@ extra_rules: |
 `))
 
 // writeConfig renders the template to a temp file and renames it into place.
-func writeConfig(cfg Config) error {
+func writeConfig(cfg Config) (retErr error) {
 	dir := filepath.Dir(configFileName)
 	tmp, err := os.CreateTemp(dir, ".code-reviewer.yaml.tmp.*")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
 	}
 	tmpName := tmp.Name()
+	closed := false
+
+	defer func() {
+		if !closed {
+			_ = tmp.Close() //nolint:errcheck // best-effort cleanup
+		}
+		if retErr != nil {
+			_ = os.Remove(tmpName) //nolint:errcheck // best-effort cleanup
+		}
+	}()
 
 	if err := configTemplate.Execute(tmp, cfg); err != nil {
-		tmp.Close()
-		os.Remove(tmpName)
 		return fmt.Errorf("writing config: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName)
 		return fmt.Errorf("closing temp file: %w", err)
 	}
+	closed = true
 	if err := os.Rename(tmpName, configFileName); err != nil {
-		os.Remove(tmpName)
 		return fmt.Errorf("renaming config: %w", err)
 	}
 	return nil
