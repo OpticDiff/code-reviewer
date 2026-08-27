@@ -29,19 +29,19 @@ type Entry struct {
 
 func DiffHash(d diff.FileDiff) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s:%s\n%s", d.OldPath, d.NewPath, d.RawText())
+	_, _ = fmt.Fprintf(h, "%s:%s\n%s", d.OldPath, d.NewPath, d.RawText())
 	return hex.EncodeToString(h.Sum(nil))
 }
 
 func PromptHash(customPrompt string, focus []string, extraRules string, formattedRules string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s:%s:%s:%s", customPrompt, strings.Join(focus, ","), extraRules, formattedRules)
+	_, _ = fmt.Fprintf(h, "%s:%s:%s:%s", customPrompt, strings.Join(focus, ","), extraRules, formattedRules)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
 func CacheKey(diffHash, model, promptHash string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s:%s:%s:%s", diffHash, model, promptHash, SchemaVersion)
+	_, _ = fmt.Fprintf(h, "%s:%s:%s:%s", diffHash, model, promptHash, SchemaVersion)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

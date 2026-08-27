@@ -113,8 +113,12 @@ func TestClearAndStats(t *testing.T) {
 		t.Errorf("Expected 0 entries, got %d", entries)
 	}
 
-	c.Store("key111", cache.Entry{})
-	c.Store("key222", cache.Entry{})
+	if err := c.Store("key111", cache.Entry{}); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+	if err := c.Store("key222", cache.Entry{}); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
 
 	// Stats populated
 	entries, _, _, err = c.Stats()
@@ -154,7 +158,9 @@ func TestPartition(t *testing.T) {
 
 	dh1 := cache.DiffHash(d1)
 	key1 := cache.CacheKey(dh1, "model", "ph")
-	c.Store(key1, cache.Entry{Findings: []model.Finding{{Title: "cached finding"}}})
+	if err := c.Store(key1, cache.Entry{Findings: []model.Finding{{Title: "cached finding"}}}); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
 
 	diffs := []diff.FileDiff{d1, d2}
 	uncached, cachedFindings, cacheKeys := cache.Partition(diffs, c, "model", "ph")
