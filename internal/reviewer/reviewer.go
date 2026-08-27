@@ -266,7 +266,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, extraRules, intentContext)
 	var summary string
-	
+
 	budgetExceeded := false
 	anyTruncated := false
 

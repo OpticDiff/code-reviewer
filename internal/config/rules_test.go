@@ -17,6 +17,25 @@ func TestRule_Validate_Valid(t *testing.T) {
 	}
 }
 
+func TestRule_Validate_CaseInsensitive(t *testing.T) {
+	r := Rule{
+		Name:        "test-rule",
+		Description: "Some rule",
+		Category:    "Security",
+		Severity:    "HIGH",
+	}
+	if err := r.Validate(); err != nil {
+		t.Errorf("unexpected error for mixed case: %v", err)
+	}
+	// Should be normalized to lowercase.
+	if r.Category != "security" {
+		t.Errorf("expected category normalized to 'security', got %q", r.Category)
+	}
+	if r.Severity != "high" {
+		t.Errorf("expected severity normalized to 'high', got %q", r.Severity)
+	}
+}
+
 func TestRule_Validate_MinimalFields(t *testing.T) {
 	r := Rule{
 		Name:        "check-errors",

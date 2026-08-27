@@ -30,8 +30,8 @@ type Rule struct {
 	Paths []string `yaml:"paths,omitempty"`
 }
 
-// ValidRuleCategories are the allowed rule categories.
-var ValidRuleCategories = map[string]bool{
+// validRuleCategories are the allowed rule categories.
+var validRuleCategories = map[string]bool{
 	"bug":         true,
 	"security":    true,
 	"performance": true,
@@ -40,8 +40,8 @@ var ValidRuleCategories = map[string]bool{
 	"custom":      true,
 }
 
-// ValidRuleSeverities are the allowed rule severities.
-var ValidRuleSeverities = map[string]bool{
+// validRuleSeverities are the allowed rule severities.
+var validRuleSeverities = map[string]bool{
 	"low":      true,
 	"medium":   true,
 	"high":     true,
@@ -56,12 +56,15 @@ func (r *Rule) Validate() error {
 	if r.Description == "" {
 		return fmt.Errorf("rule %q missing required field: description", r.Name)
 	}
-	if r.Category != "" && !ValidRuleCategories[r.Category] {
+	if r.Category != "" && !validRuleCategories[strings.ToLower(r.Category)] {
 		return fmt.Errorf("rule %q has invalid category %q (valid: bug, security, performance, style, docs, custom)", r.Name, r.Category)
 	}
-	if r.Severity != "" && !ValidRuleSeverities[r.Severity] {
+	if r.Severity != "" && !validRuleSeverities[strings.ToLower(r.Severity)] {
 		return fmt.Errorf("rule %q has invalid severity %q (valid: low, medium, high, critical)", r.Name, r.Severity)
 	}
+	// Normalize to lowercase for consistent prompt formatting.
+	r.Category = strings.ToLower(r.Category)
+	r.Severity = strings.ToLower(r.Severity)
 	return nil
 }
 
