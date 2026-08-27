@@ -164,6 +164,9 @@ type Config struct {
 	// Scope enforcement.
 	MaxFiles    int
 	ScopeAction string
+
+	// Custom rules.
+	Rules []Rule
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -189,6 +192,7 @@ type repoConfig struct {
 	UpdateDescription        *bool    `yaml:"update_description"`
 	IntentReview             *bool    `yaml:"intent_review"`
 	AutoApprove              *bool    `yaml:"auto_approve"`
+	Rules                    []Rule   `yaml:"rules"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -387,6 +391,12 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	}
 	if rc.AutoApprove != nil {
 		c.AutoApprove = *rc.AutoApprove
+	}
+	if len(rc.Rules) > 0 {
+		if err := ValidateRules(rc.Rules); err != nil {
+			return fmt.Errorf("invalid config: %w", err)
+		}
+		c.Rules = rc.Rules
 	}
 	return nil
 }
