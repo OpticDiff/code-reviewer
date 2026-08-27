@@ -127,10 +127,16 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 			ruleID = "general"
 		}
 
-		ruleIdx, ok := ruleMap[ruleID]
+		// Dedup key includes severity level so that findings with the same
+		// category but different severities get separate rule entries with
+		// correct security-severity scores.
+		level := sarifLevel(f.Severity)
+		ruleKey := ruleID + ":" + level
+
+		ruleIdx, ok := ruleMap[ruleKey]
 		if !ok {
 			ruleIdx = len(rules)
-			ruleMap[ruleID] = ruleIdx
+			ruleMap[ruleKey] = ruleIdx
 
 			props := make(map[string]interface{})
 			if secSev := getSecuritySeverity(f.Severity); secSev != "" {
@@ -144,7 +150,7 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 				ShortDescription: sarifMessage{Text: ruleID},
 				FullDescription:  &sarifMessage{Text: titleCase(ruleID) + " issue"},
 				Help:             &sarifMessage{Text: "Please review the finding details."},
-				DefaultConfig:    &sarifRuleConfig{Level: sarifLevel(f.Severity)},
+				DefaultConfig:    &sarifRuleConfig{Level: level},
 				Properties:       props,
 			})
 		}
@@ -159,20 +165,30 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 			region.EndLine = f.EndLine
 		}
 
-		msgText := f.Title + "\n\n" + f.Body
+		// SARIF requires message.text to be plain text.
+		// Markdown formatting goes only in message.markdown.
+		plainText := f.Title + "\n\n" + f.Body
 		if f.Suggestion != "" {
-			msgText += fmt.Sprintf("\n\n**Suggested fix:**\n```suggestion\n%s\n```", f.Suggestion)
+			plainText += "\n\nSuggested fix:\n" + f.Suggestion
+		}
+		var markdown string
+		if f.Suggestion != "" {
+			markdown = f.Title + "\n\n" + f.Body +
+				fmt.Sprintf("\n\n**Suggested fix:**\n```suggestion\n%s\n```", f.Suggestion)
 		}
 
-		hashInput := fmt.Sprintf("%s:%d:%s:%s", f.File, line, ruleID, f.Title)
+		// Fingerprint uses only stable data: file path and ruleID.
+		// Excludes line number (shifts on unrelated edits) and model-generated
+		// title (wording can change between runs).
+		hashInput := fmt.Sprintf("%s:%s", f.File, ruleID)
 		hashBytes := sha256.Sum256([]byte(hashInput))
 		hashHex := fmt.Sprintf("%x", hashBytes)[:16]
 
 		results = append(results, sarifResult{
 			RuleID:    ruleID,
 			RuleIndex: ruleIdx,
-			Level:     sarifLevel(f.Severity),
-			Message:   sarifMessage{Text: msgText, Markdown: msgText},
+			Level:     level,
+			Message:   sarifMessage{Text: plainText, Markdown: markdown},
 			Locations: []sarifLocation{{
 				PhysicalLocation: sarifPhysicalLocation{
 					ArtifactLocation: sarifArtifactLocation{URI: f.File},

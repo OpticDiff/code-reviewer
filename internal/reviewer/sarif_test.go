@@ -37,38 +37,39 @@ func TestBuildSARIF(t *testing.T) {
 		t.Errorf("expected tool version 1.2.3, got %s", run.Tool.Driver.Version)
 	}
 
-	// 2 unique categories: security, style
-	if len(run.Tool.Driver.Rules) != 2 {
-		t.Errorf("expected 2 rules, got %d", len(run.Tool.Driver.Rules))
+	// 3 rules: security:error (CRITICAL), style:note (LOW), security:warning (MEDIUM)
+	// Same category with different severity levels creates separate rules.
+	if len(run.Tool.Driver.Rules) != 3 {
+		t.Errorf("expected 3 rules (severity-aware dedup), got %d", len(run.Tool.Driver.Rules))
 	}
 
 	if len(run.Results) != 3 {
 		t.Fatalf("expected 3 results, got %d", len(run.Results))
 	}
 
-	// Check security-severity property
-	rulesMap := make(map[string]sarifRule)
-	for _, r := range run.Tool.Driver.Rules {
-		rulesMap[r.ID] = r
+	// Check security-severity property on first security rule (CRITICAL → 9.5).
+	firstSecRule := run.Tool.Driver.Rules[0]
+	if firstSecRule.ID != "security" {
+		t.Errorf("expected first rule ID 'security', got %s", firstSecRule.ID)
 	}
-	if secRule, ok := rulesMap["security"]; ok {
-		if secRule.Properties["security-severity"] != "9.5" {
-			t.Errorf("expected security-severity 9.5 for CRITICAL, got %v", secRule.Properties["security-severity"])
-		}
-		tags, ok := secRule.Properties["tags"].([]string)
-		if !ok || len(tags) == 0 || tags[0] != "security" {
-			t.Errorf("expected tags [security], got %v", secRule.Properties["tags"])
-		}
-	} else {
-		t.Errorf("expected security rule")
+	if firstSecRule.Properties["security-severity"] != "9.5" {
+		t.Errorf("expected security-severity 9.5 for CRITICAL, got %v", firstSecRule.Properties["security-severity"])
+	}
+	tags, ok := firstSecRule.Properties["tags"].([]string)
+	if !ok || len(tags) == 0 || tags[0] != "security" {
+		t.Errorf("expected tags [security], got %v", firstSecRule.Properties["tags"])
 	}
 
-	// Check suggestion in message text
-	if !strings.Contains(run.Results[0].Message.Text, "**Suggested fix:**") {
-		t.Errorf("expected message to contain suggestion markdown, got: %s", run.Results[0].Message.Text)
+	// Check message.text is plain text (no markdown formatting).
+	if strings.Contains(run.Results[0].Message.Text, "**Suggested fix:**") {
+		t.Errorf("message.text should be plain text, got markdown: %s", run.Results[0].Message.Text)
 	}
+	if !strings.Contains(run.Results[0].Message.Text, "Suggested fix:") {
+		t.Errorf("expected plain text suggestion in message.text")
+	}
+	// Check suggestion in message.markdown.
 	if !strings.Contains(run.Results[0].Message.Markdown, "**Suggested fix:**") {
-		t.Errorf("expected markdown to contain suggestion markdown")
+		t.Errorf("expected markdown suggestion in message.markdown")
 	}
 
 	// Check EndLine
@@ -100,15 +101,15 @@ func TestBuildSARIF(t *testing.T) {
 		t.Error("expected line 0 to be clamped to 1")
 	}
 
-	// Check ruleIndex
+	// Check ruleIndex — each severity level gets its own rule.
 	if run.Results[0].RuleIndex != 0 {
-		t.Errorf("expected ruleIndex 0 for security finding 1, got %d", run.Results[0].RuleIndex)
+		t.Errorf("expected ruleIndex 0 for CRITICAL security, got %d", run.Results[0].RuleIndex)
 	}
 	if run.Results[1].RuleIndex != 1 {
-		t.Errorf("expected ruleIndex 1 for style finding, got %d", run.Results[1].RuleIndex)
+		t.Errorf("expected ruleIndex 1 for LOW style, got %d", run.Results[1].RuleIndex)
 	}
-	if run.Results[2].RuleIndex != 0 {
-		t.Errorf("expected ruleIndex 0 for security finding 2, got %d", run.Results[2].RuleIndex)
+	if run.Results[2].RuleIndex != 2 {
+		t.Errorf("expected ruleIndex 2 for MEDIUM security, got %d", run.Results[2].RuleIndex)
 	}
 
 	// Check partialFingerprints
