@@ -255,13 +255,19 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
 	}
 
-	// Combine extra_rules with formatted custom rules.
+	// Filter custom rules by changed file paths, then format into prompt.
+	reviewFilePaths := make([]string, len(diffs))
+	for i, d := range diffs {
+		reviewFilePaths[i] = d.NewPath
+	}
+	applicableRules := config.FilterRulesByPaths(r.cfg.Rules, reviewFilePaths)
 	extraRules := r.cfg.ExtraRules
-	if rulesPrompt := config.FormatRulesPrompt(r.cfg.Rules); rulesPrompt != "" {
+	if rulesPrompt := config.FormatRulesPrompt(applicableRules); rulesPrompt != "" {
 		if extraRules != "" {
 			extraRules += "\n\n"
 		}
 		extraRules += rulesPrompt
+		slog.Info(fmt.Sprintf("applying %d/%d custom rules", len(applicableRules), len(r.cfg.Rules)))
 	}
 
 	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, extraRules, intentContext)

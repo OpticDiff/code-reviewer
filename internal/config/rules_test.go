@@ -267,3 +267,94 @@ rules:
 		t.Fatalf("expected 2 paths, got %d", len(cfg.Rules[0].Paths))
 	}
 }
+
+func TestFilterRulesByPaths_NilRules(t *testing.T) {
+	result := FilterRulesByPaths(nil, []string{"foo.go"})
+	if result != nil {
+		t.Errorf("expected nil, got %v", result)
+	}
+}
+
+func TestFilterRulesByPaths_AllGlobal(t *testing.T) {
+	rules := []Rule{
+		{Name: "r1", Description: "d1"},
+		{Name: "r2", Description: "d2"},
+	}
+	result := FilterRulesByPaths(rules, []string{"anything.py"})
+	if len(result) != 2 {
+		t.Errorf("expected 2 rules (no path restriction), got %d", len(result))
+	}
+}
+
+func TestFilterRulesByPaths_MatchByExtension(t *testing.T) {
+	rules := []Rule{
+		{Name: "go-rule", Description: "d", Paths: []string{"*.go"}},
+		{Name: "py-rule", Description: "d", Paths: []string{"*.py"}},
+	}
+	result := FilterRulesByPaths(rules, []string{"internal/config/config.go"})
+	if len(result) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(result))
+	}
+	if result[0].Name != "go-rule" {
+		t.Errorf("expected go-rule, got %s", result[0].Name)
+	}
+}
+
+func TestFilterRulesByPaths_MatchByDirectory(t *testing.T) {
+	rules := []Rule{
+		{Name: "internal-rule", Description: "d", Paths: []string{"internal/*.go"}},
+	}
+	result := FilterRulesByPaths(rules, []string{"internal/foo.go"})
+	if len(result) != 1 {
+		t.Errorf("expected 1 rule for internal/*.go match, got %d", len(result))
+	}
+}
+
+func TestFilterRulesByPaths_NoMatch(t *testing.T) {
+	rules := []Rule{
+		{Name: "ts-rule", Description: "d", Paths: []string{"*.ts", "*.tsx"}},
+	}
+	result := FilterRulesByPaths(rules, []string{"main.go", "config.yaml"})
+	if len(result) != 0 {
+		t.Errorf("expected 0 rules, got %d", len(result))
+	}
+}
+
+func TestFilterRulesByPaths_MixedGlobalAndScoped(t *testing.T) {
+	rules := []Rule{
+		{Name: "global", Description: "d"},
+		{Name: "go-only", Description: "d", Paths: []string{"*.go"}},
+		{Name: "js-only", Description: "d", Paths: []string{"*.js"}},
+	}
+	result := FilterRulesByPaths(rules, []string{"main.go"})
+	if len(result) != 2 {
+		t.Fatalf("expected 2 rules (global + go-only), got %d", len(result))
+	}
+	names := make(map[string]bool)
+	for _, r := range result {
+		names[r.Name] = true
+	}
+	if !names["global"] || !names["go-only"] {
+		t.Errorf("expected global and go-only, got %v", names)
+	}
+}
+
+func TestFilterRulesByPaths_MultiplePatterns(t *testing.T) {
+	rules := []Rule{
+		{Name: "web-rule", Description: "d", Paths: []string{"*.tsx", "*.jsx", "*.css"}},
+	}
+	result := FilterRulesByPaths(rules, []string{"app.tsx"})
+	if len(result) != 1 {
+		t.Errorf("expected 1 rule (matched *.tsx), got %d", len(result))
+	}
+}
+
+func TestFilterRulesByPaths_EmptyFiles(t *testing.T) {
+	rules := []Rule{
+		{Name: "r1", Description: "d", Paths: []string{"*.go"}},
+	}
+	result := FilterRulesByPaths(rules, nil)
+	if len(result) != 0 {
+		t.Errorf("expected 0 rules for empty files, got %d", len(result))
+	}
+}

@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -121,4 +122,44 @@ func FormatRulesPrompt(rules []Rule) string {
 	}
 
 	return sb.String()
+}
+
+// FilterRulesByPaths returns only rules that apply to the given file paths.
+// Rules with empty Paths match all files. Rules with Paths match if any
+// file path matches any of the rule's glob patterns.
+func FilterRulesByPaths(rules []Rule, filePaths []string) []Rule {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	var result []Rule
+	for _, r := range rules {
+		if len(r.Paths) == 0 {
+			// No path restriction — applies to all files.
+			result = append(result, r)
+			continue
+		}
+		if ruleMatchesAnyFile(r.Paths, filePaths) {
+			result = append(result, r)
+		}
+	}
+	return result
+}
+
+// ruleMatchesAnyFile checks if any file path matches any of the glob patterns.
+func ruleMatchesAnyFile(patterns, filePaths []string) bool {
+	for _, fp := range filePaths {
+		base := filepath.Base(fp)
+		for _, pattern := range patterns {
+			// Match against both full path and basename to support
+			// patterns like "*.go" (basename) and "internal/*.go" (path).
+			if matched, _ := filepath.Match(pattern, fp); matched {
+				return true
+			}
+			if matched, _ := filepath.Match(pattern, base); matched {
+				return true
+			}
+		}
+	}
+	return false
 }
