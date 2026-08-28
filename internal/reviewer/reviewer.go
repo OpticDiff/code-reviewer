@@ -209,10 +209,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
 		promptHash := cache.PromptHash(r.cfg.CustomPrompt, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules))
-		diffs, cachedFindings, cacheKeys = cache.Partition(diffs, r.cache, r.cfg.Model, promptHash)
-		if len(cachedFindings) > 0 {
-			cacheHits = len(cachedFindings)
-			slog.Info("cache", "hits", len(cachedFindings), "uncached_files", len(diffs))
+		diffs, cachedFindings, cacheHits, cacheKeys = cache.Partition(diffs, r.cache, r.cfg.Model, promptHash)
+		if cacheHits > 0 {
+			slog.Info("cache", "hits", cacheHits, "cached_findings", len(cachedFindings), "uncached_files", len(diffs))
 		}
 	}
 

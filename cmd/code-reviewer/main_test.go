@@ -96,3 +96,78 @@ func TestRun_NoInputMode(t *testing.T) {
 	}
 }
 
+func TestRunCache_NoArgs(t *testing.T) {
+	err := runCache(nil)
+	if err == nil {
+		t.Fatal("expected error for no args")
+	}
+	if !strings.Contains(err.Error(), "usage:") {
+		t.Errorf("expected usage message, got: %v", err)
+	}
+}
+
+func TestRunCache_UnknownSubcommand(t *testing.T) {
+	dir := t.TempDir()
+	err := runCache([]string{"--cache-dir", dir, "nope"})
+	if err == nil {
+		t.Fatal("expected error for unknown subcommand")
+	}
+	if !strings.Contains(err.Error(), "unknown cache command") {
+		t.Errorf("expected 'unknown cache command', got: %v", err)
+	}
+}
+
+func TestRunCache_Stats_Empty(t *testing.T) {
+	dir := t.TempDir()
+	err := runCache([]string{"stats", "--cache-dir", dir})
+	if err != nil {
+		t.Fatalf("stats on empty cache should succeed, got: %v", err)
+	}
+}
+
+func TestRunCache_Clear_Empty(t *testing.T) {
+	dir := t.TempDir()
+	err := runCache([]string{"clear", "--cache-dir", dir})
+	if err != nil {
+		t.Fatalf("clear on empty cache should succeed, got: %v", err)
+	}
+}
+
+func TestRunCache_CacheDirEquals(t *testing.T) {
+	dir := t.TempDir()
+	err := runCache([]string{"stats", "--cache-dir=" + dir})
+	if err != nil {
+		t.Fatalf("--cache-dir=path should work, got: %v", err)
+	}
+}
+
+func TestRunCache_CacheDirMissingValue(t *testing.T) {
+	err := runCache([]string{"--cache-dir"})
+	if err == nil {
+		t.Fatal("expected error for --cache-dir without value")
+	}
+	if !strings.Contains(err.Error(), "requires a value") {
+		t.Errorf("expected 'requires a value', got: %v", err)
+	}
+}
+
+func TestRunCache_UnknownFlag(t *testing.T) {
+	err := runCache([]string{"clear", "--verbose"})
+	if err == nil {
+		t.Fatal("expected error for unknown flag")
+	}
+	if !strings.Contains(err.Error(), "unknown cache flag") {
+		t.Errorf("expected 'unknown cache flag', got: %v", err)
+	}
+}
+
+func TestRunCache_ExtraArgs(t *testing.T) {
+	dir := t.TempDir()
+	err := runCache([]string{"clear", "--cache-dir", dir, "extra"})
+	if err == nil {
+		t.Fatal("expected error for extra argument")
+	}
+	if !strings.Contains(err.Error(), "unexpected cache argument") {
+		t.Errorf("expected 'unexpected cache argument', got: %v", err)
+	}
+}

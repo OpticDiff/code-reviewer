@@ -224,13 +224,20 @@ func runCache(args []string) error {
 	var cacheDir string
 	var subCmd string
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--cache-dir" && i+1 < len(args) {
+		if args[i] == "--cache-dir" {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return fmt.Errorf("--cache-dir requires a value")
+			}
 			cacheDir = args[i+1]
 			i++
 		} else if strings.HasPrefix(args[i], "--cache-dir=") {
 			cacheDir = strings.TrimPrefix(args[i], "--cache-dir=")
-		} else if subCmd == "" && !strings.HasPrefix(args[i], "-") {
+		} else if strings.HasPrefix(args[i], "-") {
+			return fmt.Errorf("unknown cache flag: %q", args[i])
+		} else if subCmd == "" {
 			subCmd = args[i]
+		} else {
+			return fmt.Errorf("unexpected cache argument: %q", args[i])
 		}
 	}
 
