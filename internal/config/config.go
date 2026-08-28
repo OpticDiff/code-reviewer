@@ -119,6 +119,7 @@ type Config struct {
 	OutputJSON  bool
 	NoColor     bool   // Disable ANSI color output.
 	SARIFOutput string // Path to write SARIF 2.1.0 output file.
+	SASTOutput  string // Path to write GitLab SAST report.
 	AuditLog    string // Path to write JSONL audit log.
 	ProxyURL    string // Optional: LLM proxy URL for observability (e.g., Candela).
 	UpdateDescription bool
@@ -189,6 +190,7 @@ type repoConfig struct {
 	ExcludedPatterns []string `yaml:"excluded_patterns"`
 	ExtraRules       string   `yaml:"extra_rules"`
 	OutputJSON       bool     `yaml:"output_json"`
+	SASTOutput       string   `yaml:"sast_output"`
 	AuditLog                 string   `yaml:"audit_log"`
 	CustomPrompt             string   `yaml:"custom_prompt"`
 	ProxyURL                 string   `yaml:"proxy_url"`
@@ -376,6 +378,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.OutputJSON {
 		c.OutputJSON = true
 	}
+	if rc.SASTOutput != "" {
+		c.SASTOutput = rc.SASTOutput
+	}
 	if rc.AuditLog != "" {
 		c.AuditLog = rc.AuditLog
 	}
@@ -488,6 +493,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("SARIF_OUTPUT"); v != "" {
 		c.SARIFOutput = v
 	}
+	if v := os.Getenv("SAST_OUTPUT"); v != "" {
+		c.SASTOutput = v
+	}
 	if v := os.Getenv("REVIEW_AUDIT_LOG"); v != "" {
 		c.AuditLog = v
 	}
@@ -568,6 +576,7 @@ func (c *Config) loadFlags() error {
 	customPrompt := fs.String("custom-prompt", "", "Path to a custom system prompt file")
 	noColor := fs.Bool("no-color", false, "Disable ANSI color output")
 	sarifOutput := fs.String("sarif", "", "Write SARIF 2.1.0 output to the given file path")
+	sastOutput := fs.String("sast", "", "Write GitLab SAST report to the given file path")
 	auditLog := fs.String("audit-log", "", "Write structured JSONL audit log to file")
 	models := fs.String("models", "", "Comma-separated list of models for consensus review")
 	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
@@ -649,6 +658,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *sarifOutput != "" {
 		c.SARIFOutput = *sarifOutput
+	}
+	if *sastOutput != "" {
+		c.SASTOutput = *sastOutput
 	}
 	if *auditLog != "" {
 		c.AuditLog = *auditLog
