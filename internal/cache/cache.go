@@ -162,7 +162,7 @@ func (c *Cache) Stats() (entries int, totalBytes int64, oldestTime time.Time, er
 	return
 }
 
-func Partition(diffs []diff.FileDiff, c *Cache, model, promptHash string) (uncached []diff.FileDiff, cachedFindings []model.Finding, cacheKeys map[string]string) {
+func Partition(diffs []diff.FileDiff, c *Cache, model, promptHash string) (uncached []diff.FileDiff, cachedFindings []model.Finding, cacheHits int, cacheKeys map[string]string) {
 	cacheKeys = make(map[string]string)
 	for _, d := range diffs {
 		dh := DiffHash(d)
@@ -172,10 +172,11 @@ func Partition(diffs []diff.FileDiff, c *Cache, model, promptHash string) (uncac
 		if c != nil {
 			if entry, ok := c.Lookup(key); ok {
 				cachedFindings = append(cachedFindings, entry.Findings...)
+				cacheHits++
 				continue
 			}
 		}
 		uncached = append(uncached, d)
 	}
-	return uncached, cachedFindings, cacheKeys
+	return uncached, cachedFindings, cacheHits, cacheKeys
 }

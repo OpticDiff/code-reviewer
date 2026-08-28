@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/OpticDiff/code-reviewer/internal/cache"
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	ctxpkg "github.com/OpticDiff/code-reviewer/internal/context"
 	gh "github.com/OpticDiff/code-reviewer/internal/github"
@@ -43,6 +44,14 @@ func main() {
 	// Handle "init" subcommand — interactive config generator.
 	if len(os.Args) >= 2 && os.Args[1] == "init" {
 		if err := runInit(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
+
+	if len(os.Args) >= 2 && os.Args[1] == "cache" {
+		if err := runCache(os.Args[2:]); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -209,4 +218,75 @@ func runInit(args []string) error {
 		}
 	}
 	return initcmd.Run(opts)
+}
+
+func runCache(args []string) error {
+	var cacheDir string
+	var subCmd string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--cache-dir" {
+			if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+				return fmt.Errorf("--cache-dir requires a value")
+			}
+			cacheDir = args[i+1]
+			i++
+		} else if strings.HasPrefix(args[i], "--cache-dir=") {
+			cacheDir = strings.TrimPrefix(args[i], "--cache-dir=")
+		} else if strings.HasPrefix(args[i], "-") {
+			return fmt.Errorf("unknown cache flag: %q", args[i])
+		} else if subCmd == "" {
+			subCmd = args[i]
+		} else {
+			return fmt.Errorf("unexpected cache argument: %q", args[i])
+		}
+	}
+
+	if cacheDir == "" {
+		cacheDir = os.Getenv("REVIEW_CACHE_DIR")
+	}
+
+	if subCmd == "" {
+		return fmt.Errorf("usage: code-reviewer cache <clear|stats>")
+	}
+
+	c, err := cache.New(cacheDir, 0)
+	if err != nil {
+		return fmt.Errorf("initializing cache: %w", err)
+	}
+
+	switch subCmd {
+	case "clear":
+		if err := c.Clear(); err != nil {
+			return fmt.Errorf("clearing cache: %w", err)
+		}
+		fmt.Println("Cache cleared.")
+		return nil
+	case "stats":
+		entries, size, oldest, err := c.Stats()
+		if err != nil {
+			return fmt.Errorf("getting cache stats: %w", err)
+		}
+		fmt.Printf("Cache directory: %s\n", c.Dir)
+		fmt.Printf("Entries:         %d\n", entries)
+		fmt.Printf("Total size:      %s\n", formatSize(size))
+		if entries > 0 {
+			fmt.Printf("Oldest entry:    %s\n", oldest.Format("2006-01-02 15:04:05"))
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown cache command: %q (valid: clear, stats)", subCmd)
+	}
+}
+
+func formatSize(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }

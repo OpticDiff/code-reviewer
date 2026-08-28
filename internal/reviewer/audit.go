@@ -23,13 +23,14 @@ type AuditEntry struct {
 	FilesSkipped   []string           `json:"files_skipped,omitempty"`
 	FindingsCount  int                `json:"findings_count"`
 	DedupedCount   int                `json:"deduped_count,omitempty"`
+	CacheHits      int                `json:"cache_hits,omitempty"`
 	SeverityCounts map[string]int     `json:"severity_counts"`
 	Usage          *model.TokenUsage  `json:"usage,omitempty"`
 	Incremental    bool               `json:"incremental,omitempty"`
 }
 
 // buildAuditEntry constructs an AuditEntry from the review run data.
-func buildAuditEntry(cfg *config.Config, diffs []diff.FileDiff, skippedFiles []string, findings []model.Finding, dedupedCount int, usage *model.TokenUsage, duration time.Duration) AuditEntry {
+func buildAuditEntry(cfg *config.Config, diffs []diff.FileDiff, skippedFiles []string, findings []model.Finding, dedupedCount, cacheHits int, usage *model.TokenUsage, duration time.Duration) AuditEntry {
 	files := make([]string, 0, len(diffs))
 	for _, d := range diffs {
 		path := d.NewPath
@@ -53,6 +54,7 @@ func buildAuditEntry(cfg *config.Config, diffs []diff.FileDiff, skippedFiles []s
 		FilesSkipped:   skippedFiles,
 		FindingsCount:  len(findings),
 		DedupedCount:   dedupedCount,
+		CacheHits:      cacheHits,
 		SeverityCounts: severityCounts,
 		Incremental:    cfg.Incremental,
 	}

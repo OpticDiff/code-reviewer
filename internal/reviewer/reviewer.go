@@ -80,6 +80,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var allFindings []model.Finding
 	var totalUsage model.TokenUsage
 	var dedupedCount int
+	var cacheHits int
 
 	start := time.Now()
 
@@ -88,7 +89,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		if r.cfg.AuditLog == "" {
 			return
 		}
-		entry := buildAuditEntry(r.cfg, diffs, skippedFiles, allFindings, dedupedCount, &totalUsage, time.Since(start))
+		entry := buildAuditEntry(r.cfg, diffs, skippedFiles, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -208,9 +209,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
 		promptHash := cache.PromptHash(r.cfg.CustomPrompt, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules))
-		diffs, cachedFindings, cacheKeys = cache.Partition(diffs, r.cache, r.cfg.Model, promptHash)
-		if len(cachedFindings) > 0 {
-			slog.Info("cache", "hits", len(cachedFindings), "uncached_files", len(diffs))
+		diffs, cachedFindings, cacheHits, cacheKeys = cache.Partition(diffs, r.cache, r.cfg.Model, promptHash)
+		if cacheHits > 0 {
+			slog.Info("cache", "hits", cacheHits, "cached_findings", len(cachedFindings), "uncached_files", len(diffs))
 		}
 	}
 

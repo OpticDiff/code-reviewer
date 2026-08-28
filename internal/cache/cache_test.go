@@ -163,7 +163,7 @@ func TestPartition(t *testing.T) {
 	}
 
 	diffs := []diff.FileDiff{d1, d2}
-	uncached, cachedFindings, cacheKeys := cache.Partition(diffs, c, "model", "ph")
+	uncached, cachedFindings, hits, cacheKeys := cache.Partition(diffs, c, "model", "ph")
 
 	if len(uncached) != 1 || uncached[0].NewPath != "miss.go" {
 		t.Errorf("Expected 1 uncached (miss.go), got %v", uncached)
@@ -171,7 +171,39 @@ func TestPartition(t *testing.T) {
 	if len(cachedFindings) != 1 || cachedFindings[0].Title != "cached finding" {
 		t.Errorf("Expected 1 cached finding, got %v", cachedFindings)
 	}
+	if hits != 1 {
+		t.Errorf("Expected 1 cache hit, got %d", hits)
+	}
 	if len(cacheKeys) != 2 {
 		t.Errorf("Expected 2 cache keys, got %d", len(cacheKeys))
+	}
+}
+
+func TestPartition_ZeroFindingsEntry(t *testing.T) {
+	dir := t.TempDir()
+	c, err := cache.New(dir, time.Hour)
+	if err != nil {
+		t.Fatalf("failed to create cache: %v", err)
+	}
+
+	d1 := diff.FileDiff{NewPath: "clean.go"}
+	d1.Hunks = append(d1.Hunks, diff.Hunk{Lines: []diff.DiffLine{{Type: diff.LineAdded, Content: "clean"}}})
+
+	// Store an entry with zero findings (clean file).
+	dh := cache.DiffHash(d1)
+	key := cache.CacheKey(dh, "model", "ph")
+	if err := c.Store(key, cache.Entry{Findings: nil}); err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	uncached, cachedFindings, hits, _ := cache.Partition([]diff.FileDiff{d1}, c, "model", "ph")
+	if len(uncached) != 0 {
+		t.Errorf("Expected 0 uncached, got %d", len(uncached))
+	}
+	if len(cachedFindings) != 0 {
+		t.Errorf("Expected 0 cached findings, got %d", len(cachedFindings))
+	}
+	if hits != 1 {
+		t.Errorf("Expected 1 cache hit (clean file), got %d", hits)
 	}
 }
