@@ -85,11 +85,18 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	start := time.Now()
 
 	// Deferred audit log: writes one record per run regardless of exit path.
+	// auditDiffs captures all files for audit (including cached) before
+	// cache.Partition overwrites diffs with only uncached files.
+	var auditDiffs []diff.FileDiff
 	defer func() {
 		if r.cfg.AuditLog == "" {
 			return
 		}
-		entry := buildAuditEntry(r.cfg, diffs, skippedFiles, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
+		d := auditDiffs
+		if d == nil {
+			d = diffs
+		}
+		entry := buildAuditEntry(r.cfg, d, skippedFiles, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -205,6 +212,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 
 	// Step 2e: Cache lookup.
+	// Snapshot diffs for audit before Partition filters to uncached only.
+	auditDiffs = make([]diff.FileDiff, len(diffs))
+	copy(auditDiffs, diffs)
 	var cachedFindings []model.Finding
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
