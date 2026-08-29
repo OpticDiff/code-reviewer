@@ -60,6 +60,12 @@ func TestRun_Defaults(t *testing.T) {
 	if !strings.Contains(content, "- all") {
 		t.Error("expected default focus 'all' in output")
 	}
+	if !strings.Contains(content, "rules:") {
+		t.Error("expected rules section in default output")
+	}
+	if !strings.Contains(content, "no-raw-sql") {
+		t.Error("expected example rule 'no-raw-sql' in default output")
+	}
 }
 
 func TestRun_ExistingFile(t *testing.T) {
@@ -201,5 +207,62 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.ChunkStrategy != "split" {
 		t.Errorf("expected split, got %s", cfg.ChunkStrategy)
+	}
+	if !cfg.IncludeRules {
+		t.Error("expected IncludeRules default to be true")
+	}
+}
+
+func TestWriteConfig_NoRules(t *testing.T) {
+	chdir(t, t.TempDir())
+	cfg := DefaultConfig()
+	cfg.IncludeRules = false
+	if err := writeConfig(cfg); err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+	data, err := os.ReadFile(configFileName)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	content := string(data)
+	if strings.Contains(content, "rules:") {
+		t.Error("expected no rules section when IncludeRules=false")
+	}
+
+	// Verify still valid YAML.
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("generated YAML is invalid: %v", err)
+	}
+}
+
+func TestWriteConfig_WithRules(t *testing.T) {
+	chdir(t, t.TempDir())
+	cfg := DefaultConfig()
+	cfg.IncludeRules = true
+	if err := writeConfig(cfg); err != nil {
+		t.Fatalf("writeConfig: %v", err)
+	}
+	data, err := os.ReadFile(configFileName)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	content := string(data)
+
+	expected := []string{"rules:", "no-raw-sql", "error-context", "todo-must-have-ticket",
+		"category: security", "severity: critical", "paths:"}
+	for _, s := range expected {
+		if !strings.Contains(content, s) {
+			t.Errorf("expected %q in rules output", s)
+		}
+	}
+
+	// Verify valid YAML with rules parsed.
+	var parsed map[string]interface{}
+	if err := yaml.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("generated YAML is invalid: %v", err)
+	}
+	if _, ok := parsed["rules"]; !ok {
+		t.Error("expected 'rules' key in parsed YAML")
 	}
 }
