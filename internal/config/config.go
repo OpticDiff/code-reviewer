@@ -120,6 +120,7 @@ type Config struct {
 	NoColor     bool   // Disable ANSI color output.
 	SARIFOutput string // Path to write SARIF 2.1.0 output file.
 	SASTOutput  string // Path to write GitLab SAST report.
+	Version     string // Tool version for SARIF/SAST reports.
 	AuditLog    string // Path to write JSONL audit log.
 	ProxyURL    string // Optional: LLM proxy URL for observability (e.g., Candela).
 	UpdateDescription bool

@@ -409,14 +409,14 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Step 7a: Write SARIF if requested (before posting to GitLab so it's not
 	// skipped when PostReview fails).
 	if r.cfg.SARIFOutput != "" {
-		if err := WriteSARIF(r.cfg.SARIFOutput, result, "dev"); err != nil {
+		if err := WriteSARIF(r.cfg.SARIFOutput, result, r.cfg.Version); err != nil {
 			return len(allFindings), fmt.Errorf("writing SARIF: %w", err)
 		}
 		slog.Info("SARIF output written", "path", r.cfg.SARIFOutput)
 	}
 
 	if r.cfg.SASTOutput != "" {
-		if err := WriteGitLabSAST(r.cfg.SASTOutput, "dev", result); err != nil {
+		if err := WriteGitLabSAST(r.cfg.SASTOutput, r.cfg.Version, result); err != nil {
 			return len(allFindings), fmt.Errorf("writing GitLab SAST: %w", err)
 		}
 		slog.Info("GitLab SAST output written", "path", r.cfg.SASTOutput)
