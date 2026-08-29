@@ -29,6 +29,7 @@ type Config struct {
 	ExtraRules       string
 	CommentMode      string
 	Platform         string // "github", "gitlab", or ""
+	IncludeRules     bool   // Include example custom rules in output.
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -42,7 +43,8 @@ func DefaultConfig() Config {
 		ExcludedPatterns: []string{
 			"go.sum", "*.lock", "vendor/*", "node_modules/*",
 		},
-		CommentMode: "notes",
+		CommentMode:  "notes",
+		IncludeRules: true,
 	}
 }
 
@@ -96,6 +98,9 @@ func Run(opts Options) error {
 		}
 
 		cfg.ExtraRules = prompt(reader, "Custom review rules (or press Enter to skip)", "")
+
+		rulesAnswer := prompt(reader, "Include example custom rules? (y/n)", "y")
+		cfg.IncludeRules = strings.ToLower(strings.TrimSpace(rulesAnswer)) == "y"
 
 		fmt.Println()
 	}
@@ -181,6 +186,37 @@ comment_mode: {{ .CommentMode }}
 # Custom review rules appended to the AI prompt
 extra_rules: |
   {{ .ExtraRules }}
+{{ end }}
+{{ if .IncludeRules }}
+# Custom rules — enforce team conventions via structured rules.
+# Each rule is injected into the AI prompt. Remove or edit to match your standards.
+rules:
+  - name: no-raw-sql
+    description: >
+      Flag any raw SQL string concatenation. Require parameterized queries
+      or the project's query builder.
+    category: security
+    severity: critical
+    paths:
+      - "**/*.go"
+      - "**/*.py"
+      - "**/*.ts"
+
+  - name: error-context
+    description: >
+      Errors must be wrapped with context using fmt.Errorf and %w, not
+      returned bare. Check that every error return adds caller context.
+    category: bug
+    severity: high
+    paths:
+      - "**/*.go"
+
+  - name: todo-must-have-ticket
+    description: >
+      TODO and FIXME comments must reference a ticket ID (e.g., TODO(PROJ-123)).
+      Flag any TODO/FIXME without a ticket reference.
+    category: style
+    severity: low
 {{ end }}
 # Additional options (uncomment to enable):
 # api_url: http://localhost:11434/v1    # OpenAI-compatible endpoint (Ollama, vLLM)
