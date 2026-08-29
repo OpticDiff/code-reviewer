@@ -535,12 +535,13 @@ The chunker interface is modular — custom strategies can be added.
 
 ## Caching
 
-code-reviewer caches review results per file diff, so unchanged files are never re-reviewed. This dramatically reduces API calls and latency on iterative PRs.
+code-reviewer caches review results per file diff, so unchanged files skip the LLM call on subsequent runs. This dramatically reduces API costs and latency on iterative PRs.
 
 **How it works:**
-- Each file diff is hashed (content + model + prompt + custom rules) → deterministic cache key
+- Each cache key includes the file diff, model, prompt inputs, custom rules, path metadata, and schema version
 - Cache hits return findings instantly without an LLM call
 - Entries expire after 7 days by default
+- Use `--no-cache` to force a fresh review
 
 **Configuration:**
 
@@ -558,8 +559,8 @@ code-reviewer --cache-dir /tmp/cr     # Custom cache location
 code-reviewer --cache-max-age 24h     # Custom expiry
 
 # Environment variables
-REVIEW_CACHE_DIR=/tmp/cr
-REVIEW_NO_CACHE=true
+export REVIEW_CACHE_DIR=/tmp/cr
+export REVIEW_NO_CACHE=true
 ```
 
 **Cache management:**
