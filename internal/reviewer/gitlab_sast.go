@@ -27,8 +27,9 @@ type gitlabScan struct {
 }
 
 type gitlabScanner struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
 }
 
 type gitlabVulnerability struct {
@@ -63,8 +64,9 @@ func WriteGitLabSAST(path, toolVersion string, result *model.ReviewResult) error
 		Version: "15.0.0",
 		Scan: gitlabScan{
 			Scanner: gitlabScanner{
-				ID:   "code-reviewer",
-				Name: "code-reviewer",
+				ID:      "code-reviewer",
+				Name:    "code-reviewer",
+				Version: toolVersion,
 			},
 			StartTime: now,
 			EndTime:   now,

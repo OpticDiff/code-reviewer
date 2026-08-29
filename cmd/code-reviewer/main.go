@@ -82,6 +82,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("configuration: %w", err)
 	}
+	cfg.Version = version
 
 	slog.Info("code-reviewer starting",
 		"version", version,
