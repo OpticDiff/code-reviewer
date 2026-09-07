@@ -1,21 +1,91 @@
-# code-reviewer
+<div align="center">
 
-[![CI](https://github.com/OpticDiff/code-reviewer/actions/workflows/ci.yml/badge.svg)](https://github.com/OpticDiff/code-reviewer/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/OpticDiff/code-reviewer)](https://github.com/OpticDiff/code-reviewer/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/OpticDiff/code-reviewer)](https://goreportcard.com/report/github.com/OpticDiff/code-reviewer)
-[![License](https://img.shields.io/github/license/OpticDiff/code-reviewer)](LICENSE)
-[![GitHub Action](https://img.shields.io/badge/action-OpticDiff%2Fcode--reviewer--action-blue?logo=github)](https://github.com/OpticDiff/code-reviewer-action)
-[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://pre-commit.com)
+  <img src="assets/opticdiff-banner.svg" alt="OpticDiff code-reviewer Banner" width="100%" />
 
-AI-powered code review CLI for GitHub pull requests and GitLab merge requests. Works with Ollama, Vertex AI (Gemini, Claude, Mistral), AWS Bedrock (via LiteLLM), or any OpenAI-compatible endpoint.
+  <br />
+  <br />
+
+  <h1>code-reviewer</h1>
+  <p><strong>The local-first, noise-free AI code review CLI &amp; pre-push hook for GitHub PRs and GitLab MRs.</strong></p>
+
+  <p>
+    <a href="https://github.com/OpticDiff/code-reviewer/actions/workflows/ci.yml"><img src="https://github.com/OpticDiff/code-reviewer/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+    <a href="https://github.com/OpticDiff/code-reviewer/releases"><img src="https://img.shields.io/github/v/release/OpticDiff/code-reviewer?color=blue&label=release" alt="Release" /></a>
+    <a href="https://goreportcard.com/report/github.com/OpticDiff/code-reviewer"><img src="https://goreportcard.com/badge/github.com/OpticDiff/code-reviewer" alt="Go Report Card" /></a>
+    <a href="LICENSE"><img src="https://img.shields.io/github/license/OpticDiff/code-reviewer" alt="License" /></a>
+    <a href="https://github.com/OpticDiff/code-reviewer-action"><img src="https://img.shields.io/badge/action-OpticDiff%2Fcode--reviewer--action-blue?logo=github" alt="GitHub Action" /></a>
+    <a href="https://pre-commit.com"><img src="https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit" alt="pre-commit" /></a>
+    <a href="https://brew.sh"><img src="https://img.shields.io/badge/homebrew-OpticDiff%2Ftap-orange?logo=homebrew" alt="Homebrew" /></a>
+    <a href="https://nixos.org"><img src="https://img.shields.io/badge/nix-flake%20ready-5277C3?logo=nixos" alt="Nix" /></a>
+  </p>
+</div>
+
+---
+
+<div align="center">
+  <img src="assets/terminal-demo.svg" alt="code-reviewer Terminal Demo" width="100%" />
+</div>
+
+---
+
+## Why code-reviewer?
+
+Most AI code review bots are closed-source SaaS solutions that demand access to your proprietary codebase, transmit code to external third parties, spam pull requests with pedantic nitpicks, and only execute *after* you have already pushed to CI.
+
+`code-reviewer` is designed for **privacy, high signal, and developer flow**:
+
+| Capability | `code-reviewer` | CodeRabbit | GitHub Copilot PR Review | Qodo (PR-Agent) |
+|---|:---:|:---:|:---:|:---:|
+| **100% Local / Offline (Ollama, vLLM)** | ✅ **Yes** | ❌ No (SaaS only) | ❌ No (SaaS only) | 🟡 Partial (Docker) |
+| **Zero Code Sent to 3rd-Party SaaS** | ✅ **Direct to VPC / Local** | ❌ Sent to vendor | ❌ Sent to MS / OpenAI | 🟡 Config dependent |
+| **Multi-Model Consensus Filtering** | ✅ **Yes (Gemini + Claude)** | ❌ No | ❌ No | ❌ No |
+| **Shift-Left Local CLI (`--diff`)** | ✅ **Built-in** | ❌ Web/PR only | ❌ Web/PR only | 🟡 Python CLI |
+| **Git Pre-Push Hook (`hook install`)** | ✅ **Built-in** | ❌ No | ❌ No | ❌ No |
+| **Full GitHub & GitLab Parity** | ✅ **Native comments & notes** | 🟡 GitHub-first | ❌ GitHub only | 🟡 Webhooks |
+| **Repo-Aware AST Context** | ✅ **Pure-Go Tree-sitter** | 🟡 Vector DB | 🟡 Proprietary | 🟡 Vector / Grep |
+| **Content-Addressable Diff Cache** | ✅ **Instant sub-second hit** | 🟡 Server-side | ❌ No | ❌ No |
+| **Safe Auto-Approve (9 Guards)** | ✅ **SHA-pinned** | ❌ No | ❌ No | ❌ No |
+| **Security Tabs (SARIF 2.1.0 & SAST)** | ✅ **Native** | 🟡 Custom | 🟡 Native | ❌ No |
+| **Binary Footprint** | ✅ **Single binary (<30MB)** | N/A (SaaS) | N/A (SaaS) | Heavy Python/Docker |
+| **License** | ✅ **Apache 2.0 Open Source** | ❌ Proprietary | ❌ Proprietary | 🟡 Open Core |
+
+---
+
+## How It Works
+
+```mermaid
+flowchart LR
+    A[Git Diff / PR / MR] --> B[Tree-sitter AST Symbol Extractor]
+    B --> C[Unchanged Code Usage Search]
+    C --> D{Diff Cache Hit?}
+    D -- Hit --> E[Cached Findings]
+    D -- Miss --> F[Model Provider Engine]
+    subgraph Providers [Supported Providers]
+        P1[Ollama / vLLM / Local]
+        P2[Vertex AI - Gemini / Claude]
+        P3[AWS Bedrock via LiteLLM]
+        P4[OpenAI-Compatible Endpoints]
+    end
+    F --> Providers
+    Providers --> G[Multi-Model Consensus Filter]
+    E --> H[Consolidated Results]
+    G --> H
+    H --> I[ANSI Terminal Output]
+    H --> J[GitHub PR Inline Comments & Suggestions]
+    H --> K[GitLab MR Discussions & Draft Notes]
+    H --> L[SARIF 2.1.0 & GitLab SAST Security Tabs]
+    H --> M[SHA-Pinned Safe Auto-Approve]
+```
+
+---
 
 ## Install
 
 ```bash
-# Homebrew
+# Homebrew (macOS / Linux)
 brew install OpticDiff/tap/code-reviewer
 
-# Nix
+# Nix Flake
 nix run github:OpticDiff/code-reviewer
 nix profile install github:OpticDiff/code-reviewer
 
@@ -26,8 +96,8 @@ mise use -g ubi:OpticDiff/code-reviewer
 go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@latest
 
 # Docker
-docker pull ghcr.io/opticdiff/code-reviewer:1.0.0
-docker run --rm ghcr.io/opticdiff/code-reviewer:1.0.0 --help
+docker pull ghcr.io/opticdiff/code-reviewer:latest
+docker run --rm ghcr.io/opticdiff/code-reviewer:latest --help
 
 # Pre-built binary from GitHub Releases
 # https://github.com/OpticDiff/code-reviewer/releases
@@ -37,65 +107,62 @@ git clone https://github.com/OpticDiff/code-reviewer.git
 cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
 ```
 
-## Features
-
-- **Incremental review** — Only review files changed in the latest push, not the entire MR (v0.3.0)
-- **SARIF output** — Write findings in SARIF 2.1.0 format for CI security tabs (v0.3.0)
-- **Multi-model consensus** — Run multiple models in parallel (e.g. Gemini + Claude), only keep findings that meet the configured consensus threshold
-- **Custom prompts** — Bring your own system prompt for specialized reviews (security audits, architecture checks)
-- **Focus modes** — `bugs`, `security`, `performance`, `style`, `docs`, or `all`
-- **Severity filtering** — `low` (default), `medium`, `high`, `critical`
-- **Rich terminal output** — ANSI-colored findings with severity badges, file grouping, and suggestion blocks
-- **GitLab integration** — Inline diff discussions or simple MR notes, with idempotent cleanup on re-push
-- **Context-aware** — Modular chunking strategies for large MRs
-- **Repo-aware context** — Tree-sitter extracts changed symbols from diffs; grep finds usages in unchanged files to give the reviewer cross-file awareness
-- **REVIEW.md** — Drop a `REVIEW.md` in your repo root to inject team-specific review instructions at the highest priority
-- **Auto-summary** — `--summarize` generates structured MR descriptions from diffs: classification, intent, risk level, scope areas, and breaking changes
-- **Intent-aware review** — `--intent` enables two-pass review: infer intent, then review against it. Auto-enabled in CI (v0.5.0)
-- **Explain mode** — `--explain` generates a plain-language walkthrough of the diff (v0.5.0)
-- **Fix mode** — `--fix` applies suggested code fixes directly to the working tree (v0.5.0)
-- **Pre-push hook** — `code-reviewer hook install` sets up automatic review before `git push` (v0.5.1)
-- **Configurable** — CLI flags, env vars, per-repo `.code-reviewer.yaml`, or `REVIEW.md`
-- **GitHub support** — Full PR review integration: inline comments, code suggestions, previous review cleanup (v0.6.0)
-- **Code suggestions** — AI-generated fix suggestions rendered as platform-native suggestion blocks (v0.6.0)
-- **Multi-line comments** — Findings can span line ranges for more precise feedback (v0.6.0)
-- **Description update** — `--update-description` injects review summary into MR/PR description with idempotent markers (v0.6.0)
-- **Review cleanup** — `--cleanup-mode` controls how previous bot reviews are handled: `delete` (default) or `resolve` (v0.6.0)
-- **GitLab Draft Notes** — Reviews posted as draft notes and published atomically for a single notification (v0.6.0)
-- **Smart incremental** — Preserves review findings for unchanged files across pushes, only re-reviews modified files (v0.7.0)
-- **Scope enforcement** — `--max-files` and `--scope-action` warn or fail when MRs exceed a file count threshold (v0.7.0)
-- **Audit trail** — `--audit-log` writes structured JSONL audit records per review: config, files, findings, token usage, duration (v0.7.0)
-- **Auto-approve** — `--auto-approve` automatically approves MR/PR when review finds zero issues, with 9 safety guards including SHA pinning (v0.8.0)
+---
 
 ## Quick Start
 
-### Local Usage
+### ⚡ 30-Second Local Test Drive (Zero Cloud Setup with Ollama)
+
+Review your current uncommitted changes against `origin/HEAD` completely offline:
 
 ```bash
-# Review your branch against origin/HEAD (colored terminal output)
-export GOOGLE_CLOUD_PROJECT=my-gcp-project
-code-reviewer --diff
+code-reviewer --diff --api-url http://localhost:11434/v1 --model qwen3:8b
+```
 
-# Review against a specific ref
+### ☁️ With Vertex AI (Gemini, Claude, Mistral)
+
+```bash
+export GOOGLE_CLOUD_PROJECT=my-gcp-project
+gcloud auth application-default login
+
+# Multi-model consensus: only keep findings that Gemini + Claude agree on
+code-reviewer --diff --models gemini-2.5-flash,claude-sonnet-4
+```
+
+### 🛡️ Shift-Left: Block Bad Pushes with Git Pre-Push Hook
+
+Install automatic review before code ever leaves your machine:
+
+```bash
+code-reviewer hook install
+
+# Now every git push automatically reviews changed files
+# If a HIGH/CRITICAL bug is found, push is prevented!
+```
+
+### 🛠️ Common Local CLI Recipes
+
+```bash
+# Review against a specific git ref
 code-reviewer --diff HEAD~3
 
-# Review specific files
+# Review specific files only
 code-reviewer --files internal/handler.go,internal/service.go
 
-# Security-focused review with a custom prompt
+# Security audit with custom guidelines
 code-reviewer --diff --focus security --custom-prompt examples/prompts/security-audit.md
 
-# Only show high/critical issues
-code-reviewer --diff --min-severity high
+# Explain the diff in plain English
+code-reviewer --diff --explain
 
-# JSON output for tooling integration
-code-reviewer --diff --json
+# Automatically apply suggested fixes directly to your working tree
+code-reviewer --diff --fix
 
-# SARIF output for CI security tabs (GitLab, GitHub)
+# Generate structured PR description / summary from diff
+code-reviewer --diff --summarize
+
+# Output SARIF 2.1.0 for security tooling
 code-reviewer --diff --sarif results.sarif
-
-# Disable colors (or set NO_COLOR env var)
-code-reviewer --diff --no-color
 ```
 
 ### GitLab CI
