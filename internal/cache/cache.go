@@ -27,18 +27,34 @@ type Entry struct {
 	Findings  []model.Finding `json:"findings"`
 }
 
+// DiffHash computes a SHA-256 hash of a file diff (paths and diff contents).
 func DiffHash(d diff.FileDiff) string {
 	h := sha256.New()
 	_, _ = fmt.Fprintf(h, "%s:%s\n%s", d.OldPath, d.NewPath, d.RawText())
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func PromptHash(customPrompt string, focus []string, extraRules string, formattedRules string) string {
+// PromptHash computes a deterministic, collision-resistant identity hash from the
+// custom prompt, review markdown, focus list, extra rules, and formatted rules.
+// Length-prefixed encoding is used to prevent delimiter-aliasing collisions.
+func PromptHash(customPrompt, reviewMD string, focus []string, extraRules, formattedRules string) string {
 	h := sha256.New()
-	_, _ = fmt.Fprintf(h, "%s:%s:%s:%s", customPrompt, strings.Join(focus, ","), extraRules, formattedRules)
+	writeField := func(s string) {
+		_, _ = fmt.Fprintf(h, "%d:%s\n", len(s), s)
+	}
+	writeField(customPrompt)
+	writeField(reviewMD)
+	_, _ = fmt.Fprintf(h, "%d:\n", len(focus))
+	for _, f := range focus {
+		writeField(f)
+	}
+	writeField(extraRules)
+	writeField(formattedRules)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// CacheKey computes a cache entry key combining diff hash, model identifier,
+// prompt hash, and the current cache schema version.
 func CacheKey(diffHash, model, promptHash string) string {
 	h := sha256.New()
 	_, _ = fmt.Fprintf(h, "%s:%s:%s:%s", diffHash, model, promptHash, SchemaVersion)

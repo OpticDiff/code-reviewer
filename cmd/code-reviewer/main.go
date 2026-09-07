@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -99,6 +100,43 @@ func run(ctx, initCtx context.Context) (int, error) {
 	// Create model provider(s).
 	var modelProvider reviewer.ModelReviewer
 	if cfg.APIURL != "" {
+		if err := validateHTTPURL(cfg.APIURL, cfg.APIKey); err != nil {
+			return 0, err
+		}
+	}
+
+	if len(cfg.Models) > 1 {
+		// Multi-model consensus mode.
+		threshold := cfg.ConsensusThreshold
+		if threshold < 1 {
+			threshold = 2 // Default: 2 models must agree.
+		}
+		if threshold > len(cfg.Models) {
+			threshold = len(cfg.Models)
+		}
+		slog.Info("multi-model consensus mode",
+			"models", cfg.Models,
+			"threshold", threshold,
+		)
+		if cfg.APIURL != "" {
+			slog.Info("using HTTP providers for consensus", "api_url", cfg.APIURL)
+			providers := make([]model.ReviewProvider, 0, len(cfg.Models))
+			for _, m := range cfg.Models {
+				p, err := model.NewHTTPProvider(cfg.APIURL, cfg.APIKey, m)
+				if err != nil {
+					return 0, fmt.Errorf("creating HTTP provider for %s: %w", m, err)
+				}
+				providers = append(providers, p)
+			}
+			modelProvider = model.NewMultiProviderFromReviewers(providers, threshold)
+		} else {
+			mp, err := model.NewMultiProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold, cfg.ProxyURL)
+			if err != nil {
+				return 0, wrapProviderError(err)
+			}
+			modelProvider = mp
+		}
+	} else if cfg.APIURL != "" {
 		// HTTP provider: any OpenAI-compatible endpoint.
 		slog.Info("using HTTP provider", "api_url", cfg.APIURL, "model", cfg.Model)
 		provider, err := model.NewHTTPProvider(cfg.APIURL, cfg.APIKey, cfg.Model)
@@ -106,21 +144,6 @@ func run(ctx, initCtx context.Context) (int, error) {
 			return 0, fmt.Errorf("creating HTTP provider: %w", err)
 		}
 		modelProvider = provider
-	} else if len(cfg.Models) > 1 {
-		// Multi-model consensus mode.
-		threshold := cfg.ConsensusThreshold
-		if threshold < 1 {
-			threshold = 2 // Default: 2 models must agree.
-		}
-		slog.Info("multi-model consensus mode",
-			"models", cfg.Models,
-			"threshold", threshold,
-		)
-		mp, err := model.NewMultiProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold, cfg.ProxyURL)
-		if err != nil {
-			return 0, wrapProviderError(err)
-		}
-		modelProvider = mp
 	} else {
 		provider, err := model.NewProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Model, cfg.ProxyURL)
 		if err != nil {
@@ -290,4 +313,20 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// validateHTTPURL ensures that credentialed HTTP endpoints use HTTPS
+// unless targeting a local loopback interface (localhost / 127.0.0.1 / ::1).
+func validateHTTPURL(rawURL, apiKey string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid API URL %q: %w", rawURL, err)
+	}
+	if apiKey != "" && u.Scheme == "http" {
+		host := u.Hostname()
+		if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+			return fmt.Errorf("insecure HTTP endpoint %q with API key: credentials must be transmitted over HTTPS (or use localhost for local testing)", rawURL)
+		}
+	}
+	return nil
 }

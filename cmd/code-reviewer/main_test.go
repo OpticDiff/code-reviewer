@@ -171,3 +171,23 @@ func TestRunCache_ExtraArgs(t *testing.T) {
 		t.Errorf("expected 'unexpected cache argument', got: %v", err)
 	}
 }
+
+func TestValidateHTTPURL(t *testing.T) {
+	tests := []struct {
+		url     string
+		apiKey  string
+		wantErr bool
+	}{
+		{"https://api.openai.com/v1", "sk-secret", false},
+		{"http://localhost:11434/v1", "key", false},
+		{"http://127.0.0.1:11434/v1", "key", false},
+		{"http://remote-api.com/v1", "", false},         // unauthenticated allowed
+		{"http://remote-api.com/v1", "sk-secret", true}, // credentialed non-local http rejected
+	}
+	for _, tt := range tests {
+		err := validateHTTPURL(tt.url, tt.apiKey)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("validateHTTPURL(%q, %q) err = %v, wantErr = %v", tt.url, tt.apiKey, err, tt.wantErr)
+		}
+	}
+}

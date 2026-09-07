@@ -118,6 +118,7 @@ func getSecuritySeverity(severity string) string {
 
 func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 	ruleMap := make(map[string]int)
+	ruleMaxSev := make(map[string]string)
 	var rules []sarifRule
 	var results []sarifResult
 
@@ -127,16 +128,13 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 			ruleID = "general"
 		}
 
-		// Dedup key includes severity level so that findings with the same
-		// category but different severities get separate rule entries with
-		// correct security-severity scores.
 		level := sarifLevel(f.Severity)
-		ruleKey := ruleID + ":" + level
 
-		ruleIdx, ok := ruleMap[ruleKey]
+		ruleIdx, ok := ruleMap[ruleID]
 		if !ok {
 			ruleIdx = len(rules)
-			ruleMap[ruleKey] = ruleIdx
+			ruleMap[ruleID] = ruleIdx
+			ruleMaxSev[ruleID] = f.Severity
 
 			props := make(map[string]interface{})
 			if secSev := getSecuritySeverity(f.Severity); secSev != "" {
@@ -153,6 +151,17 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 				DefaultConfig:    &sarifRuleConfig{Level: level},
 				Properties:       props,
 			})
+		} else {
+			// SARIF §3.19.3 requires driver.rules to have unique IDs.
+			// When multiple findings share a category, update the rule's
+			// security-severity and default level to the maximum seen.
+			if severityRank(f.Severity) > severityRank(ruleMaxSev[ruleID]) {
+				ruleMaxSev[ruleID] = f.Severity
+				rules[ruleIdx].DefaultConfig.Level = level
+				if secSev := getSecuritySeverity(f.Severity); secSev != "" {
+					rules[ruleIdx].Properties["security-severity"] = secSev
+				}
+			}
 		}
 
 		line := f.Line
@@ -177,10 +186,9 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 				fmt.Sprintf("\n\n**Suggested fix:**\n```suggestion\n%s\n```", f.Suggestion)
 		}
 
-		// Fingerprint uses only stable data: file path and ruleID.
-		// Excludes line number (shifts on unrelated edits) and model-generated
-		// title (wording can change between runs).
-		hashInput := fmt.Sprintf("%s:%s", f.File, ruleID)
+		// Fingerprint uniquely identifies this finding by location and issue to prevent
+		// distinct findings in the same file and category from colliding in GitHub Code Scanning.
+		hashInput := fmt.Sprintf("%s:%s:%d:%s", f.File, ruleID, line, f.Title)
 		hashBytes := sha256.Sum256([]byte(hashInput))
 		hashHex := fmt.Sprintf("%x", hashBytes)[:16]
 
