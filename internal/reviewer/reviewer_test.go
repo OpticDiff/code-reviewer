@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/OpticDiff/code-reviewer/internal/cache"
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
@@ -41,6 +43,8 @@ type mockVCS struct {
 	getMRChangesCalls     int
 	getMRVersionsCalls    int
 	compareCommitsCalls   int
+	approveCalls          int
+	approvedSHA           string
 
 	// Captured args.
 	compareFromSHA string
@@ -56,6 +60,7 @@ type mockVCS struct {
 	cleanErr        error
 	compareFiles    []string
 	compareFilesErr error
+	approveErr      error
 
 	submitReviewCalls int
 	submitReviewReq   *vcs.SubmitReviewRequest
@@ -118,6 +123,12 @@ func (m *mockVCS) SubmitReview(ctx context.Context, projectID, mrIID string, req
 		return fmt.Errorf("posting summary: %w", err)
 	}
 	return nil
+}
+
+func (m *mockVCS) ApproveReview(ctx context.Context, projectID, reviewID, headSHA string) error {
+	m.approveCalls++
+	m.approvedSHA = headSHA
+	return m.approveErr
 }
 
 // ---------------------------------------------------------------------------
@@ -1269,5 +1280,120 @@ func TestRun_IncrementalReview_CompareErrorFallback(t *testing.T) {
 	}
 	if count != 2 {
 		t.Errorf("expected 2 findings (all files reviewed), got %d", count)
+	}
+}
+
+func TestRun_CacheNotPollutedOnTokenBudgetExceeded(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go", "file2.go")
+
+	diff.ModelTokenLimits["test-tiny"] = 15
+	defer delete(diff.ModelTokenLimits, "test-tiny")
+
+	cacheDir := t.TempDir()
+	cfg := &config.Config{
+		NoCache:       false,
+		CacheDir:      cacheDir,
+		CacheMaxAge:   time.Hour,
+		Model:         "test-tiny",
+		ChunkStrategy: config.ChunkStrategySplit,
+		MinSeverity:   config.SeverityLow,
+		MaxTokens:     500, // Budget is 500 tokens.
+	}
+
+	// First chunk will return 1000 tokens, exceeding the 500 limit and breaking out.
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "chunk 1 review",
+			Findings: []model.Finding{},
+			Usage:    &model.TokenUsage{TotalTokens: 1000},
+		},
+	}
+	mockClient := &mockVCS{}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Model should only be called once because token budget was exceeded.
+	if mm.calls != 1 {
+		t.Fatalf("expected 1 model call, got %d", mm.calls)
+	}
+
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", cfg.Focus, cfg.ExtraRules, "")
+	key1 := cache.CacheKey(cache.DiffHash(allDiffs[0]), cfg.Model, promptHash)
+	key2 := cache.CacheKey(cache.DiffHash(allDiffs[1]), cfg.Model, promptHash)
+
+	// file1.go was reviewed and should be in cache.
+	if _, ok := r.cache.Lookup(key1); !ok {
+		t.Errorf("expected reviewed file1.go to be cached")
+	}
+
+	// file2.go was skipped due to token budget and MUST NOT be cached as clean!
+	if _, ok := r.cache.Lookup(key2); ok {
+		t.Errorf("unreviewed file2.go was leaked into cache as clean findings")
+	}
+}
+
+func TestRun_AutoApproveOnFullyCachedPR(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go", "file2.go")
+
+	cacheDir := t.TempDir()
+	cfg := &config.Config{
+		NoCache:          false,
+		CacheDir:         cacheDir,
+		CacheMaxAge:      time.Hour,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CIMode:           true,
+		AutoApprove:      true,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		CommentMode:      config.CommentModeNotes,
+	}
+
+	c, err := cache.New(cacheDir, time.Hour)
+	if err != nil {
+		t.Fatalf("creating cache: %v", err)
+	}
+
+	// Pre-populate cache with clean entries for both files.
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", cfg.Focus, cfg.ExtraRules, "")
+	key1 := cache.CacheKey(cache.DiffHash(allDiffs[0]), cfg.Model, promptHash)
+	_ = c.Store(key1, cache.Entry{FilePath: "file1.go", DiffHash: cache.DiffHash(allDiffs[0]), Model: cfg.Model, Findings: nil})
+	key2 := cache.CacheKey(cache.DiffHash(allDiffs[1]), cfg.Model, promptHash)
+	_ = c.Store(key2, cache.Entry{FilePath: "file2.go", DiffHash: cache.DiffHash(allDiffs[1]), Model: cfg.Model, Findings: nil})
+
+	mm := &mockModel{}
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{
+			{ID: 1, HeadSHA: "cached-pr-head-sha"},
+		},
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Zero model calls since all files were cached.
+	if mm.calls != 0 {
+		t.Errorf("expected 0 model calls on cached PR, got %d", mm.calls)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 findings, got %d", count)
+	}
+
+	// Auto-approve MUST succeed and be pinned to HEAD SHA even when all files were cached.
+	if mockClient.approveCalls != 1 {
+		t.Fatalf("expected 1 ApproveReview call, got %d", mockClient.approveCalls)
+	}
+	if mockClient.approvedSHA != "cached-pr-head-sha" {
+		t.Errorf("expected approved SHA 'cached-pr-head-sha', got %s", mockClient.approvedSHA)
 	}
 }
