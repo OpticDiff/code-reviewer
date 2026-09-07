@@ -214,8 +214,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// In CI mode, source REVIEW.md from the trusted base/target ref so that
 	// contributor-controlled branches cannot inject review instructions.
 	reviewMD := r.cfg.ReviewMD
-	if r.cfg.CIMode && r.cfg.CIDiffBaseSHA != "" {
-		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
+	if r.cfg.CIMode {
+		if r.cfg.CIDiffBaseSHA != "" {
+			reviewMD = readReviewMDFromRef(ctx, r.cfg.CIDiffBaseSHA)
+		} else {
+			slog.Warn("CI mode active but CIDiffBaseSHA is empty; ignoring unverified checkout REVIEW.md")
+			reviewMD = ""
+		}
 	}
 
 	cacheModelID := r.cfg.Model
@@ -326,8 +331,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			return 0, fmt.Errorf("model review (chunk %d): %w", i+1, err)
 		}
 
-		for _, d := range chunk {
-			reviewedFiles[d.NewPath] = true
+		if result.Truncated {
+			anyTruncated = true
+			slog.Warn("chunk review response was truncated by model; files in this chunk will not be cached", "chunk", i+1)
+		} else {
+			for _, d := range chunk {
+				reviewedFiles[d.NewPath] = true
+			}
 		}
 
 		if summary == "" {
@@ -338,9 +348,6 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			totalUsage.InputTokens += result.Usage.InputTokens
 			totalUsage.OutputTokens += result.Usage.OutputTokens
 			totalUsage.TotalTokens += result.Usage.TotalTokens
-		}
-		if result.Truncated {
-			anyTruncated = true
 		}
 
 		// Runtime budget safety net — stop if actual usage exceeds limit.
@@ -747,13 +754,13 @@ func findRepoRoot() string {
 
 // readReviewMDFromRef reads REVIEW.md from a specific git ref (e.g. base commit SHA).
 // Returns empty string if the file doesn't exist at that ref or git fails.
-func readReviewMDFromRef(ref string) string {
+func readReviewMDFromRef(ctx context.Context, ref string) string {
 	// Prevent command injection: reject refs that look like flags.
 	if strings.HasPrefix(ref, "-") {
 		slog.Warn("invalid git ref for REVIEW.md lookup, skipping", "ref", ref)
 		return ""
 	}
-	cmd := exec.Command("git", "show", ref+":REVIEW.md")
+	cmd := exec.CommandContext(ctx, "git", "show", ref+":REVIEW.md")
 	output, err := cmd.Output()
 	if err != nil {
 		// File doesn't exist at this ref — this is normal and expected.

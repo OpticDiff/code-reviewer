@@ -219,4 +219,11 @@ func TestPromptHash(t *testing.T) {
 	if h1 == h3 {
 		t.Errorf("expected h1 != h3 when reviewMD changes, got same hash %s", h1)
 	}
+
+	// Test delimiter collision resistance
+	hc1 := cache.PromptHash("a:b", "c", []string{"bugs"}, "extra", "formatted")
+	hc2 := cache.PromptHash("a", "b:c", []string{"bugs"}, "extra", "formatted")
+	if hc1 == hc2 {
+		t.Errorf("expected hc1 != hc2 for delimiter boundary variations, got same hash %s", hc1)
+	}
 }

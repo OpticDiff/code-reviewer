@@ -186,10 +186,9 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 				fmt.Sprintf("\n\n**Suggested fix:**\n```suggestion\n%s\n```", f.Suggestion)
 		}
 
-		// Fingerprint uses only stable data: file path and ruleID.
-		// Excludes line number (shifts on unrelated edits) and model-generated
-		// title (wording can change between runs).
-		hashInput := fmt.Sprintf("%s:%s", f.File, ruleID)
+		// Fingerprint uniquely identifies this finding by location and issue to prevent
+		// distinct findings in the same file and category from colliding in GitHub Code Scanning.
+		hashInput := fmt.Sprintf("%s:%s:%d:%s", f.File, ruleID, line, f.Title)
 		hashBytes := sha256.Sum256([]byte(hashInput))
 		hashHex := fmt.Sprintf("%x", hashBytes)[:16]
 

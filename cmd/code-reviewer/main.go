@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -98,11 +99,20 @@ func run(ctx, initCtx context.Context) (int, error) {
 
 	// Create model provider(s).
 	var modelProvider reviewer.ModelReviewer
+	if cfg.APIURL != "" {
+		if err := validateHTTPURL(cfg.APIURL, cfg.APIKey); err != nil {
+			return 0, err
+		}
+	}
+
 	if len(cfg.Models) > 1 {
 		// Multi-model consensus mode.
 		threshold := cfg.ConsensusThreshold
 		if threshold < 1 {
 			threshold = 2 // Default: 2 models must agree.
+		}
+		if threshold > len(cfg.Models) {
+			threshold = len(cfg.Models)
 		}
 		slog.Info("multi-model consensus mode",
 			"models", cfg.Models,
@@ -303,4 +313,20 @@ func formatSize(bytes int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// validateHTTPURL ensures that credentialed HTTP endpoints use HTTPS
+// unless targeting a local loopback interface (localhost / 127.0.0.1 / ::1).
+func validateHTTPURL(rawURL, apiKey string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid API URL %q: %w", rawURL, err)
+	}
+	if apiKey != "" && u.Scheme == "http" {
+		host := u.Hostname()
+		if host != "localhost" && host != "127.0.0.1" && host != "::1" {
+			return fmt.Errorf("insecure HTTP endpoint %q with API key: credentials must be transmitted over HTTPS (or use localhost for local testing)", rawURL)
+		}
+	}
+	return nil
 }

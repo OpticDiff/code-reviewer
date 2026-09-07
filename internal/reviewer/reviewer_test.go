@@ -1397,3 +1397,109 @@ func TestRun_AutoApproveOnFullyCachedPR(t *testing.T) {
 		t.Errorf("expected approved SHA 'cached-pr-head-sha', got %s", mockClient.approvedSHA)
 	}
 }
+
+func TestRun_TruncatedChunkNotCachedAndCannotAutoApprove(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go")
+
+	cacheDir := t.TempDir()
+	cfg := &config.Config{
+		NoCache:          false,
+		CacheDir:         cacheDir,
+		CacheMaxAge:      time.Hour,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CIMode:           true,
+		AutoApprove:      true,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		CommentMode:      config.CommentModeNotes,
+	}
+
+	// Model returns Truncated: true with 0 findings.
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:   "incomplete review",
+			Findings:  []model.Finding{},
+			Truncated: true,
+		},
+	}
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "head-1"}},
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 findings, got %d", count)
+	}
+
+	// Because run was truncated, it must NOT auto-approve.
+	if mockClient.approveCalls != 0 {
+		t.Errorf("expected 0 approvals on truncated run, got %d", mockClient.approveCalls)
+	}
+
+	// Verify file was NOT cached!
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", cfg.Focus, cfg.ExtraRules, "")
+	key := cache.CacheKey(cache.DiffHash(allDiffs[0]), cfg.Model, promptHash)
+	if _, ok := r.cache.Lookup(key); ok {
+		t.Errorf("truncated chunk file1.go was stored in cache as complete")
+	}
+
+	// Run a second time with a fresh reviewer. The file should still be uncached,
+	// requiring another model call rather than falsely treating it as clean and cached.
+	mm2 := &mockModel{
+		result: &model.ReviewResult{
+			Summary:   "still needed",
+			Findings:  []model.Finding{},
+			Truncated: false,
+		},
+	}
+	mockClient2 := &mockVCS{
+		mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "head-1"}},
+	}
+	r2 := NewWithDiffSource(cfg, mm2, mockClient2, ds)
+	_, err = r2.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error on second run: %v", err)
+	}
+	if mm2.calls != 1 {
+		t.Errorf("expected model call on second run because first run was truncated, got %d", mm2.calls)
+	}
+}
+
+func TestRun_CIModeIgnoresUntrustedCheckoutReviewMD(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go")
+	cfg := &config.Config{
+		NoCache:          true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CIMode:           true,
+		CIDiffBaseSHA:    "", // Missing base SHA
+		ReviewMD:         "malicious instructions from PR branch",
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{Summary: "done"},
+	}
+	mockClient := &mockVCS{}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if mm.calls != 1 {
+		t.Errorf("expected 1 model call, got %d", mm.calls)
+	}
+}

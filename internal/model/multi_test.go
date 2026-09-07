@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -244,15 +245,23 @@ func TestMultiProviderReview_Concurrent(t *testing.T) {
 func TestMultiProviderReview_PartialError(t *testing.T) {
 	// 2 models, threshold 2: if 1 fails, threshold cannot be met and review fails.
 	m1 := &mockReviewer{result: &ReviewResult{Summary: "ok", Findings: nil}}
-	m2 := &mockReviewer{err: fmt.Errorf("model overloaded")}
+	targetErr := fmt.Errorf("model overloaded")
+	m2 := &mockReviewer{err: targetErr}
 
 	mp := NewMultiProviderFromReviewers([]ReviewProvider{m1, m2}, 2)
 	_, err := mp.Review(context.Background(), "sys", "user")
 	if err == nil {
 		t.Fatal("expected error when threshold cannot be met, got nil")
 	}
-	if m1.callCount.Load() == 0 && m2.callCount.Load() == 0 {
-		t.Error("expected models to be called")
+	if m1.callCount.Load() != 1 {
+		t.Errorf("expected m1 call count 1, got %d", m1.callCount.Load())
+	}
+	if m2.callCount.Load() != 1 {
+		t.Errorf("expected m2 call count 1, got %d", m2.callCount.Load())
+	}
+	// Verify error chain preservation via errors.Is.
+	if !errors.Is(err, targetErr) {
+		t.Errorf("expected returned error to unwrap to targetErr, got: %v", err)
 	}
 }
 
@@ -269,11 +278,29 @@ func TestMultiProviderReview_ResilientToNonFatalFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected review to succeed despite 1 provider failure, got: %v", err)
 	}
+	if m1.callCount.Load() != 1 {
+		t.Errorf("expected m1 call count 1, got %d", m1.callCount.Load())
+	}
+	if m2.callCount.Load() != 1 {
+		t.Errorf("expected m2 call count 1, got %d", m2.callCount.Load())
+	}
+	if m3.callCount.Load() != 1 {
+		t.Errorf("expected m3 call count 1, got %d", m3.callCount.Load())
+	}
 	if len(result.Findings) != 1 {
 		t.Fatalf("expected 1 finding, got %d", len(result.Findings))
 	}
 	if result.Findings[0].Title != "issue" {
 		t.Errorf("expected finding title 'issue', got %s", result.Findings[0].Title)
+	}
+}
+
+func TestNewMultiProviderFromReviewers_CappedThreshold(t *testing.T) {
+	m1 := &mockReviewer{}
+	m2 := &mockReviewer{}
+	mp := NewMultiProviderFromReviewers([]ReviewProvider{m1, m2}, 5)
+	if mp.threshold != 2 {
+		t.Errorf("expected threshold to be capped at 2, got %d", mp.threshold)
 	}
 }
 

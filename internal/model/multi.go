@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -46,7 +47,7 @@ func NewMultiProvider(ctx context.Context, project, location string, models []st
 			for _, existing := range providers {
 				existing.Close()
 			}
-			return nil, fmt.Errorf("creating provider for model %q: %w", m, err)
+			return nil, fmt.Errorf("creating provider for %s: %w", m, err)
 		}
 		providers = append(providers, p)
 	}
@@ -63,6 +64,9 @@ func NewMultiProviderFromReviewers(providers []ReviewProvider, threshold int) *M
 	if threshold < 1 {
 		threshold = 1
 	}
+	if len(providers) > 0 && threshold > len(providers) {
+		threshold = len(providers)
+	}
 	return &MultiProvider{
 		providers: providers,
 		threshold: threshold,
@@ -78,7 +82,7 @@ func (m *MultiProvider) Review(ctx context.Context, systemPrompt, userPrompt str
 	var mu sync.Mutex
 
 	successfulResults := make([]*ReviewResult, 0, len(m.providers))
-	var errors []error
+	var errs []error
 
 	for i, p := range m.providers {
 		wg.Add(1)
@@ -88,7 +92,7 @@ func (m *MultiProvider) Review(ctx context.Context, systemPrompt, userPrompt str
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				errors = append(errors, fmt.Errorf("model provider %d: %w", idx, err))
+				errs = append(errs, fmt.Errorf("model provider %d: %w", idx, err))
 			} else {
 				successfulResults = append(successfulResults, result)
 			}
@@ -98,18 +102,14 @@ func (m *MultiProvider) Review(ctx context.Context, systemPrompt, userPrompt str
 	wg.Wait()
 
 	if len(successfulResults) < m.threshold {
-		var errMsgs []string
-		for _, err := range errors {
-			errMsgs = append(errMsgs, err.Error())
-		}
-		return nil, fmt.Errorf("consensus threshold not met (%d/%d successful, needed %d): %s",
-			len(successfulResults), len(m.providers), m.threshold, strings.Join(errMsgs, "; "))
+		return nil, fmt.Errorf("consensus threshold not met (%d/%d successful, needed %d): %w",
+			len(successfulResults), len(m.providers), m.threshold, errors.Join(errs...))
 	}
 
-	if len(errors) > 0 {
+	if len(errs) > 0 {
 		slog.Warn("some consensus providers failed, proceeding with successful models",
 			"successful", len(successfulResults),
-			"failed", len(errors),
+			"failed", len(errs),
 			"threshold", m.threshold)
 	}
 

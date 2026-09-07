@@ -126,6 +126,12 @@ func TestBuildSARIF(t *testing.T) {
 	} else {
 		t.Errorf("expected primaryLocationLineHash fingerprint")
 	}
+
+	fp0 := run.Results[0].PartialFingerprints["primaryLocationLineHash"]
+	fp2 := run.Results[2].PartialFingerprints["primaryLocationLineHash"]
+	if fp0 == fp2 {
+		t.Errorf("expected distinct fingerprints for findings in same category, got identical %s", fp0)
+	}
 }
 
 func TestBuildSARIF_EmptyFindings(t *testing.T) {
