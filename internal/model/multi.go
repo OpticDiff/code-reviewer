@@ -3,10 +3,9 @@ package model
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
-
-	"golang.org/x/sync/errgroup"
 )
 
 // ReviewProvider is a single model that can review code. Extracted as an
@@ -72,31 +71,49 @@ func NewMultiProviderFromReviewers(providers []ReviewProvider, threshold int) *M
 
 // Review runs all models concurrently, collects findings, deduplicates them
 // by file+line proximity+category, and returns only findings that meet the
-// consensus threshold.
+// consensus threshold. If individual providers fail, the review succeeds
+// as long as at least threshold providers succeeded.
 func (m *MultiProvider) Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error) {
-	g, ctx := errgroup.WithContext(ctx)
-
-	results := make([]*ReviewResult, len(m.providers))
+	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	successfulResults := make([]*ReviewResult, 0, len(m.providers))
+	var errors []error
+
 	for i, p := range m.providers {
-		g.Go(func() error {
-			result, err := p.Review(ctx, systemPrompt, userPrompt)
-			if err != nil {
-				return fmt.Errorf("model provider %d: %w", i, err)
-			}
+		wg.Add(1)
+		go func(idx int, prov ReviewProvider) {
+			defer wg.Done()
+			result, err := prov.Review(ctx, systemPrompt, userPrompt)
 			mu.Lock()
-			results[i] = result
-			mu.Unlock()
-			return nil
-		})
+			defer mu.Unlock()
+			if err != nil {
+				errors = append(errors, fmt.Errorf("model provider %d: %w", idx, err))
+			} else {
+				successfulResults = append(successfulResults, result)
+			}
+		}(i, p)
 	}
 
-	if err := g.Wait(); err != nil {
-		return nil, err
+	wg.Wait()
+
+	if len(successfulResults) < m.threshold {
+		var errMsgs []string
+		for _, err := range errors {
+			errMsgs = append(errMsgs, err.Error())
+		}
+		return nil, fmt.Errorf("consensus threshold not met (%d/%d successful, needed %d): %s",
+			len(successfulResults), len(m.providers), m.threshold, strings.Join(errMsgs, "; "))
 	}
 
-	return mergeResults(results, m.threshold), nil
+	if len(errors) > 0 {
+		slog.Warn("some consensus providers failed, proceeding with successful models",
+			"successful", len(successfulResults),
+			"failed", len(errors),
+			"threshold", m.threshold)
+	}
+
+	return mergeResults(successfulResults, m.threshold), nil
 }
 
 // Close releases resources for all providers.

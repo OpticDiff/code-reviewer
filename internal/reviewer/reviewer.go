@@ -211,6 +211,18 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		slog.Info(fmt.Sprintf("applying %d/%d custom rules", len(applicableRules), len(r.cfg.Rules)))
 	}
 
+	// In CI mode, source REVIEW.md from the trusted base/target ref so that
+	// contributor-controlled branches cannot inject review instructions.
+	reviewMD := r.cfg.ReviewMD
+	if r.cfg.CIMode && r.cfg.CIDiffBaseSHA != "" {
+		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
+	}
+
+	cacheModelID := r.cfg.Model
+	if len(r.cfg.Models) > 1 {
+		cacheModelID = fmt.Sprintf("consensus:%s:threshold=%d", strings.Join(r.cfg.Models, "+"), r.cfg.ConsensusThreshold)
+	}
+
 	// Step 2e: Cache lookup.
 	// Snapshot diffs for audit before Partition filters to uncached only.
 	auditDiffs = make([]diff.FileDiff, len(diffs))
@@ -218,17 +230,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cachedFindings []model.Finding
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
-		promptHash := cache.PromptHash(r.cfg.CustomPrompt, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules))
-		diffs, cachedFindings, cacheHits, cacheKeys = cache.Partition(diffs, r.cache, r.cfg.Model, promptHash)
+		promptHash := cache.PromptHash(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules))
+		diffs, cachedFindings, cacheHits, cacheKeys = cache.Partition(diffs, r.cache, cacheModelID, promptHash)
 		if cacheHits > 0 {
 			slog.Info("cache", "hits", cacheHits, "cached_findings", len(cachedFindings), "uncached_files", len(diffs))
 		}
 	}
 
-	if len(diffs) == 0 && len(cachedFindings) == 0 {
-		slog.Info("no findings from cache and no files to review")
-		return 0, nil
-	}
 
 	// Step 3: Check context window / chunk.
 	tokenLimit := diff.TokenLimitForModel(r.cfg.Model)
@@ -248,7 +256,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Step 3b: Discover related code context.
 	var contextSnippets []model.ContextSnippet
-	if r.contextProvider != nil {
+	if r.contextProvider != nil && len(diffs) > 0 {
 		repoRoot := findRepoRoot()
 		if repoRoot != "" {
 			raw, cerr := r.contextProvider.FindRelatedCode(ctx, repoRoot, diffs)
@@ -271,7 +279,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Pass 1: Intent inference (if enabled).
 	var intentContext string
 	var intentSummary *model.SummaryResult
-	if r.cfg.IntentReview {
+	if r.cfg.IntentReview && len(diffs) > 0 {
 		if sp, ok := r.provider.(model.SummarizeProvider); ok {
 			fullDiff := buildNumberedDiff(diffs)
 			sysPrompt := model.BuildSummaryPrompt()
@@ -299,18 +307,12 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 
 	// Step 4: Build prompt and call model for each chunk.
-	// In CI mode, source REVIEW.md from the trusted base/target ref so that
-	// contributor-controlled branches cannot inject review instructions.
-	reviewMD := r.cfg.ReviewMD
-	if r.cfg.CIMode && r.cfg.CIDiffBaseSHA != "" {
-		reviewMD = readReviewMDFromRef(r.cfg.CIDiffBaseSHA)
-	}
-
 	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, extraRules, intentContext)
 	var summary string
 
 	budgetExceeded := false
 	anyTruncated := false
+	reviewedFiles := make(map[string]bool)
 
 	for i, chunk := range chunks {
 		slog.Info(fmt.Sprintf("reviewing chunk %d/%d (%d files, ~%d tokens)",
@@ -322,6 +324,10 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		result, err := r.provider.Review(ctx, systemPrompt, userPrompt)
 		if err != nil {
 			return 0, fmt.Errorf("model review (chunk %d): %w", i+1, err)
+		}
+
+		for _, d := range chunk {
+			reviewedFiles[d.NewPath] = true
 		}
 
 		if summary == "" {
@@ -346,6 +352,23 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				"chunks_total", len(chunks))
 			budgetExceeded = true
 			break
+		}
+	}
+
+	// If budget was exceeded, track skipped files from unreviewed chunks.
+	if budgetExceeded {
+		for _, d := range diffs {
+			if !reviewedFiles[d.NewPath] {
+				skippedFiles = append(skippedFiles, d.NewPath)
+			}
+		}
+	}
+
+	if summary == "" {
+		if len(cachedFindings) == 0 {
+			summary = "Review complete: no issues found."
+		} else {
+			summary = "Review complete."
 		}
 	}
 
@@ -374,11 +397,14 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 		
 		for _, d := range diffs { // diffs now holds only uncached
+			if !reviewedFiles[d.NewPath] {
+				continue
+			}
 			if key, ok := cacheKeys[d.NewPath]; ok {
 				entry := cache.Entry{
 					FilePath: d.NewPath,
 					DiffHash: cache.DiffHash(d),
-					Model:    r.cfg.Model,
+					Model:    cacheModelID,
 					Findings: byFile[d.NewPath],
 				}
 				if err := r.cache.Store(key, entry); err != nil {
@@ -470,7 +496,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			// Include parse-failed files as unreviewed — they were never
 			// sent to the model, so approval would be incomplete.
 			allSkipped := append(skippedFiles, r.parseFailedFiles...)
-			decision := EvaluateAutoApprove(r.cfg, len(diffs), rawFindingsCount,
+			decision := EvaluateAutoApprove(r.cfg, len(auditDiffs), rawFindingsCount,
 				allSkipped, budgetExceeded,
 				scopeAssessment != nil && scopeAssessment.IsOversized,
 				anyTruncated, r.mrDraft)

@@ -207,3 +207,16 @@ func TestPartition_ZeroFindingsEntry(t *testing.T) {
 		t.Errorf("Expected 1 cache hit (clean file), got %d", hits)
 	}
 }
+
+func TestPromptHash(t *testing.T) {
+	h1 := cache.PromptHash("prompt", "team rules v1", []string{"bugs"}, "extra", "formatted")
+	h2 := cache.PromptHash("prompt", "team rules v1", []string{"bugs"}, "extra", "formatted")
+	h3 := cache.PromptHash("prompt", "team rules v2", []string{"bugs"}, "extra", "formatted")
+
+	if h1 != h2 {
+		t.Errorf("expected h1 == h2 for identical inputs, got %s vs %s", h1, h2)
+	}
+	if h1 == h3 {
+		t.Errorf("expected h1 != h3 when reviewMD changes, got same hash %s", h1)
+	}
+}

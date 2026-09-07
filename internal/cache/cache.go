@@ -33,9 +33,9 @@ func DiffHash(d diff.FileDiff) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-func PromptHash(customPrompt string, focus []string, extraRules string, formattedRules string) string {
+func PromptHash(customPrompt, reviewMD string, focus []string, extraRules, formattedRules string) string {
 	h := sha256.New()
-	_, _ = fmt.Fprintf(h, "%s:%s:%s:%s", customPrompt, strings.Join(focus, ","), extraRules, formattedRules)
+	_, _ = fmt.Fprintf(h, "%s:%s:%s:%s:%s", customPrompt, reviewMD, strings.Join(focus, ","), extraRules, formattedRules)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

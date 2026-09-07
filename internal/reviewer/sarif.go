@@ -118,6 +118,7 @@ func getSecuritySeverity(severity string) string {
 
 func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 	ruleMap := make(map[string]int)
+	ruleMaxSev := make(map[string]string)
 	var rules []sarifRule
 	var results []sarifResult
 
@@ -127,16 +128,13 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 			ruleID = "general"
 		}
 
-		// Dedup key includes severity level so that findings with the same
-		// category but different severities get separate rule entries with
-		// correct security-severity scores.
 		level := sarifLevel(f.Severity)
-		ruleKey := ruleID + ":" + level
 
-		ruleIdx, ok := ruleMap[ruleKey]
+		ruleIdx, ok := ruleMap[ruleID]
 		if !ok {
 			ruleIdx = len(rules)
-			ruleMap[ruleKey] = ruleIdx
+			ruleMap[ruleID] = ruleIdx
+			ruleMaxSev[ruleID] = f.Severity
 
 			props := make(map[string]interface{})
 			if secSev := getSecuritySeverity(f.Severity); secSev != "" {
@@ -153,6 +151,17 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 				DefaultConfig:    &sarifRuleConfig{Level: level},
 				Properties:       props,
 			})
+		} else {
+			// SARIF §3.19.3 requires driver.rules to have unique IDs.
+			// When multiple findings share a category, update the rule's
+			// security-severity and default level to the maximum seen.
+			if severityRank(f.Severity) > severityRank(ruleMaxSev[ruleID]) {
+				ruleMaxSev[ruleID] = f.Severity
+				rules[ruleIdx].DefaultConfig.Level = level
+				if secSev := getSecuritySeverity(f.Severity); secSev != "" {
+					rules[ruleIdx].Properties["security-severity"] = secSev
+				}
+			}
 		}
 
 		line := f.Line

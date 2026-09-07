@@ -829,8 +829,15 @@ func (c *Client) do(req *http.Request, out interface{}) error {
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			// Clone the request for retry (body may have been consumed).
+			// Clone the request for retry and restore body if consumed.
 			req = req.Clone(req.Context())
+			if req.GetBody != nil {
+				body, err := req.GetBody()
+				if err != nil {
+					return fmt.Errorf("rewinding request body for retry: %w", err)
+				}
+				req.Body = body
+			}
 		}
 
 		resp, err := c.httpClient.Do(req)

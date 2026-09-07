@@ -37,10 +37,16 @@ func TestBuildSARIF(t *testing.T) {
 		t.Errorf("expected tool version 1.2.3, got %s", run.Tool.Driver.Version)
 	}
 
-	// 3 rules: security:error (CRITICAL), style:note (LOW), security:warning (MEDIUM)
-	// Same category with different severity levels creates separate rules.
-	if len(run.Tool.Driver.Rules) != 3 {
-		t.Errorf("expected 3 rules (severity-aware dedup), got %d", len(run.Tool.Driver.Rules))
+	// 2 rules: security and style (SARIF §3.19.3 requires unique rule IDs in driver.rules).
+	if len(run.Tool.Driver.Rules) != 2 {
+		t.Errorf("expected 2 rules (unique rule IDs), got %d", len(run.Tool.Driver.Rules))
+	}
+	ruleIDs := make(map[string]bool)
+	for _, r := range run.Tool.Driver.Rules {
+		if ruleIDs[r.ID] {
+			t.Errorf("duplicate rule ID in driver.rules: %s", r.ID)
+		}
+		ruleIDs[r.ID] = true
 	}
 
 	if len(run.Results) != 3 {
@@ -101,15 +107,15 @@ func TestBuildSARIF(t *testing.T) {
 		t.Error("expected line 0 to be clamped to 1")
 	}
 
-	// Check ruleIndex — each severity level gets its own rule.
+	// Check ruleIndex — findings share rules by category.
 	if run.Results[0].RuleIndex != 0 {
 		t.Errorf("expected ruleIndex 0 for CRITICAL security, got %d", run.Results[0].RuleIndex)
 	}
 	if run.Results[1].RuleIndex != 1 {
 		t.Errorf("expected ruleIndex 1 for LOW style, got %d", run.Results[1].RuleIndex)
 	}
-	if run.Results[2].RuleIndex != 2 {
-		t.Errorf("expected ruleIndex 2 for MEDIUM security, got %d", run.Results[2].RuleIndex)
+	if run.Results[2].RuleIndex != 0 {
+		t.Errorf("expected ruleIndex 0 for MEDIUM security, got %d", run.Results[2].RuleIndex)
 	}
 
 	// Check partialFingerprints

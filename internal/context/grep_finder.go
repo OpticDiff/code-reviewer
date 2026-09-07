@@ -112,6 +112,7 @@ func (g *GrepFinder) buildGrepArgs(symbol, repoRoot string) []string {
 			"--glob", "!*.pb.go",
 			"--glob", "!go.sum",
 			"--word-regexp",
+			"--",
 			symbol,
 			repoRoot,
 		}
@@ -125,6 +126,7 @@ func (g *GrepFinder) buildGrepArgs(symbol, repoRoot string) []string {
 		"--exclude-dir=.git",
 		"--exclude-dir=build",
 		"--exclude-dir=dist",
+		"--",
 		symbol,
 		repoRoot,
 	}
