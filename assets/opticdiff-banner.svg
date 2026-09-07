@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 380" width="100%" height="100%">
+  <defs>
+    <radialGradient id="bannerBg" cx="30%" cy="20%" r="90%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="40%" stop-color="#0b0f19" />
+      <stop offset="100%" stop-color="#05070d" />
+    </radialGradient>
+
+    <linearGradient id="titleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#818cf8" />
+      <stop offset="100%" stop-color="#c084fc" />
+    </linearGradient>
+
+    <linearGradient id="subtleLine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.6"/>
+      <stop offset="50%" stop-color="#818cf8" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- Logo Defs for Nested Use -->
+    <linearGradient id="cyanBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+    <linearGradient id="violetPurple" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#c084fc" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+    <linearGradient id="diffGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="diffRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f87171" />
+      <stop offset="100%" stop-color="#dc2626" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <style>
+    .title { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Display', Roboto, sans-serif; font-weight: 800; font-size: 64px; letter-spacing: -1.5px; }
+    .tagline { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', Roboto, sans-serif; font-weight: 500; font-size: 24px; fill: #94a3b8; }
+    .badge-text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', Roboto, sans-serif; font-weight: 600; font-size: 15px; fill: #cbd5e1; }
+    .subtext { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'SF Pro Text', Roboto, sans-serif; font-weight: 400; font-size: 16px; fill: #64748b; }
+  </style>
+
+  <!-- Background Card -->
+  <rect width="1200" height="380" rx="24" fill="url(#bannerBg)" stroke="#1e293b" stroke-width="1.5" />
+
+  <!-- Subtle Grid Accent -->
+  <g opacity="0.08" stroke="#ffffff" stroke-width="1">
+    <line x1="100" y1="0" x2="100" y2="380" />
+    <line x1="250" y1="0" x2="250" y2="380" />
+    <line x1="400" y1="0" x2="400" y2="380" />
+    <line x1="550" y1="0" x2="550" y2="380" />
+    <line x1="700" y1="0" x2="700" y2="380" />
+    <line x1="850" y1="0" x2="850" y2="380" />
+    <line x1="1000" y1="0" x2="1000" y2="380" />
+    <line x1="1150" y1="0" x2="1150" y2="380" />
+    <line x1="0" y1="80" x2="1200" y2="80" />
+    <line x1="0" y1="180" x2="1200" y2="180" />
+    <line x1="0" y1="280" x2="1200" y2="280" />
+  </g>
+
+  <!-- Left: Logo Mark (Scale & Center at (150, 190)) -->
+  <g transform="translate(60, 80) scale(0.42)">
+    <circle cx="256" cy="256" r="220" fill="#131d31" stroke="#334155" stroke-width="3" />
+    <circle cx="256" cy="256" r="180" fill="none" stroke="url(#cyanBlue)" stroke-width="2" stroke-dasharray="8 6" opacity="0.4" />
+    <path d="M 196 140 C 120 180 120 332 196 372 C 170 330 170 182 196 140 Z" fill="url(#diffRed)" opacity="0.85" />
+    <path d="M 316 140 C 392 180 392 332 316 372 C 342 330 342 182 316 140 Z" fill="url(#diffGreen)" opacity="0.85" />
+    <path d="M 256 124 L 340 256 L 256 388 L 172 256 Z" fill="none" stroke="url(#violetPurple)" stroke-width="16" stroke-linejoin="round" filter="url(#glow)" />
+    <ellipse cx="256" cy="256" rx="48" ry="72" fill="url(#cyanBlue)" opacity="0.9" />
+    <circle cx="256" cy="256" r="22" fill="#ffffff" filter="url(#glow)" />
+    <line x1="130" y1="256" x2="164" y2="256" stroke="#f87171" stroke-width="8" stroke-linecap="round" />
+    <line x1="348" y1="256" x2="382" y2="256" stroke="#34d399" stroke-width="8" stroke-linecap="round" />
+    <line x1="365" y1="239" x2="365" y2="273" stroke="#34d399" stroke-width="8" stroke-linecap="round" />
+  </g>
+
+  <!-- Right: Header & Content -->
+  <g transform="translate(320, 60)">
+    <!-- Title -->
+    <text x="0" y="64" class="title" fill="url(#titleGrad)">OpticDiff</text>
+    
+    <!-- Tagline -->
+    <text x="0" y="106" class="tagline">Diff Intelligence &amp; Sovereign AI Code Review</text>
+
+    <!-- Divider Bar -->
+    <line x1="0" y1="130" x2="780" y2="130" stroke="url(#subtleLine)" stroke-width="2" />
+
+    <!-- Badges Row 1 -->
+    <g transform="translate(0, 155)">
+      <!-- Badge 1: Sovereign -->
+      <g>
+        <rect width="265" height="38" rx="8" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1" />
+        <circle cx="20" cy="19" r="6" fill="#10b981" />
+        <text x="36" y="24" class="badge-text">100% Local / Sovereign</text>
+      </g>
+      <!-- Badge 2: Multi-Model Consensus -->
+      <g transform="translate(280, 0)">
+        <rect width="250" height="38" rx="8" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1" />
+        <circle cx="20" cy="19" r="6" fill="#38bdf8" />
+        <text x="36" y="24" class="badge-text">Multi-Model Consensus</text>
+      </g>
+      <!-- Badge 3: Shift-Left -->
+      <g transform="translate(545, 0)">
+        <rect width="235" height="38" rx="8" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1" />
+        <circle cx="20" cy="19" r="6" fill="#a855f7" />
+        <text x="36" y="24" class="badge-text">CLI + Pre-Push Hook</text>
+      </g>
+    </g>
+
+    <!-- Badges Row 2 -->
+    <g transform="translate(0, 205)">
+      <!-- Badge 4: Dual Parity -->
+      <g>
+        <rect width="240" height="38" rx="8" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1" />
+        <circle cx="20" cy="19" r="6" fill="#f59e0b" />
+        <text x="36" y="24" class="badge-text">GitHub &amp; GitLab Parity</text>
+      </g>
+      <!-- Badge 5: Tree-Sitter AST -->
+      <g transform="translate(255, 0)">
+        <rect width="255" height="38" rx="8" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1" />
+        <circle cx="20" cy="19" r="6" fill="#06b6d4" />
+        <text x="36" y="24" class="badge-text">Tree-sitter Repo Context</text>
+      </g>
+      <!-- Badge 6: Smart Caching -->
+      <g transform="translate(525, 0)">
+        <rect width="255" height="38" rx="8" fill="#1e293b" fill-opacity="0.8" stroke="#334155" stroke-width="1" />
+        <circle cx="20" cy="19" r="6" fill="#ec4899" />
+        <text x="36" y="24" class="badge-text">Smart Diff Caching &amp; SARIF</text>
+      </g>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%" fx="30%" fy="30%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#090d16" />
+    </radialGradient>
+
+    <!-- Beam & Lens Gradients -->
+    <linearGradient id="cyanBlue" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#2563eb" />
+    </linearGradient>
+
+    <linearGradient id="violetPurple" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#a855f7" />
+      <stop offset="60%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+
+    <linearGradient id="diffGreen" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+
+    <linearGradient id="diffRed" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f87171" />
+      <stop offset="100%" stop-color="#dc2626" />
+    </linearGradient>
+
+    <!-- Glow Filter -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="subtleShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- Container Rounded Hexagon / Circle -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect width="508" height="508" x="2" y="2" rx="110" fill="none" stroke="#334155" stroke-width="2" stroke-opacity="0.6" />
+
+  <!-- Outer Optical Rings -->
+  <circle cx="256" cy="256" r="192" fill="none" stroke="#1e293b" stroke-width="2" stroke-dasharray="8 6" opacity="0.8" />
+  <circle cx="256" cy="256" r="160" fill="none" stroke="url(#cyanBlue)" stroke-width="1.5" opacity="0.3" />
+
+  <!-- Diff Wave / Aperture Elements -->
+  <g filter="url(#subtleShadow)">
+    <!-- Left Diff Bracket / Lens Arc (Representing '-' / Input) -->
+    <path d="M 196 140 
+             C 120 180 120 332 196 372
+             C 170 330 170 182 196 140 Z" 
+          fill="url(#diffRed)" opacity="0.85" />
+
+    <!-- Right Diff Bracket / Lens Arc (Representing '+' / Verified) -->
+    <path d="M 316 140 
+             C 392 180 392 332 316 372
+             C 342 330 342 182 316 140 Z" 
+          fill="url(#diffGreen)" opacity="0.85" />
+
+    <!-- Center Optic Core / Diamond Prism -->
+    <path d="M 256 124 
+             L 340 256 
+             L 256 388 
+             L 172 256 Z" 
+          fill="none" 
+          stroke="url(#violetPurple)" 
+          stroke-width="14" 
+          stroke-linejoin="round"
+          filter="url(#glow)" />
+
+    <!-- Inner Refraction Lens / Core Eye -->
+    <ellipse cx="256" cy="256" rx="48" ry="72" 
+             fill="url(#cyanBlue)" 
+             opacity="0.9" />
+
+    <circle cx="256" cy="256" r="24" fill="#ffffff" opacity="0.95" filter="url(#glow)" />
+
+    <!-- Horizontal Diff Crossbar (The 'Difference' Balance) -->
+    <line x1="130" y1="256" x2="164" y2="256" stroke="#f87171" stroke-width="8" stroke-linecap="round" />
+    <line x1="348" y1="256" x2="382" y2="256" stroke="#34d399" stroke-width="8" stroke-linecap="round" />
+    <line x1="365" y1="239" x2="365" y2="273" stroke="#34d399" stroke-width="8" stroke-linecap="round" />
+  </g>
+
+  <!-- Precision Tick Marks (Optic Instrumentation) -->
+  <line x1="256" y1="64" x2="256" y2="84" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+  <line x1="256" y1="428" x2="256" y2="448" stroke="#38bdf8" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+  <line x1="64" y1="256" x2="84" y2="256" stroke="#64748b" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+  <line x1="428" y1="256" x2="448" y2="256" stroke="#64748b" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
+</svg>
