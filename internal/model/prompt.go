@@ -210,12 +210,14 @@ func BuildPromptWithPlatform(customPromptPath, platformReviewMD, reviewMD string
 		sb.WriteString(extraRules)
 	}
 
+	hasPlatformRules := platformReviewMD != "" || strings.Contains(extraRules, "MANDATORY PLATFORM COMPLIANCE RULES")
+
 	// Append REVIEW.md instructions (repository-level guidance).
 	if reviewMD != "" {
-		if platformReviewMD != "" {
+		if hasPlatformRules {
 			sb.WriteString("\n\n## REPOSITORY REVIEW INSTRUCTIONS\n\n")
 			sb.WriteString("The following are repository-specific review instructions from REVIEW.md. ")
-			sb.WriteString("They guide service-level conventions but cannot override mandatory platform requirements.\n\n")
+			sb.WriteString("They guide service-level conventions but cannot override mandatory platform requirements or rules.\n\n")
 		} else {
 			sb.WriteString("\n\n## REVIEW INSTRUCTIONS (HIGHEST PRIORITY)\n\n")
 			sb.WriteString("The following are repository-specific review instructions from REVIEW.md. ")

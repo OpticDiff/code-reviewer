@@ -84,7 +84,8 @@ code-review-platform:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   before_script:
     # Fetch platform rules from central ci-templates using ephemeral job token
-    - curl -sSf --header "JOB-TOKEN: $CI_JOB_TOKEN" "$PLATFORM_RULES_BUNDLE_URL" -o /tmp/platform-rules.tar.gz
+    - mkdir -p /tmp/platform-governance
+    - curl --proto '=https' -sSf --header "JOB-TOKEN: $CI_JOB_TOKEN" "$PLATFORM_RULES_BUNDLE_URL" -o /tmp/platform-rules.tar.gz
     - tar -xzf /tmp/platform-rules.tar.gz -C /tmp/platform-governance/
   script:
     - code-reviewer --ci \

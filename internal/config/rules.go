@@ -45,9 +45,11 @@ type Rule struct {
 }
 
 // IsSuppressionAllowed returns true if inline suppression is allowed for this rule.
+// For platform rules, inline suppression is denied by default unless explicitly allowed (allow_suppression: true).
+// For repository/custom rules, inline suppression is allowed by default unless explicitly denied (allow_suppression: false).
 func (r *Rule) IsSuppressionAllowed() bool {
 	if r.AllowSuppression == nil {
-		return true
+		return r.Source != "platform"
 	}
 	return *r.AllowSuppression
 }

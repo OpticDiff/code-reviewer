@@ -840,7 +840,10 @@ func (r *Reviewer) enforceRuleAttributionAndSuppressions(findings []model.Findin
 		// Check for inline suppression comments (// opticdiff:ignore <rule>: <reason>)
 		if d, ok := diffMap[f.File]; ok && f.RuleName != "" {
 			if suppressed, reason := checkInlineSuppression(d, f.Line, f.RuleName); suppressed {
-				if matchedRule == nil || matchedRule.IsSuppressionAllowed() {
+				platformMandatory := matchedRule != nil &&
+					matchedRule.Source == "platform" &&
+					(matchedRule.AllowSuppression == nil || !*matchedRule.AllowSuppression)
+				if !platformMandatory && (matchedRule == nil || matchedRule.IsSuppressionAllowed()) {
 					slog.Info("finding suppressed via inline comment",
 						"file", f.File,
 						"line", f.Line,
@@ -867,6 +870,9 @@ func checkInlineSuppression(d diff.FileDiff, line int, ruleName string) (bool, s
 	ruleLower := strings.ToLower(ruleName)
 	for _, h := range d.Hunks {
 		for _, l := range h.Lines {
+			if l.Type == diff.LineRemoved || l.NewLineNo == 0 {
+				continue
+			}
 			if l.NewLineNo >= line-2 && l.NewLineNo <= line+2 {
 				contentLower := strings.ToLower(l.Content)
 				if idx := strings.Index(contentLower, "opticdiff:ignore"); idx != -1 {

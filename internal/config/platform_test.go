@@ -6,6 +6,7 @@ import (
 	"testing"
 )
 
+// TestLoadPlatformConfig_MultiFileGlobs tests expanding multi-file glob patterns for platform configs and guidelines.
 func TestLoadPlatformConfig_MultiFileGlobs(t *testing.T) {
 	tmpDir := t.TempDir()
 	rulesDir := filepath.Join(tmpDir, "rules")
@@ -88,6 +89,7 @@ rules:
 	}
 }
 
+// TestLoadPlatformConfig_CommaSeparated tests loading comma-separated platform config file paths.
 func TestLoadPlatformConfig_CommaSeparated(t *testing.T) {
 	tmpDir := t.TempDir()
 	f1 := filepath.Join(tmpDir, "rule1.yaml")
@@ -123,6 +125,7 @@ rules:
 	}
 }
 
+// TestLoadPlatformConfig_MonotonicSeverityFloor tests clamping repo min_severity to the platform floor.
 func TestLoadPlatformConfig_MonotonicSeverityFloor(t *testing.T) {
 	tmpDir := t.TempDir()
 	pYAML := filepath.Join(tmpDir, "platform.yaml")
@@ -152,6 +155,7 @@ rules:
 	}
 }
 
+// TestLoadPlatformConfig_RepoRuleConflict tests that platform rules take precedence over repo rules with duplicate names.
 func TestLoadPlatformConfig_RepoRuleConflict(t *testing.T) {
 	tmpDir := t.TempDir()
 	pYAML := filepath.Join(tmpDir, "platform.yaml")
@@ -195,5 +199,16 @@ rules:
 	}
 	if cfg.Rules[1].Name != "team-custom-rule" || cfg.Rules[1].Source != "repo" {
 		t.Errorf("expected team rule to remain, got: %+v", cfg.Rules[1])
+	}
+}
+
+// TestLoadPlatformConfig_EmptyGlobReturnsError tests that a glob pattern matching zero files returns an error.
+func TestLoadPlatformConfig_EmptyGlobReturnsError(t *testing.T) {
+	cfg := &Config{
+		PlatformConfig: "/nonexistent-path-abc123xyz/*.yaml",
+	}
+	err := cfg.loadPlatformConfig()
+	if err == nil {
+		t.Fatal("expected error for glob matching no files, got nil")
 	}
 }

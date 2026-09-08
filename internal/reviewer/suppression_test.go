@@ -8,6 +8,7 @@ import (
 	"github.com/OpticDiff/code-reviewer/internal/model"
 )
 
+// TestEnforceRuleAttribution_PlatformRule verifies deterministic attribution and severity locking for platform rules.
 func TestEnforceRuleAttribution_PlatformRule(t *testing.T) {
 	allowFalse := false
 	cfg := &config.Config{
@@ -102,6 +103,7 @@ func TestEnforceRuleAttribution_PlatformRule(t *testing.T) {
 	}
 }
 
+// TestCheckInlineSuppression verifies inline comment suppression parsing across diff hunks.
 func TestCheckInlineSuppression(t *testing.T) {
 	fd := diff.FileDiff{
 		NewPath: "internal/db/query.go",
@@ -159,5 +161,144 @@ func TestCheckInlineSuppression(t *testing.T) {
 	}
 	if allReason != "emergency hotfix approved by security lead" {
 		t.Errorf("expected allReason, got %q", allReason)
+	}
+}
+
+// TestCheckInlineSuppression_SkipsRemovedLines verifies that deleted lines (NewLineNo == 0)
+// do not accidentally suppress findings on lines 1 or 2.
+func TestCheckInlineSuppression_SkipsRemovedLines(t *testing.T) {
+	fd := diff.FileDiff{
+		NewPath: "internal/init.go",
+		Hunks: []diff.Hunk{
+			{
+				Lines: []diff.DiffLine{
+					{
+						Type:      diff.LineRemoved,
+						NewLineNo: 0,
+						OldLineNo: 1,
+						Content:   "// opticdiff:ignore all: old deleted comment",
+					},
+					{
+						Type:      diff.LineAdded,
+						NewLineNo: 1,
+						Content:   "package main",
+					},
+					{
+						Type:      diff.LineAdded,
+						NewLineNo: 2,
+						Content:   "import \"os\"",
+					},
+				},
+			},
+		},
+	}
+
+	suppressed, _ := checkInlineSuppression(fd, 1, "any-rule")
+	if suppressed {
+		t.Error("deleted line should NOT suppress finding on line 1")
+	}
+
+	suppressed2, _ := checkInlineSuppression(fd, 2, "any-rule")
+	if suppressed2 {
+		t.Error("deleted line should NOT suppress finding on line 2")
+	}
+}
+
+// TestEnforceRuleAttribution_PlatformDefaultSuppressionDenied verifies that platform rules
+// deny inline suppression by default (AllowSuppression == nil), unless explicitly opted in.
+func TestEnforceRuleAttribution_PlatformDefaultSuppressionDenied(t *testing.T) {
+	allowTrue := true
+	cfg := &config.Config{
+		Rules: []config.Rule{
+			{
+				Name:        "platform-default-strict",
+				Description: "Platform rule with nil AllowSuppression (default deny)",
+				Category:    "security",
+				Severity:    "high",
+				Source:      "platform",
+			},
+			{
+				Name:             "platform-opt-in",
+				Description:      "Platform rule with explicit AllowSuppression: true",
+				Category:         "security",
+				Severity:         "medium",
+				AllowSuppression: &allowTrue,
+				Source:           "platform",
+			},
+			{
+				Name:        "repo-rule",
+				Description: "Repo rule with nil AllowSuppression (default allow)",
+				Category:    "style",
+				Severity:    "low",
+				Source:      "repo",
+			},
+		},
+	}
+
+	r := &Reviewer{cfg: cfg}
+
+	diffs := []diff.FileDiff{
+		{
+			NewPath: "main.go",
+			Hunks: []diff.Hunk{
+				{
+					Lines: []diff.DiffLine{
+						{
+							Type:      diff.LineAdded,
+							NewLineNo: 5,
+							Content:   "// opticdiff:ignore platform-default-strict: tried to suppress",
+						},
+						{
+							Type:      diff.LineAdded,
+							NewLineNo: 6,
+							Content:   "// opticdiff:ignore platform-opt-in: allowed suppression",
+						},
+						{
+							Type:      diff.LineAdded,
+							NewLineNo: 7,
+							Content:   "// opticdiff:ignore repo-rule: allowed suppression",
+						},
+						{
+							Type:      diff.LineAdded,
+							NewLineNo: 8,
+							Content:   "code := 123",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	findings := []model.Finding{
+		{
+			File:     "main.go",
+			Line:     8,
+			RuleName: "platform-default-strict",
+			Title:    "Strict platform finding",
+		},
+		{
+			File:     "main.go",
+			Line:     8,
+			RuleName: "platform-opt-in",
+			Title:    "Opt-in platform finding",
+		},
+		{
+			File:     "main.go",
+			Line:     8,
+			RuleName: "repo-rule",
+			Title:    "Repo finding",
+		},
+	}
+
+	result := r.enforceRuleAttributionAndSuppressions(findings, diffs)
+
+	// platform-default-strict must NOT be suppressed (should be in result)
+	// platform-opt-in MUST be suppressed (not in result)
+	// repo-rule MUST be suppressed (not in result)
+	if len(result) != 1 {
+		t.Fatalf("expected exactly 1 finding remaining (strict platform rule), got %d: %+v", len(result), result)
+	}
+	if result[0].RuleName != "platform-default-strict" {
+		t.Errorf("expected platform-default-strict finding, got %s", result[0].RuleName)
 	}
 }

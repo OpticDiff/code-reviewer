@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -217,6 +218,8 @@ type repoConfig struct {
 	IntentReview             *bool    `yaml:"intent_review"`
 	AutoApprove              *bool    `yaml:"auto_approve"`
 	Rules                    []Rule   `yaml:"rules"`
+	PlatformConfig           string   `yaml:"platform_config"`
+	PlatformReviewMD         string   `yaml:"platform_review_md"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -443,6 +446,14 @@ func (c *Config) applyRepoConfig(data []byte) error {
 			return fmt.Errorf("invalid config: %w", err)
 		}
 		c.Rules = rc.Rules
+	}
+	if rc.PlatformConfig != "" && c.PlatformConfig == "" {
+		c.PlatformConfig = rc.PlatformConfig
+		c.PlatformAutoDiscovered = true
+	}
+	if rc.PlatformReviewMD != "" && c.PlatformReviewMD == "" {
+		c.PlatformReviewMD = rc.PlatformReviewMD
+		c.PlatformAutoDiscovered = true
 	}
 	return nil
 }
@@ -993,6 +1004,9 @@ func expandPaths(pattern string) ([]string, error) {
 			if err != nil {
 				return nil, fmt.Errorf("invalid glob pattern %q: %w", part, err)
 			}
+			if len(matches) == 0 {
+				return nil, fmt.Errorf("glob pattern matched no files: %s", part)
+			}
 		} else {
 			if _, err := os.Stat(part); err == nil {
 				matches = []string{part}
@@ -1059,6 +1073,21 @@ func (c *Config) autoDiscoverPlatformFiles() {
 	}
 }
 
+// readGitFileFromRef reads a file from a git ref (e.g. base commit SHA).
+func readGitFileFromRef(ref, path string) ([]byte, error) {
+	if strings.HasPrefix(ref, "-") {
+		return nil, fmt.Errorf("invalid git ref: %s", ref)
+	}
+	relPath := path
+	if cwd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(cwd, path); err == nil && !strings.HasPrefix(rel, "..") {
+			relPath = rel
+		}
+	}
+	cmd := exec.Command("git", "show", fmt.Sprintf("%s:%s", ref, filepath.ToSlash(relPath)))
+	return cmd.Output()
+}
+
 func (c *Config) loadPlatformConfig() error {
 	if c.PlatformRuleFileHashes == nil {
 		c.PlatformRuleFileHashes = make(map[string]string)
@@ -1066,6 +1095,23 @@ func (c *Config) loadPlatformConfig() error {
 
 	// Auto-discover in repo if not explicitly set by flag or env
 	c.autoDiscoverPlatformFiles()
+
+	// In CI mode, if platform files were auto-discovered from the repo,
+	// ensure we have a trusted base ref to prevent contributor branch tampering.
+	if c.PlatformAutoDiscovered && c.CIMode {
+		if c.CIDiffBaseSHA == "" {
+			slog.Warn("CI mode active but CIDiffBaseSHA is empty; ignoring unverified auto-discovered platform files")
+			c.PlatformConfig = ""
+			c.PlatformReviewMD = ""
+			c.PlatformAutoDiscovered = false
+			return nil
+		}
+	}
+
+	ruleSource := "platform"
+	if c.PlatformAutoDiscovered {
+		ruleSource = "repo"
+	}
 
 	if c.PlatformConfig != "" {
 		files, err := expandPaths(c.PlatformConfig)
@@ -1075,9 +1121,20 @@ func (c *Config) loadPlatformConfig() error {
 
 		seenRuleNames := make(map[string]bool)
 		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err != nil {
-				return fmt.Errorf("reading platform config %q: %w", f, err)
+			var data []byte
+			if c.PlatformAutoDiscovered && c.CIMode {
+				var err error
+				data, err = readGitFileFromRef(c.CIDiffBaseSHA, f)
+				if err != nil {
+					slog.Warn("auto-discovered platform file not found in trusted base ref, skipping", "file", f, "ref", c.CIDiffBaseSHA)
+					continue
+				}
+			} else {
+				var err error
+				data, err = os.ReadFile(f)
+				if err != nil {
+					return fmt.Errorf("reading platform config %q: %w", f, err)
+				}
 			}
 
 			hash := sha256.Sum256(data)
@@ -1085,7 +1142,7 @@ func (c *Config) loadPlatformConfig() error {
 
 			var pcf platformConfigFile
 			if err := yaml.Unmarshal(data, &pcf); err == nil && (len(pcf.Rules) > 0 || pcf.MinSeverity != "") {
-				if pcf.MinSeverity != "" {
+				if pcf.MinSeverity != "" && ruleSource == "platform" {
 					sev, err := ParseSeverity(pcf.MinSeverity)
 					if err != nil {
 						return fmt.Errorf("platform config %q: invalid min_severity: %w", f, err)
@@ -1095,32 +1152,40 @@ func (c *Config) loadPlatformConfig() error {
 					}
 				}
 				for _, r := range pcf.Rules {
-					r.Source = "platform"
+					r.Source = ruleSource
 					r.SourceFile = filepath.Base(f)
 					if err := r.Validate(); err != nil {
 						return fmt.Errorf("platform config %q rule %q: %w", f, r.Name, err)
 					}
 					if seenRuleNames[r.Name] {
-						return fmt.Errorf("duplicate platform rule name %q in %q", r.Name, f)
+						return fmt.Errorf("duplicate rule name %q in %q", r.Name, f)
 					}
 					seenRuleNames[r.Name] = true
-					c.PlatformRules = append(c.PlatformRules, r)
+					if ruleSource == "platform" {
+						c.PlatformRules = append(c.PlatformRules, r)
+					} else {
+						c.Rules = append(c.Rules, r)
+					}
 				}
 			} else {
 				// Try unmarshaling as []Rule directly
 				var rawRules []Rule
 				if err := yaml.Unmarshal(data, &rawRules); err == nil && len(rawRules) > 0 {
 					for _, r := range rawRules {
-						r.Source = "platform"
+						r.Source = ruleSource
 						r.SourceFile = filepath.Base(f)
 						if err := r.Validate(); err != nil {
 							return fmt.Errorf("platform config %q rule %q: %w", f, r.Name, err)
 						}
 						if seenRuleNames[r.Name] {
-							return fmt.Errorf("duplicate platform rule name %q in %q", r.Name, f)
+							return fmt.Errorf("duplicate rule name %q in %q", r.Name, f)
 						}
 						seenRuleNames[r.Name] = true
-						c.PlatformRules = append(c.PlatformRules, r)
+						if ruleSource == "platform" {
+							c.PlatformRules = append(c.PlatformRules, r)
+						} else {
+							c.Rules = append(c.Rules, r)
+						}
 					}
 				} else if len(data) > 0 && strings.TrimSpace(string(data)) != "" {
 					return fmt.Errorf("platform config %q: invalid format or empty rules", f)
@@ -1137,9 +1202,20 @@ func (c *Config) loadPlatformConfig() error {
 
 		var sb strings.Builder
 		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err != nil {
-				return fmt.Errorf("reading platform review markdown %q: %w", f, err)
+			var data []byte
+			if c.PlatformAutoDiscovered && c.CIMode {
+				var err error
+				data, err = readGitFileFromRef(c.CIDiffBaseSHA, f)
+				if err != nil {
+					slog.Warn("auto-discovered platform review markdown not found in trusted base ref, skipping", "file", f, "ref", c.CIDiffBaseSHA)
+					continue
+				}
+			} else {
+				var err error
+				data, err = os.ReadFile(f)
+				if err != nil {
+					return fmt.Errorf("reading platform review markdown %q: %w", f, err)
+				}
 			}
 			hash := sha256.Sum256(data)
 			c.PlatformRuleFileHashes[filepath.Base(f)] = hex.EncodeToString(hash[:])
@@ -1154,7 +1230,18 @@ func (c *Config) loadPlatformConfig() error {
 				}
 			}
 		}
-		c.PlatformReviewMDContent = strings.TrimSpace(sb.String())
+		if c.PlatformAutoDiscovered {
+			discoveredMD := strings.TrimSpace(sb.String())
+			if discoveredMD != "" {
+				if c.ReviewMD == "" {
+					c.ReviewMD = discoveredMD
+				} else {
+					c.ReviewMD = c.ReviewMD + "\n\n" + discoveredMD
+				}
+			}
+		} else {
+			c.PlatformReviewMDContent = strings.TrimSpace(sb.String())
+		}
 	}
 
 	// Enforce Monotonic Severity Floor:

@@ -312,3 +312,16 @@ func TestBuildPromptWithPlatform(t *testing.T) {
 		t.Errorf("immutable guardrails should appear after platform mandates, got guard=%d plat=%d", guardIdx, platIdx)
 	}
 }
+
+func TestBuildPromptWithPlatform_RulesWithoutPlatformMD(t *testing.T) {
+	extraRules := "## MANDATORY PLATFORM COMPLIANCE RULES\n\n### [Platform Mandate] mask-phi\n..."
+	repoMD := "## Service Rules\n- Use service helper"
+	prompt := BuildPromptWithPlatform("", "", repoMD, []string{"security"}, extraRules, "")
+
+	if strings.Contains(prompt, "REVIEW INSTRUCTIONS (HIGHEST PRIORITY)") {
+		t.Error("REVIEW.md should not claim HIGHEST PRIORITY when mandatory platform rules exist in extraRules")
+	}
+	if !strings.Contains(prompt, "REPOSITORY REVIEW INSTRUCTIONS") {
+		t.Error("expected REPOSITORY REVIEW INSTRUCTIONS header")
+	}
+}

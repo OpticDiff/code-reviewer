@@ -292,6 +292,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--fix` | Apply suggested fixes to the working tree | `false` |
 | `--update-description` | Inject review summary into MR/PR description | `false` |
 | `--cleanup-mode` | How to handle previous reviews: `delete` or `resolve` | `delete` |
+| `--platform-config` | Platform rule config file, comma-separated paths, or glob | — |
+| `--platform-review-md` | Platform review guidelines markdown file or glob | — |
 | `--version` | Print version and exit | — |
 | `hook install` | Install a pre-push git hook | — |
 | `hook uninstall` | Remove the pre-push git hook | — |
@@ -311,6 +313,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_COMMENT_MODE` | Comment mode | `notes` |
 | `REVIEW_CHUNK_STRATEGY` | Chunk strategy | `fail` |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
+| `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
+| `CODE_REVIEW_PLATFORM_REVIEW_MD` | Platform guidelines markdown path or glob | — |
 | `REVIEW_OUTPUT_JSON` | Output results as JSON (`true`/`false`) | `false` |
 | `SARIF_OUTPUT` | Write SARIF output to this file path | — |
 | `INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
