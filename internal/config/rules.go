@@ -29,6 +29,27 @@ type Rule struct {
 	// Paths limits the rule to files matching these glob patterns.
 	// If empty, the rule applies to all files.
 	Paths []string `yaml:"paths,omitempty"`
+
+	// URL is an optional link to runbooks or documentation for this rule.
+	URL string `yaml:"url,omitempty"`
+
+	// AllowSuppression controls whether inline comment suppressions are honored.
+	// Defaults to true if nil.
+	AllowSuppression *bool `yaml:"allow_suppression,omitempty"`
+
+	// Source indicates where the rule originated ("platform" or "repo").
+	Source string `yaml:"-"`
+
+	// SourceFile is the filename where the rule was defined (e.g. "hipaa-phi.yaml").
+	SourceFile string `yaml:"-"`
+}
+
+// IsSuppressionAllowed returns true if inline suppression is allowed for this rule.
+func (r *Rule) IsSuppressionAllowed() bool {
+	if r.AllowSuppression == nil {
+		return true
+	}
+	return *r.AllowSuppression
 }
 
 // validRuleCategories are the allowed rule categories.
@@ -101,27 +122,64 @@ func ValidateRules(rules []Rule) error {
 }
 
 // FormatRulesPrompt formats custom rules into a prompt section for the AI model.
+// If platform rules are present, they are rendered under a distinct high-priority section.
 func FormatRulesPrompt(rules []Rule) string {
 	if len(rules) == 0 {
 		return ""
 	}
 
-	var sb strings.Builder
-	sb.WriteString("## CUSTOM RULES\n\n")
-	sb.WriteString("The following are team-defined review rules. ")
-	sb.WriteString("When a rule is violated, use the specified category and severity.\n\n")
-
+	var platformRules, repoRules []Rule
 	for _, r := range rules {
-		fmt.Fprintf(&sb, "### Rule: %s\n", r.Name)
-		fmt.Fprintf(&sb, "- **Category**: %s\n", r.EffectiveCategory())
-		fmt.Fprintf(&sb, "- **Severity**: %s\n", r.EffectiveSeverity())
-		if len(r.Paths) > 0 {
-			fmt.Fprintf(&sb, "- **Applies to**: %s\n", strings.Join(r.Paths, ", "))
+		if r.Source == "platform" {
+			platformRules = append(platformRules, r)
+		} else {
+			repoRules = append(repoRules, r)
 		}
-		fmt.Fprintf(&sb, "- **Rule**: %s\n\n", r.Description)
+	}
+
+	var sb strings.Builder
+	if len(platformRules) > 0 {
+		sb.WriteString("## MANDATORY PLATFORM COMPLIANCE RULES\n\n")
+		sb.WriteString("The following are organization-wide platform and security mandates. ")
+		sb.WriteString("These rules are NON-NEGOTIABLE and take precedence over repository-level conventions. ")
+		sb.WriteString("When any of these rules is violated, you MUST report it with the specified category, severity, and include the exact rule name in the \"rule_name\" field of the finding.\n\n")
+
+		for _, r := range platformRules {
+			formatRuleEntry(&sb, r, true)
+		}
+	}
+
+	if len(repoRules) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString("## CUSTOM RULES\n\n")
+		sb.WriteString("The following are team-defined review rules. ")
+		sb.WriteString("When a rule is violated, use the specified category and severity, and include the rule name in the \"rule_name\" field.\n\n")
+
+		for _, r := range repoRules {
+			formatRuleEntry(&sb, r, false)
+		}
 	}
 
 	return sb.String()
+}
+
+func formatRuleEntry(sb *strings.Builder, r Rule, isPlatform bool) {
+	if isPlatform {
+		fmt.Fprintf(sb, "### [Platform Mandate] %s\n", r.Name)
+	} else {
+		fmt.Fprintf(sb, "### Rule: %s\n", r.Name)
+	}
+	fmt.Fprintf(sb, "- **Category**: %s\n", r.EffectiveCategory())
+	fmt.Fprintf(sb, "- **Severity**: %s\n", r.EffectiveSeverity())
+	if len(r.Paths) > 0 {
+		fmt.Fprintf(sb, "- **Applies to**: %s\n", strings.Join(r.Paths, ", "))
+	}
+	if r.URL != "" {
+		fmt.Fprintf(sb, "- **Documentation**: %s\n", r.URL)
+	}
+	fmt.Fprintf(sb, "- **Rule**: %s\n\n", r.Description)
 }
 
 // FilterRulesByPaths returns only rules that apply to the given file paths.

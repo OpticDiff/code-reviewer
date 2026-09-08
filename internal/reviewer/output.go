@@ -137,7 +137,13 @@ func formatSummaryNote(result *model.ReviewResult) string {
 
 	// List findings.
 	for _, f := range result.Findings {
-		fmt.Fprintf(&sb, "- %s **[%s]** `%s:%d` — %s\n", severityEmoji(f.Severity), f.Severity, f.File, f.Line, f.Title)
+		badge := ""
+		if f.RuleSource == "platform" {
+			badge = fmt.Sprintf(" 🛡️ **[Platform: %s]**", f.RuleName)
+		} else if f.RuleName != "" {
+			badge = fmt.Sprintf(" 📋 **[%s]**", f.RuleName)
+		}
+		fmt.Fprintf(&sb, "- %s **[%s]**%s `%s:%d` — %s\n", severityEmoji(f.Severity), f.Severity, badge, f.File, f.Line, f.Title)
 	}
 
 	return sb.String()
@@ -145,8 +151,21 @@ func formatSummaryNote(result *model.ReviewResult) string {
 
 func formatInlineComment(f model.Finding) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "%s **[%s]** %s\n\n", severityEmoji(f.Severity), f.Severity, f.Title)
+	if f.RuleSource == "platform" {
+		ruleBadge := f.RuleName
+		if f.RuleFile != "" {
+			ruleBadge = fmt.Sprintf("%s / %s", f.RuleFile, f.RuleName)
+		}
+		fmt.Fprintf(&sb, "%s **[%s]** 🛡️ **[Platform Policy: %s]** %s\n\n", severityEmoji(f.Severity), f.Severity, ruleBadge, f.Title)
+	} else if f.RuleName != "" {
+		fmt.Fprintf(&sb, "%s **[%s]** 📋 **[Rule: %s]** %s\n\n", severityEmoji(f.Severity), f.Severity, f.RuleName, f.Title)
+	} else {
+		fmt.Fprintf(&sb, "%s **[%s]** %s\n\n", severityEmoji(f.Severity), f.Severity, f.Title)
+	}
 	sb.WriteString(f.Body)
+	if f.RuleURL != "" {
+		fmt.Fprintf(&sb, "\n\n📖 **Documentation**: [%s](%s)", f.RuleName, f.RuleURL)
+	}
 	return sb.String()
 }
 

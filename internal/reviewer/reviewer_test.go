@@ -1322,7 +1322,7 @@ func TestRun_CacheNotPollutedOnTokenBudgetExceeded(t *testing.T) {
 		t.Fatalf("expected 1 model call, got %d", mm.calls)
 	}
 
-	promptHash := cache.PromptHash(cfg.CustomPrompt, "", cfg.Focus, cfg.ExtraRules, "")
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", "", cfg.Focus, cfg.ExtraRules, "")
 	key1 := cache.CacheKey(cache.DiffHash(allDiffs[0]), cfg.Model, promptHash)
 	key2 := cache.CacheKey(cache.DiffHash(allDiffs[1]), cfg.Model, promptHash)
 
@@ -1361,7 +1361,7 @@ func TestRun_AutoApproveOnFullyCachedPR(t *testing.T) {
 	}
 
 	// Pre-populate cache with clean entries for both files.
-	promptHash := cache.PromptHash(cfg.CustomPrompt, "", cfg.Focus, cfg.ExtraRules, "")
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", "", cfg.Focus, cfg.ExtraRules, "")
 	key1 := cache.CacheKey(cache.DiffHash(allDiffs[0]), cfg.Model, promptHash)
 	_ = c.Store(key1, cache.Entry{FilePath: "file1.go", DiffHash: cache.DiffHash(allDiffs[0]), Model: cfg.Model, Findings: nil})
 	key2 := cache.CacheKey(cache.DiffHash(allDiffs[1]), cfg.Model, promptHash)
@@ -1444,7 +1444,7 @@ func TestRun_TruncatedChunkNotCachedAndCannotAutoApprove(t *testing.T) {
 	}
 
 	// Verify file was NOT cached!
-	promptHash := cache.PromptHash(cfg.CustomPrompt, "", cfg.Focus, cfg.ExtraRules, "")
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", "", cfg.Focus, cfg.ExtraRules, "")
 	key := cache.CacheKey(cache.DiffHash(allDiffs[0]), cfg.Model, promptHash)
 	if _, ok := r.cache.Lookup(key); ok {
 		t.Errorf("truncated chunk file1.go was stored in cache as complete")

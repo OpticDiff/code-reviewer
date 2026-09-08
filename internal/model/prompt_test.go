@@ -280,3 +280,35 @@ func TestBasePrompt_PrecisionRules(t *testing.T) {
 		})
 	}
 }
+
+func TestBuildPromptWithPlatform(t *testing.T) {
+	platformMD := "## Platform HIPAA Rules\n- Mask all patient MRNs"
+	repoMD := "## Service Rules\n- Use service helper"
+	prompt := BuildPromptWithPlatform("", platformMD, repoMD, []string{"security"}, "extra", "intent")
+
+	if !strings.Contains(prompt, "MANDATORY PLATFORM REQUIREMENTS (HIGHEST PRIORITY - NON-NEGOTIABLE)") {
+		t.Error("expected mandatory platform requirements header")
+	}
+	if !strings.Contains(prompt, "Mask all patient MRNs") {
+		t.Error("expected platform mandate content")
+	}
+	if !strings.Contains(prompt, "REPOSITORY REVIEW INSTRUCTIONS") {
+		t.Error("expected repository review instructions header")
+	}
+	if !strings.Contains(prompt, "Use service helper") {
+		t.Error("expected repo review content")
+	}
+
+	// Verify platform requirements appear AFTER repo instructions for recency bias
+	repoIdx := strings.Index(prompt, "REPOSITORY REVIEW INSTRUCTIONS")
+	platIdx := strings.Index(prompt, "MANDATORY PLATFORM REQUIREMENTS")
+	if platIdx <= repoIdx {
+		t.Errorf("platform requirements should appear after repo instructions for recency bias, got plat=%d repo=%d", platIdx, repoIdx)
+	}
+
+	// Verify immutable guardrails appear after platform mandates
+	guardIdx := strings.Index(prompt, "IMMUTABLE OUTPUT CONSTRAINTS")
+	if guardIdx <= platIdx {
+		t.Errorf("immutable guardrails should appear after platform mandates, got guard=%d plat=%d", guardIdx, platIdx)
+	}
+}

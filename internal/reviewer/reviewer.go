@@ -223,6 +223,21 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 	}
 
+	// In CI mode, if platform mandates were auto-discovered in the working tree
+	// (not provided via explicit flag or env), source them from the trusted base ref.
+	platformReviewMD := r.cfg.PlatformReviewMDContent
+	if r.cfg.CIMode && r.cfg.PlatformAutoDiscovered {
+		if r.cfg.CIDiffBaseSHA != "" {
+			trustedPlatformMD := readFileFromRef(ctx, r.cfg.CIDiffBaseSHA, "PLATFORM_REVIEW.md")
+			if trustedPlatformMD != "" {
+				platformReviewMD = trustedPlatformMD
+			}
+		} else {
+			slog.Warn("CI mode active but CIDiffBaseSHA is empty; ignoring unverified in-repo platform mandates")
+			platformReviewMD = ""
+		}
+	}
+
 	cacheModelID := r.cfg.Model
 	if len(r.cfg.Models) > 1 {
 		cacheModelID = fmt.Sprintf("consensus:%s:threshold=%d", strings.Join(r.cfg.Models, "+"), r.cfg.ConsensusThreshold)
@@ -235,7 +250,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cachedFindings []model.Finding
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
-		promptHash := cache.PromptHash(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules))
+		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules))
 		diffs, cachedFindings, cacheHits, cacheKeys = cache.Partition(diffs, r.cache, cacheModelID, promptHash)
 		if cacheHits > 0 {
 			slog.Info("cache", "hits", cacheHits, "cached_findings", len(cachedFindings), "uncached_files", len(diffs))
@@ -312,7 +327,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 
 	// Step 4: Build prompt and call model for each chunk.
-	systemPrompt := model.BuildPromptFull(r.cfg.CustomPrompt, reviewMD, r.cfg.Focus, extraRules, intentContext)
+	systemPrompt := model.BuildPromptWithPlatform(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, extraRules, intentContext)
 	var summary string
 
 	budgetExceeded := false
@@ -423,6 +438,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Merge cached findings.
 	allFindings = append(cachedFindings, allFindings...)
+
+	// Step 5d: Enforce platform rule attribution, severity locking, and inline comment suppressions.
+	allFindings = r.enforceRuleAttributionAndSuppressions(allFindings, auditDiffs)
 
 	// Step 6: Filter by severity.
 	// Preserve raw count for auto-approve safety: approval must consider ALL
@@ -752,26 +770,121 @@ func findRepoRoot() string {
 	}
 }
 
-// readReviewMDFromRef reads REVIEW.md from a specific git ref (e.g. base commit SHA).
+// readFileFromRef reads a file from a specific git ref (e.g. base commit SHA).
 // Returns empty string if the file doesn't exist at that ref or git fails.
-func readReviewMDFromRef(ctx context.Context, ref string) string {
+func readFileFromRef(ctx context.Context, ref, filename string) string {
 	// Prevent command injection: reject refs that look like flags.
 	if strings.HasPrefix(ref, "-") {
-		slog.Warn("invalid git ref for REVIEW.md lookup, skipping", "ref", ref)
+		slog.Warn("invalid git ref for file lookup, skipping", "ref", ref, "file", filename)
 		return ""
 	}
-	cmd := exec.CommandContext(ctx, "git", "show", ref+":REVIEW.md")
+	cmd := exec.CommandContext(ctx, "git", "show", fmt.Sprintf("%s:%s", ref, filename))
 	output, err := cmd.Output()
 	if err != nil {
 		// File doesn't exist at this ref — this is normal and expected.
-		slog.Debug("REVIEW.md not found at base ref", "ref", ref)
+		slog.Debug("file not found at base ref", "file", filename, "ref", ref)
 		return ""
 	}
 	content := strings.TrimSpace(string(output))
 	if content != "" {
-		slog.Info("loaded REVIEW.md from trusted base ref", "ref", ref[:min(len(ref), 12)])
+		slog.Info("loaded file from trusted base ref", "file", filename, "ref", ref[:min(len(ref), 12)])
 	}
 	return content
+}
+
+// readReviewMDFromRef reads REVIEW.md from a specific git ref (e.g. base commit SHA).
+// Returns empty string if the file doesn't exist at that ref or git fails.
+func readReviewMDFromRef(ctx context.Context, ref string) string {
+	return readFileFromRef(ctx, ref, "REVIEW.md")
+}
+
+func (r *Reviewer) enforceRuleAttributionAndSuppressions(findings []model.Finding, diffs []diff.FileDiff) []model.Finding {
+	if len(findings) == 0 {
+		return findings
+	}
+
+	platformMap := make(map[string]config.Rule)
+	repoMap := make(map[string]config.Rule)
+	for _, rule := range r.cfg.Rules {
+		if rule.Source == "platform" {
+			platformMap[strings.ToLower(rule.Name)] = rule
+		} else {
+			repoMap[strings.ToLower(rule.Name)] = rule
+		}
+	}
+
+	diffMap := make(map[string]diff.FileDiff)
+	for _, d := range diffs {
+		diffMap[d.NewPath] = d
+	}
+
+	var result []model.Finding
+	for _, f := range findings {
+		normRuleName := strings.ToLower(f.RuleName)
+		var matchedRule *config.Rule
+		if pr, ok := platformMap[normRuleName]; ok {
+			matchedRule = &pr
+			f.RuleSource = "platform"
+			f.RuleFile = pr.SourceFile
+			f.RuleURL = pr.URL
+			f.Severity = pr.EffectiveSeverity()
+			f.Category = pr.EffectiveCategory()
+		} else if rr, ok := repoMap[normRuleName]; ok {
+			matchedRule = &rr
+			f.RuleSource = "repo"
+			f.RuleURL = rr.URL
+			f.Severity = rr.EffectiveSeverity()
+			f.Category = rr.EffectiveCategory()
+		}
+
+		// Check for inline suppression comments (// opticdiff:ignore <rule>: <reason>)
+		if d, ok := diffMap[f.File]; ok && f.RuleName != "" {
+			if suppressed, reason := checkInlineSuppression(d, f.Line, f.RuleName); suppressed {
+				if matchedRule == nil || matchedRule.IsSuppressionAllowed() {
+					slog.Info("finding suppressed via inline comment",
+						"file", f.File,
+						"line", f.Line,
+						"rule", f.RuleName,
+						"reason", reason)
+					continue
+				} else {
+					slog.Warn("inline suppression denied for mandatory platform rule",
+						"file", f.File,
+						"line", f.Line,
+						"rule", f.RuleName)
+				}
+			}
+		}
+
+		result = append(result, f)
+	}
+	return result
+}
+
+// checkInlineSuppression scans the diff around the finding line for an inline suppression comment.
+// Format: `opticdiff:ignore <rule-name>[: <reason>]` or `opticdiff:ignore all[: <reason>]`
+func checkInlineSuppression(d diff.FileDiff, line int, ruleName string) (bool, string) {
+	ruleLower := strings.ToLower(ruleName)
+	for _, h := range d.Hunks {
+		for _, l := range h.Lines {
+			if l.NewLineNo >= line-2 && l.NewLineNo <= line+2 {
+				contentLower := strings.ToLower(l.Content)
+				if idx := strings.Index(contentLower, "opticdiff:ignore"); idx != -1 {
+					rest := strings.TrimSpace(l.Content[idx+len("opticdiff:ignore"):])
+					parts := strings.SplitN(rest, ":", 2)
+					targetRule := strings.ToLower(strings.TrimSpace(parts[0]))
+					if targetRule == ruleLower || targetRule == "all" {
+						reason := ""
+						if len(parts) > 1 {
+							reason = strings.TrimSpace(parts[1])
+						}
+						return true, reason
+					}
+				}
+			}
+		}
+	}
+	return false, ""
 }
 
 func initCache(cfg *config.Config) *cache.Cache {
