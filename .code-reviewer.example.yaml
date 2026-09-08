@@ -74,6 +74,10 @@ extra_rules: |
   Ensure all gRPC handlers propagate context.
   Check that zerolog is used instead of log/fmt for logging.
 
+# Platform governance settings (paths, comma-separated paths, or globs).
+# platform_config: ".platform/rules/*.yaml"
+# platform_review_md: ".platform/guidelines/*.md"
+
 # LLM proxy URL for observability and cost tracking.
 # Routes all Vertex AI model calls through the proxy.
 # Supports Candela (https://github.com/candelahq/candela) or any compatible proxy.

@@ -35,14 +35,15 @@ func DiffHash(d diff.FileDiff) string {
 }
 
 // PromptHash computes a deterministic, collision-resistant identity hash from the
-// custom prompt, review markdown, focus list, extra rules, and formatted rules.
+// custom prompt, platform mandates, review markdown, focus list, extra rules, and formatted rules.
 // Length-prefixed encoding is used to prevent delimiter-aliasing collisions.
-func PromptHash(customPrompt, reviewMD string, focus []string, extraRules, formattedRules string) string {
+func PromptHash(customPrompt, platformReviewMD, reviewMD string, focus []string, extraRules, formattedRules string) string {
 	h := sha256.New()
 	writeField := func(s string) {
 		_, _ = fmt.Fprintf(h, "%d:%s\n", len(s), s)
 	}
 	writeField(customPrompt)
+	writeField(platformReviewMD)
 	writeField(reviewMD)
 	_, _ = fmt.Fprintf(h, "%d:\n", len(focus))
 	for _, f := range focus {

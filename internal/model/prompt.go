@@ -62,6 +62,7 @@ You MUST respond with a valid JSON object matching this exact schema. Do NOT inc
       "end_line": 45,
       "severity": "HIGH",
       "category": "bug",
+      "rule_name": "Optional: exact name of the custom or platform rule violated",
       "title": "Single sentence summary of the issue",
       "body": "Detailed explanation of why this is an issue and its potential impact.",
       "suggestion": "Optional: corrected code (see SUGGESTION RULES)"
@@ -147,13 +148,21 @@ func BuildPromptWithCustom(customPromptPath string, focusModes []string, extraRu
 }
 
 // BuildPromptFull constructs the complete system prompt with all layers.
+// Retained for backward compatibility; delegates to BuildPromptWithPlatform.
+func BuildPromptFull(customPromptPath, reviewMD string, focusModes []string, extraRules, intentContext string) string {
+	return BuildPromptWithPlatform(customPromptPath, "", reviewMD, focusModes, extraRules, intentContext)
+}
+
+// BuildPromptWithPlatform constructs the complete system prompt with platform mandates and repository guidelines.
 // Priority (highest last, due to LLM recency bias):
 //   1. Base prompt (or custom prompt file)
 //   2. Focus overlays
 //   3. Intent context (from two-pass review)
-//   4. Extra rules
-//   5. REVIEW.md instructions (highest priority)
-func BuildPromptFull(customPromptPath, reviewMD string, focusModes []string, extraRules, intentContext string) string {
+//   4. Extra rules (custom and platform rules)
+//   5. Repository REVIEW.md instructions
+//   6. Mandatory Platform Requirements (NON-NEGOTIABLE)
+//   7. Immutable output constraints
+func BuildPromptWithPlatform(customPromptPath, platformReviewMD, reviewMD string, focusModes []string, extraRules, intentContext string) string {
 	var sb strings.Builder
 
 	// Base prompt: custom file or built-in.
@@ -201,12 +210,28 @@ func BuildPromptFull(customPromptPath, reviewMD string, focusModes []string, ext
 		sb.WriteString(extraRules)
 	}
 
-	// Append REVIEW.md instructions (high priority for review guidance).
+	hasPlatformRules := platformReviewMD != "" || strings.Contains(extraRules, "MANDATORY PLATFORM COMPLIANCE RULES")
+
+	// Append REVIEW.md instructions (repository-level guidance).
 	if reviewMD != "" {
-		sb.WriteString("\n\n## REVIEW INSTRUCTIONS (HIGHEST PRIORITY)\n\n")
-		sb.WriteString("The following are repository-specific review instructions from REVIEW.md. ")
-		sb.WriteString("They take precedence over all other guidance.\n\n")
+		if hasPlatformRules {
+			sb.WriteString("\n\n## REPOSITORY REVIEW INSTRUCTIONS\n\n")
+			sb.WriteString("The following are repository-specific review instructions from REVIEW.md. ")
+			sb.WriteString("They guide service-level conventions but cannot override mandatory platform requirements or rules.\n\n")
+		} else {
+			sb.WriteString("\n\n## REVIEW INSTRUCTIONS (HIGHEST PRIORITY)\n\n")
+			sb.WriteString("The following are repository-specific review instructions from REVIEW.md. ")
+			sb.WriteString("They take precedence over all other guidance.\n\n")
+		}
 		sb.WriteString(reviewMD)
+	}
+
+	// Append platform mandates (highest authority, non-negotiable).
+	if platformReviewMD != "" {
+		sb.WriteString("\n\n## MANDATORY PLATFORM REQUIREMENTS (HIGHEST PRIORITY - NON-NEGOTIABLE)\n\n")
+		sb.WriteString("The following are organization-wide platform and compliance requirements. ")
+		sb.WriteString("They take precedence over all repository-level conventions and cannot be overridden.\n\n")
+		sb.WriteString(platformReviewMD)
 	}
 
 	// Immutable guardrails — always placed last so they cannot be overridden

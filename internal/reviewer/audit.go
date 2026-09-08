@@ -27,6 +27,8 @@ type AuditEntry struct {
 	SeverityCounts map[string]int     `json:"severity_counts"`
 	Usage          *model.TokenUsage  `json:"usage,omitempty"`
 	Incremental    bool               `json:"incremental,omitempty"`
+	PlatformRuleHashes map[string]string `json:"platform_rule_hashes,omitempty"`
+	PlatformRulesCount int               `json:"platform_rules_count,omitempty"`
 }
 
 // buildAuditEntry constructs an AuditEntry from the review run data.
@@ -57,6 +59,8 @@ func buildAuditEntry(cfg *config.Config, diffs []diff.FileDiff, skippedFiles []s
 		CacheHits:      cacheHits,
 		SeverityCounts: severityCounts,
 		Incremental:    cfg.Incremental,
+		PlatformRuleHashes: cfg.PlatformRuleFileHashes,
+		PlatformRulesCount: len(cfg.PlatformRules),
 	}
 
 	if cfg.CIMode {

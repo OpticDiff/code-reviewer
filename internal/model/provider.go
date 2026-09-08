@@ -36,6 +36,10 @@ type Finding struct {
 	Title      string `json:"title"`
 	Body       string `json:"body"`
 	Suggestion string `json:"suggestion,omitempty"`
+	RuleName   string `json:"rule_name,omitempty"`
+	RuleSource string `json:"rule_source,omitempty"` // "platform" or "repo"
+	RuleFile   string `json:"rule_file,omitempty"`   // e.g. "hipaa-phi.yaml"
+	RuleURL    string `json:"rule_url,omitempty"`    // documentation/runbook link
 }
 
 // Provider wraps the Vertex AI genai client for code review.
