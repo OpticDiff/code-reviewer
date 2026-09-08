@@ -250,6 +250,20 @@ Use the [reusable action](https://github.com/OpticDiff/code-reviewer-action) for
 
 See [`examples/github/`](examples/github/) for complete workflows: [basic](examples/github/basic.yml), [SARIF + Code Scanning](examples/github/sarif.yml), [self-hosted Ollama](examples/github/self-hosted.yml), [multi-model consensus](examples/github/consensus.yml), [AWS Bedrock](examples/github/bedrock.yml).
 
+### Enterprise Platform Governance & Pod Specifics
+
+Centrally enforce compliance rules, tenant isolation, and non-negotiable security floors across all service pods using modular multi-file configurations, globs, and monotonic severity floors:
+
+```bash
+code-reviewer --ci \
+  --platform-config ".platform/rules/*.yaml" \
+  --platform-review-md ".platform/guidelines/*.md"
+```
+
+Service pods retain full autonomy over their own `.code-reviewer.yaml` and `REVIEW.md` for domain-specific guidelines, while platform rules are guaranteed to take precedence without conflict.
+
+👉 Read the full [Platform Governance & Multi-File Architecture Guide](docs/PLATFORM-GOVERNANCE.md).
+
 ## Configuration
 
 Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer.yaml` > defaults**.
