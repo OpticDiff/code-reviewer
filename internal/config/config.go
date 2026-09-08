@@ -582,10 +582,14 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("CODE_REVIEWER_PLATFORM_CONFIG"); v != "" {
 		c.PlatformConfig = v
+	} else if v := os.Getenv("CODE_REVIEW_PLATFORM_CONFIG"); v != "" {
+		c.PlatformConfig = v
 	} else if v := os.Getenv("REVIEW_PLATFORM_CONFIG"); v != "" {
 		c.PlatformConfig = v
 	}
 	if v := os.Getenv("CODE_REVIEWER_PLATFORM_REVIEW_MD"); v != "" {
+		c.PlatformReviewMD = v
+	} else if v := os.Getenv("CODE_REVIEW_PLATFORM_REVIEW_MD"); v != "" {
 		c.PlatformReviewMD = v
 	} else if v := os.Getenv("REVIEW_PLATFORM_REVIEW_MD"); v != "" {
 		c.PlatformReviewMD = v
