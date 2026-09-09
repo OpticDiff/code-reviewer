@@ -1,0 +1,26 @@
+diff --git a/internal/storage/save.go b/internal/storage/save.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/internal/storage/save.go
+@@ -0,0 +1,20 @@
++package storage
++
++import (
++	"encoding/json"
++	"os"
++)
++
++type Record struct {
++	ID   string
++	Data string
++}
++
++func SaveRecord(r Record) {
++	b, _ := json.Marshal(r)
++	
++	f, _ := os.Create("/tmp/record.json")
++	defer f.Close()
++	
++	f.Write(b)
++}

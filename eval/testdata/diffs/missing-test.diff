@@ -1,0 +1,15 @@
+diff --git a/pkg/strings/reverse.go b/pkg/strings/reverse.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/pkg/strings/reverse.go
+@@ -0,0 +1,12 @@
++package strings
++
++func ReverseString(s string) string {
++	runes := []rune(s)
++	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
++		runes[i], runes[j] = runes[j], runes[i]
++	}
++	return string(runes)
++}

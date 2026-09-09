@@ -1,0 +1,54 @@
+# Platform governance rules for persona evaluation suite.
+# These rules define what the platform profile should enforce.
+
+min_severity: medium
+
+rules:
+  - name: no-sql-injection
+    description: "Prevent SQL injection by requiring parameterized queries"
+    severity: critical
+    category: security
+    pattern: "sql|query|exec|prepare"
+    guidance: "All SQL queries must use parameterized statements. Never concatenate user input."
+
+  - name: no-hardcoded-secrets
+    description: "No hardcoded API keys, tokens, passwords, or secrets"
+    severity: critical
+    category: security
+    pattern: "key|token|password|secret|credential"
+    guidance: "Use environment variables or a secret manager. Never commit secrets."
+
+  - name: require-auth-check
+    description: "All HTTP handlers must verify authorization"
+    severity: high
+    category: security
+    pattern: "handler|endpoint|route|api"
+    guidance: "Check authorization before processing request. Use middleware or explicit checks."
+
+  - name: secure-tls-config
+    description: "TLS configuration must use TLS 1.2+ and strong cipher suites"
+    severity: high
+    category: security
+    pattern: "tls|ssl|https|certificate"
+    guidance: "Set MinVersion to tls.VersionTLS12. Do not set InsecureSkipVerify to true."
+
+  - name: no-path-traversal
+    description: "Sanitize file paths to prevent directory traversal"
+    severity: critical
+    category: security
+    pattern: "filepath|path|file|open|read"
+    guidance: "Use filepath.Clean and validate paths are within expected directory."
+
+  - name: no-xss
+    description: "Prevent cross-site scripting in HTML output"
+    severity: critical
+    category: security
+    pattern: "html|template|render|response"
+    guidance: "Use html/template for HTML output. Never use text/template for user-facing HTML."
+
+  - name: no-data-races
+    description: "Protect shared state with proper synchronization"
+    severity: high
+    category: bug
+    pattern: "goroutine|go func|mutex|sync|channel"
+    guidance: "Use sync.Mutex, sync.RWMutex, or channels to protect shared state."

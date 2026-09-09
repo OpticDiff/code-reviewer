@@ -1,0 +1,30 @@
+diff --git a/internal/api/users.go b/internal/api/users.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/internal/api/users.go
+@@ -0,0 +1,24 @@
++package api
++
++import (
++	"database/sql"
++	"fmt"
++	"net/http"
++)
++
++type UserHandler struct {
++	db *sql.DB
++}
++
++func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
++	username := r.URL.Query().Get("username")
++	
++	// Vulnerable to SQL injection
++	query := fmt.Sprintf("SELECT id, email FROM users WHERE username = '%s'", username)
++	row := h.db.QueryRow(query)
++	
++	var id, email string
++	row.Scan(&id, &email)
++	
++	fmt.Fprintf(w, "User %s: %s", id, email)
++}

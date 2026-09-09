@@ -1,0 +1,32 @@
+diff --git a/pkg/cache/memory.go b/pkg/cache/memory.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/pkg/cache/memory.go
+@@ -0,0 +1,26 @@
++package cache
++
++import (
++	"sync"
++)
++
++type Cache struct {
++	data map[string]interface{}
++	// Missing mutex here
++}
++
++func NewCache() *Cache {
++	return &Cache{
++		data: make(map[string]interface{}),
++	}
++}
++
++func (c *Cache) Set(key string, value interface{}) {
++	// Vulnerable to race condition on concurrent access
++	c.data[key] = value
++}
++
++func (c *Cache) Get(key string) interface{} {
++	// Vulnerable to race condition
++	return c.data[key]
++}
