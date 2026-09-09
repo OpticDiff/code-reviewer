@@ -35,6 +35,8 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write      # Required for cosign keyless signing (OIDC)
+      attestations: write  # Required for GitHub Artifact Attestations (SLSA L3)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -53,6 +55,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.5.0
 
       - name: Validate Homebrew tap token
         env:
@@ -97,3 +102,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Attest build provenance (SLSA Level 3)
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/checksums.txt
