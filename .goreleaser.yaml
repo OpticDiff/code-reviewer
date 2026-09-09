@@ -67,6 +67,14 @@ signs:
       - "--output-certificate=${certificate}"
       - "${artifact}"
 
+docker_signs:
+  - cmd: cosign
+    args:
+      - "sign"
+      - "--yes"
+      - "${artifact}"
+    artifacts: manifests
+
 checksum:
   name_template: checksums.txt
 

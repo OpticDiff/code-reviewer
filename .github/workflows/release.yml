@@ -106,4 +106,7 @@ jobs:
       - name: Attest build provenance (SLSA Level 3)
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: dist/checksums.txt
+          subject-path: |
+            dist/checksums.txt
+            dist/*.tar.gz
+            dist/*.zip

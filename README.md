@@ -696,6 +696,24 @@ git push origin v0.7.0
 # → GitHub Actions: test → build 6 binaries → publish to Releases
 ```
 
+## Inline Suppressions
+
+Suppress specific findings directly in your source code:
+
+```go
+// opticdiff:ignore no-sql-injection — parameterized at the caller
+query := "SELECT * FROM users WHERE id = " + id
+```
+
+Suppress all rules on a line:
+
+```go
+// opticdiff:ignore-all — false positive, tested extensively
+password := os.Getenv("DB_PASSWORD") //nolint
+```
+
+Suppressions work for both platform and product profiles. For full details on rule-level suppression and governance, see [PLATFORM-GOVERNANCE.md](docs/PLATFORM-GOVERNANCE.md).
+
 ## License
 
 Apache 2.0
