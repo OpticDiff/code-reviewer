@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/model"
@@ -18,8 +19,15 @@ type sarifReport struct {
 }
 
 type sarifRun struct {
-	Tool    sarifTool     `json:"tool"`
-	Results []sarifResult `json:"results"`
+	Tool                      sarifTool                       `json:"tool"`
+	Results                   []sarifResult                   `json:"results"`
+	VersionControlProvenance  []sarifVersionControlProvenance `json:"versionControlProvenance,omitempty"`
+}
+
+type sarifVersionControlProvenance struct {
+	RepositoryURI string `json:"repositoryUri"`
+	RevisionID    string `json:"revisionId"`
+	Branch        string `json:"branch,omitempty"`
 }
 
 type sarifTool struct {
@@ -229,9 +237,53 @@ func buildSARIF(result *model.ReviewResult, version, profile string) sarifReport
 					Rules:          rules,
 				},
 			},
-			Results: results,
+			Results:                  results,
+			VersionControlProvenance: buildVCSProvenance(),
 		}},
 	}
+}
+
+// buildVCSProvenance constructs versionControlProvenance from CI environment
+// variables (GitHub Actions, GitLab CI) or falls back to local git info.
+func buildVCSProvenance() []sarifVersionControlProvenance {
+	var repoURI, revisionID, branch string
+
+	// GitHub Actions.
+	if repo := os.Getenv("GITHUB_REPOSITORY"); repo != "" {
+		serverURL := os.Getenv("GITHUB_SERVER_URL")
+		if serverURL == "" {
+			serverURL = "https://github.com"
+		}
+		repoURI = serverURL + "/" + repo
+		revisionID = os.Getenv("GITHUB_SHA")
+		branch = os.Getenv("GITHUB_REF_NAME")
+	} else if projectURL := os.Getenv("CI_PROJECT_URL"); projectURL != "" {
+		// GitLab CI.
+		repoURI = projectURL
+		revisionID = os.Getenv("CI_COMMIT_SHA")
+		branch = os.Getenv("CI_COMMIT_REF_NAME")
+	} else {
+		// Local git fallback.
+		if out, err := exec.Command("git", "remote", "get-url", "origin").Output(); err == nil {
+			repoURI = strings.TrimSpace(string(out))
+		}
+		if out, err := exec.Command("git", "rev-parse", "HEAD").Output(); err == nil {
+			revisionID = strings.TrimSpace(string(out))
+		}
+		if out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output(); err == nil {
+			branch = strings.TrimSpace(string(out))
+		}
+	}
+
+	if repoURI == "" && revisionID == "" {
+		return nil
+	}
+
+	return []sarifVersionControlProvenance{{
+		RepositoryURI: repoURI,
+		RevisionID:    revisionID,
+		Branch:        branch,
+	}}
 }
 
 func sarifLevel(severity string) string {
