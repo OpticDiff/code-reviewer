@@ -131,6 +131,8 @@ func (m *mockVCS) ApproveReview(ctx context.Context, projectID, reviewID, headSH
 	return m.approveErr
 }
 
+func (m *mockVCS) SetProfile(string) {}
+
 // ---------------------------------------------------------------------------
 // buildNumberedDiff
 // ---------------------------------------------------------------------------

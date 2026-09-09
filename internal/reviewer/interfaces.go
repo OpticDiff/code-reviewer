@@ -28,4 +28,5 @@ type VCSClient interface {
 	// On GitHub: single POST /pulls/{pr}/reviews (1 API call, 1 notification).
 	// On GitLab: CleanPreviousReviews + PostNote(summary) + N×CreateDiscussion.
 	SubmitReview(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error
+	SetProfile(profile string)
 }

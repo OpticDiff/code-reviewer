@@ -171,10 +171,10 @@ func TestPostNote_BotMarker(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(gotBody, botMarker) {
-		t.Errorf("body should contain bot marker %q, got: %q", botMarker, gotBody)
+	if !strings.Contains(gotBody, "<!-- code-reviewer -->") {
+		t.Errorf("body should contain bot marker %q, got: %q", "<!-- code-reviewer -->", gotBody)
 	}
-	if !strings.HasSuffix(gotBody, botMarker) {
+	if !strings.HasSuffix(gotBody, "<!-- code-reviewer -->") {
 		t.Errorf("body should end with bot marker, got: %q", gotBody)
 	}
 	if !strings.HasPrefix(gotBody, "Great code!") {
@@ -207,10 +207,10 @@ func TestCreateDiscussion_BotMarker(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(gotBody, botMarker) {
-		t.Errorf("body should contain bot marker %q, got: %q", botMarker, gotBody)
+	if !strings.Contains(gotBody, "<!-- code-reviewer -->") {
+		t.Errorf("body should contain bot marker %q, got: %q", "<!-- code-reviewer -->", gotBody)
 	}
-	if !strings.HasSuffix(gotBody, botMarker) {
+	if !strings.HasSuffix(gotBody, "<!-- code-reviewer -->") {
 		t.Errorf("body should end with bot marker, got: %q", gotBody)
 	}
 	if !strings.HasPrefix(gotBody, "Consider refactoring this") {
@@ -221,9 +221,9 @@ func TestCreateDiscussion_BotMarker(t *testing.T) {
 func TestListBotNotes_FiltersBotNotes(t *testing.T) {
 	notes := []Note{
 		{ID: 1, Body: "human comment"},
-		{ID: 2, Body: "bot review\n" + botMarker},
+		{ID: 2, Body: "bot review\n" + "<!-- code-reviewer -->"},
 		{ID: 3, Body: "another human comment"},
-		{ID: 4, Body: "another bot review\n" + botMarker},
+		{ID: 4, Body: "another bot review\n" + "<!-- code-reviewer -->"},
 		{ID: 5, Body: "system note", System: true},
 	}
 
@@ -254,12 +254,12 @@ func TestListBotNotes_FiltersBotNotes(t *testing.T) {
 
 func TestListBotNotes_Pagination(t *testing.T) {
 	page1Notes := []Note{
-		{ID: 1, Body: "bot note page1\n" + botMarker},
+		{ID: 1, Body: "bot note page1\n" + "<!-- code-reviewer -->"},
 		{ID: 2, Body: "human note page1"},
 	}
 	page2Notes := []Note{
 		{ID: 3, Body: "human note page2"},
-		{ID: 4, Body: "bot note page2\n" + botMarker},
+		{ID: 4, Body: "bot note page2\n" + "<!-- code-reviewer -->"},
 	}
 
 	var mu sync.Mutex
@@ -318,8 +318,8 @@ func TestCleanPreviousReviews_DeletesCorrectNotes(t *testing.T) {
 	// Notes returned by list (some bot, some not).
 	listNotes := []Note{
 		{ID: 10, Body: "human"},
-		{ID: 20, Body: "bot\n" + botMarker},
-		{ID: 30, Body: "bot2\n" + botMarker},
+		{ID: 20, Body: "bot\n" + "<!-- code-reviewer -->"},
+		{ID: 30, Body: "bot2\n" + "<!-- code-reviewer -->"},
 		{ID: 40, Body: "human2"},
 	}
 
@@ -677,9 +677,9 @@ func TestDo_429ExhaustsRetries(t *testing.T) {
 func TestCleanPreviousReviews_ContinuesOnDeleteError(t *testing.T) {
 	// 3 bot notes; DELETE for note 2 returns 403, notes 1 and 3 return 204.
 	listNotes := []Note{
-		{ID: 1, Body: "bot1\n" + botMarker},
-		{ID: 2, Body: "bot2\n" + botMarker},
-		{ID: 3, Body: "bot3\n" + botMarker},
+		{ID: 1, Body: "bot1\n" + "<!-- code-reviewer -->"},
+		{ID: 2, Body: "bot2\n" + "<!-- code-reviewer -->"},
+		{ID: 3, Body: "bot3\n" + "<!-- code-reviewer -->"},
 	}
 
 	var mu sync.Mutex

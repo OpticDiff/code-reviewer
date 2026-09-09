@@ -80,8 +80,8 @@ type sarifRegion struct {
 }
 
 // WriteSARIF writes review results in SARIF 2.1.0 format to the given path.
-func WriteSARIF(path string, result *model.ReviewResult, version string) error {
-	report := buildSARIF(result, version)
+func WriteSARIF(path string, result *model.ReviewResult, version, profile string) error {
+	report := buildSARIF(result, version, profile)
 
 	data, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -116,7 +116,7 @@ func getSecuritySeverity(severity string) string {
 	}
 }
 
-func buildSARIF(result *model.ReviewResult, version string) sarifReport {
+func buildSARIF(result *model.ReviewResult, version, profile string) sarifReport {
 	ruleMap := make(map[string]int)
 	ruleMaxSev := make(map[string]string)
 	var rules []sarifRule
@@ -209,13 +209,21 @@ func buildSARIF(result *model.ReviewResult, version string) sarifReport {
 		})
 	}
 
+	driverName := "code-reviewer"
+	switch profile {
+	case "platform":
+		driverName = "code-reviewer/platform"
+	case "product":
+		driverName = "code-reviewer/product"
+	}
+
 	return sarifReport{
 		Version: "2.1.0",
 		Schema:  "https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json",
 		Runs: []sarifRun{{
 			Tool: sarifTool{
 				Driver: sarifDriver{
-					Name:           "code-reviewer",
+					Name:           driverName,
 					Version:        version,
 					InformationURI: "https://github.com/OpticDiff/code-reviewer",
 					Rules:          rules,

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -72,8 +73,19 @@ func main() {
 
 	exitCode, err := run(ctx, initCtx)
 	if err != nil {
-		slog.Error("fatal", "error", err)
-		os.Exit(1)
+		var cfgErr *config.ConfigError
+		var infraErr *config.InfraError
+		switch {
+		case errors.As(err, &cfgErr):
+			slog.Error("configuration error", "error", err)
+			os.Exit(2)
+		case errors.As(err, &infraErr):
+			slog.Error("infrastructure error", "error", err)
+			os.Exit(3)
+		default:
+			slog.Error("fatal", "error", err)
+			os.Exit(3) // Unknown errors treated as infrastructure failures.
+		}
 	}
 	os.Exit(exitCode)
 }
@@ -81,13 +93,14 @@ func main() {
 func run(ctx, initCtx context.Context) (int, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return 0, fmt.Errorf("configuration: %w", err)
+		return 0, &config.ConfigError{Err: fmt.Errorf("configuration: %w", err)}
 	}
 	cfg.Version = version
 
 	slog.Info("code-reviewer starting",
 		"version", version,
 		"mode", cfg.Mode(),
+		"profile", cfg.Profile,
 		"model", cfg.Model,
 		"focus", cfg.Focus,
 		"min_severity", cfg.MinSeverity.String(),
@@ -124,7 +137,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 			for _, m := range cfg.Models {
 				p, err := model.NewHTTPProvider(cfg.APIURL, cfg.APIKey, m)
 				if err != nil {
-					return 0, fmt.Errorf("creating HTTP provider for %s: %w", m, err)
+					return 0, &config.InfraError{Err: fmt.Errorf("creating HTTP provider for %s: %w", m, err)}
 				}
 				providers = append(providers, p)
 			}
@@ -141,7 +154,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 		slog.Info("using HTTP provider", "api_url", cfg.APIURL, "model", cfg.Model)
 		provider, err := model.NewHTTPProvider(cfg.APIURL, cfg.APIKey, cfg.Model)
 		if err != nil {
-			return 0, fmt.Errorf("creating HTTP provider: %w", err)
+			return 0, &config.InfraError{Err: fmt.Errorf("creating HTTP provider: %w", err)}
 		}
 		modelProvider = provider
 	} else {
@@ -163,6 +176,10 @@ func run(ctx, initCtx context.Context) (int, error) {
 			slog.Info("using GitHub VCS client", "base_url", cfg.GitHubBaseURL)
 		default:
 			vcsClient = gitlab.NewClient(cfg.GitLabBaseURL, cfg.GitLabToken)
+		}
+		// Set profile for comment marker isolation.
+		if cfg.Profile != "all" {
+			vcsClient.SetProfile(cfg.Profile)
 		}
 	}
 
@@ -203,14 +220,14 @@ func wrapProviderError(err error) error {
 	if strings.Contains(errMsg, "credentials") ||
 		strings.Contains(errMsg, "oauth2") ||
 		strings.Contains(errMsg, "authentication") {
-		return fmt.Errorf(
+		return &config.InfraError{Err: fmt.Errorf(
 			"vertex AI authentication failed: %w\n\n"+
 				"To fix, set up Application Default Credentials:\n"+
 				"  Local:  gcloud auth application-default login\n"+
 				"  CI/CD:  Use Workload Identity Federation or set GOOGLE_APPLICATION_CREDENTIALS",
-			err)
+			err)}
 	}
-	return fmt.Errorf("initializing model provider: %w", err)
+	return &config.InfraError{Err: fmt.Errorf("initializing model provider: %w", err)}
 }
 
 // runHook dispatches hook subcommands.

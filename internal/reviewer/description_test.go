@@ -6,7 +6,7 @@ import (
 
 func TestBuildDescriptionSection(t *testing.T) {
 	summary := "This is a summary."
-	out := buildDescriptionSection(summary)
+	out := buildDescriptionSection(summary, "")
 	want := "<!-- code-reviewer:start -->\nThis is a summary.\n<!-- code-reviewer:end -->"
 	if out != want {
 		t.Errorf("got %q, want %q", out, want)
@@ -47,7 +47,7 @@ func TestReplaceDescriptionSection(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := replaceDescriptionSection(tt.existing, tt.section)
+			got := replaceDescriptionSection(tt.existing, tt.section, "")
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}

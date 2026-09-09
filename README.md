@@ -306,6 +306,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--fix` | Apply suggested fixes to the working tree | `false` |
 | `--update-description` | Inject review summary into MR/PR description | `false` |
 | `--cleanup-mode` | How to handle previous reviews: `delete` or `resolve` | `delete` |
+| `--profile` | Review profile: `platform`, `product`, or `all` (default: `all`). See [Dual-Review Architecture](docs/PLATFORM-GOVERNANCE.md#dual-review-ci-architecture-platform-gate-vs-product-quality-review). |
 | `--platform-config` | Platform rule config file, comma-separated paths, or glob | — |
 | `--platform-review-md` | Platform review guidelines markdown file or glob | — |
 | `--version` | Print version and exit | — |

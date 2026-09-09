@@ -147,3 +147,15 @@ func TestBuildAuditEntry_SeverityCounts(t *testing.T) {
 		t.Errorf("expected 3 LOW, got %d", entry.SeverityCounts["LOW"])
 	}
 }
+
+func TestAuditEntry_IncludesProfile(t *testing.T) {
+	cfg := &config.Config{
+		Profile: "platform",
+	}
+
+	entry := buildAuditEntry(cfg, nil, nil, nil, 0, 0, nil, 0)
+
+	if entry.Profile != "platform" {
+		t.Errorf("buildAuditEntry() profile = %q, want %q", entry.Profile, "platform")
+	}
+}

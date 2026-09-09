@@ -110,7 +110,7 @@ func TestFormatSummaryNote_WithFindings(t *testing.T) {
 			{File: "a.go", Line: 4, Severity: "LOW", Title: "low", Body: "l"},
 		},
 	}
-	out := formatSummaryNote(result)
+	out := formatSummaryNote(result, "")
 
 	if !strings.Contains(out, "📋 Code Review Summary") {
 		t.Error("expected summary header")
@@ -129,7 +129,7 @@ func TestFormatSummaryNote_NoFindings(t *testing.T) {
 		Summary:  "All clean.",
 		Findings: nil,
 	}
-	out := formatSummaryNote(result)
+	out := formatSummaryNote(result, "")
 	if !strings.Contains(out, "No issues found") {
 		t.Error("expected 'No issues found' in summary note")
 	}
@@ -230,7 +230,7 @@ func TestPostReview_PassesSuggestionAndCleanupMode(t *testing.T) {
 			}
 			version := &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"}
 
-			if err := PostReview(context.Background(), cfg, mockClient, result, version, nil); err != nil {
+			if err := PostReview(context.Background(), cfg, mockClient, result, version, nil, ""); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
@@ -421,6 +421,8 @@ func (m *outputMockVCS) SetDescription(ctx context.Context, projectID, mrIID, de
 	return m.setDescriptionErr
 }
 
+func (m *outputMockVCS) SetProfile(string) {}
+
 // Compile-time check that outputMockVCS implements VCSClient and DescriptionUpdater.
 var _ VCSClient = (*outputMockVCS)(nil)
 var _ vcs.DescriptionUpdater = (*outputMockVCS)(nil)
@@ -450,7 +452,7 @@ func TestPostReview_BuildsSubmitRequest(t *testing.T) {
 		ID: 1, HeadSHA: "head", BaseSHA: "base", StartSHA: "start",
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, version, nil)
+	err := PostReview(context.Background(), cfg, mockClient, result, version, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -490,7 +492,7 @@ func TestPostReview_NotesMode_NoComments(t *testing.T) {
 		},
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil)
+	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -517,7 +519,7 @@ func TestPostReview_UpdateDescription(t *testing.T) {
 		Summary: "Summary update",
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil)
+	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -28,13 +28,16 @@ type Client struct {
 	token       string
 	httpClient  *http.Client
 	retryBaseMs int // default retry delay in ms; 0 uses defaultRetryMs. Overridable for tests.
+	profile     string
+	botMarker   string
 }
 
 // NewClient creates a new GitHub API client.
 func NewClient(baseURL, token string) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		token:   token,
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		token:     token,
+		botMarker: "<!-- code-reviewer -->",
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -48,6 +51,16 @@ func NewClient(baseURL, token string) *Client {
 				return nil
 			},
 		},
+	}
+}
+
+// SetProfile sets the profile for the bot marker.
+func (c *Client) SetProfile(profile string) {
+	c.profile = profile
+	if profile == "" {
+		c.botMarker = "<!-- code-reviewer -->"
+	} else {
+		c.botMarker = fmt.Sprintf("<!-- code-reviewer:%s -->", profile)
 	}
 }
 
@@ -152,7 +165,7 @@ func (c *Client) CompareCommits(ctx context.Context, projectID, from, to string)
 // PostNote creates a simple note (comment) on an issue/PR.
 func (c *Client) PostNote(ctx context.Context, projectID, prNumber, body string) (*vcs.Comment, error) {
 	apiURL := fmt.Sprintf("%s/repos/%s/issues/%s/comments", c.baseURL, projectID, prNumber)
-	req := CreateIssueCommentRequest{Body: body + "\n" + botMarker}
+	req := CreateIssueCommentRequest{Body: body + "\n" + c.botMarker}
 
 	var comment IssueComment
 	if err := c.post(ctx, apiURL, req, &comment); err != nil {
@@ -170,7 +183,7 @@ func (c *Client) CreateDiscussion(ctx context.Context, projectID, prNumber strin
 	}
 
 	ghReq := CreatePullCommentRequest{
-		Body:     req.Body + "\n" + botMarker,
+		Body:     req.Body + "\n" + c.botMarker,
 		CommitID: req.Position.HeadSHA,
 		Path:     req.Position.NewPath,
 		Line:     *req.Position.NewLine,
@@ -201,7 +214,7 @@ func (c *Client) ListBotNotes(ctx context.Context, projectID, prNumber string) (
 
 	var botNotes []vcs.Comment
 	for _, n := range allNotes {
-		if strings.Contains(n.Body, botMarker) {
+		if strings.Contains(n.Body, c.botMarker) {
 			botNotes = append(botNotes, *n.toVCS())
 		}
 	}
@@ -292,7 +305,7 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, r
 	// 3. Build review request, pinning to the reviewed commit.
 	reviewReq := CreateReviewRequest{
 		Event: "COMMENT",
-		Body:  req.Summary + "\n" + botMarker,
+		Body:  req.Summary + "\n" + c.botMarker,
 	}
 	if req.Version != nil && req.Version.HeadSHA != "" {
 		reviewReq.CommitID = req.Version.HeadSHA

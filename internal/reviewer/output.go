@@ -64,9 +64,9 @@ func TerminalOutput(result *model.ReviewResult) string {
 
 // PostReview posts review results to a GitLab merge request or GitHub pull request.
 // If changedFiles is non-nil, only cleans previous comments on those files (incremental mode).
-func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion, changedFiles []string) error {
+func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion, changedFiles []string, profile string) error {
 	req := vcs.SubmitReviewRequest{
-		Summary:      formatSummaryNote(result),
+		Summary:      formatSummaryNote(result, profile),
 		Version:      version,
 		CleanupMode:  string(cfg.CleanupMode),
 		ChangedFiles: changedFiles,
@@ -90,12 +90,12 @@ func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, resul
 
 	if cfg.UpdateDescription {
 		if updater, ok := client.(vcs.DescriptionUpdater); ok {
-			section := buildDescriptionSection(formatSummaryNote(result))
+			section := buildDescriptionSection(formatSummaryNote(result, profile), profile)
 			existing, err := updater.GetDescription(ctx, cfg.CIProjectID, cfg.CIMergeRequestID)
 			if err != nil {
 				slog.Warn("failed to get description for update", "error", err)
 			} else {
-				newDesc := replaceDescriptionSection(existing, section)
+				newDesc := replaceDescriptionSection(existing, section, profile)
 				if err := updater.SetDescription(ctx, cfg.CIProjectID, cfg.CIMergeRequestID, newDesc); err != nil {
 					slog.Warn("failed to update description", "error", err)
 				} else {
@@ -108,15 +108,34 @@ func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, resul
 	return nil
 }
 
-func formatSummaryNote(result *model.ReviewResult) string {
+// profileHeader returns the profile-specific summary header.
+func profileHeader(profile string) string {
+	switch profile {
+	case "platform":
+		return "## 🛡️ Platform & Compliance Review"
+	case "product":
+		return "## 🚀 Product & Code Quality Review"
+	default:
+		return "## 📋 Code Review Summary"
+	}
+}
+
+func formatSummaryNote(result *model.ReviewResult, profile string) string {
 	var sb strings.Builder
 
-	sb.WriteString("## 📋 Code Review Summary\n\n")
+	sb.WriteString(profileHeader(profile) + "\n\n")
 	sb.WriteString(result.Summary)
 	sb.WriteString("\n\n")
 
 	if len(result.Findings) == 0 {
-		sb.WriteString("✅ No issues found.\n")
+		switch profile {
+		case "platform":
+			sb.WriteString("✅ All platform and compliance requirements passed.\n")
+		case "product":
+			sb.WriteString("✅ No code quality or logic issues found.\n")
+		default:
+			sb.WriteString("✅ No issues found.\n")
+		}
 		return sb.String()
 	}
 

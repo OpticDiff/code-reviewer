@@ -153,16 +153,47 @@ func BuildPromptFull(customPromptPath, reviewMD string, focusModes []string, ext
 	return BuildPromptWithPlatform(customPromptPath, "", reviewMD, focusModes, extraRules, intentContext)
 }
 
+// Profile-specific persona overlays.
+const platformPersonaOverlay = `
+## PERSONA OVERRIDE — PLATFORM COMPLIANCE AUDITOR
+
+You are the Enterprise Platform & Security Compliance Auditor.
+Your sole mandate is to enforce mandatory platform architecture, security invariants,
+data sovereignty (HIPAA/GDPR), tenant isolation, and regulatory policies.
+You do not comment on code style, formatting, or optional refactors.
+You never lower severity or compromise compliance rules.
+Every finding MUST cite the exact platform rule name in the "rule_name" field.
+Findings that do not map to a specific platform rule must have category "security" or "bug".
+Do NOT produce findings with category "style", "docs", or "performance" unless they
+directly violate a platform compliance rule.
+`
+
+const productPersonaOverlay = `
+## PERSONA CONTEXT — PRODUCT CODE QUALITY
+
+You are an expert Senior Staff Software Engineer pair-programming with the author.
+Your goal is to improve software quality, catch logic bugs, detect edge-case regressions,
+suggest idiomatic improvements, and verify unit test coverage.
+Do NOT enforce platform-level compliance rules or architectural mandates.
+Focus on code correctness, readability, maintainability, and domain-specific best practices.
+`
+
 // BuildPromptWithPlatform constructs the complete system prompt with platform mandates and repository guidelines.
 // Priority (highest last, due to LLM recency bias):
 //   1. Base prompt (or custom prompt file)
-//   2. Focus overlays
-//   3. Intent context (from two-pass review)
-//   4. Extra rules (custom and platform rules)
-//   5. Repository REVIEW.md instructions
-//   6. Mandatory Platform Requirements (NON-NEGOTIABLE)
-//   7. Immutable output constraints
+//   2. Profile persona overlay (platform/product specialization)
+//   3. Focus overlays
+//   4. Intent context (from two-pass review)
+//   5. Extra rules (custom and platform rules)
+//   6. Repository REVIEW.md instructions
+//   7. Mandatory Platform Requirements (NON-NEGOTIABLE)
+//   8. Immutable output constraints
 func BuildPromptWithPlatform(customPromptPath, platformReviewMD, reviewMD string, focusModes []string, extraRules, intentContext string) string {
+	return BuildPromptWithProfile(customPromptPath, platformReviewMD, reviewMD, focusModes, extraRules, intentContext, "")
+}
+
+// BuildPromptWithProfile constructs the complete system prompt with profile-aware persona specialization.
+func BuildPromptWithProfile(customPromptPath, platformReviewMD, reviewMD string, focusModes []string, extraRules, intentContext, profile string) string {
 	var sb strings.Builder
 
 	// Base prompt: custom file or built-in.
@@ -177,6 +208,14 @@ func BuildPromptWithPlatform(customPromptPath, platformReviewMD, reviewMD string
 		}
 	} else {
 		sb.WriteString(basePrompt)
+	}
+
+	// Apply profile-specific persona overlay.
+	switch profile {
+	case "platform":
+		sb.WriteString(platformPersonaOverlay)
+	case "product":
+		sb.WriteString(productPersonaOverlay)
 	}
 
 	// Apply focus overlays.
@@ -208,6 +247,11 @@ func BuildPromptWithPlatform(customPromptPath, platformReviewMD, reviewMD string
 	if extraRules != "" {
 		sb.WriteString("\n\n## ADDITIONAL RULES\n\n")
 		sb.WriteString(extraRules)
+	}
+
+	// Product profile: strip platform content from the prompt entirely.
+	if profile == "product" {
+		platformReviewMD = ""
 	}
 
 	hasPlatformRules := platformReviewMD != "" || strings.Contains(extraRules, "MANDATORY PLATFORM COMPLIANCE RULES")

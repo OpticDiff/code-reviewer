@@ -5,8 +5,6 @@ import (
 	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
-const botMarker = "<!-- code-reviewer -->"
-
 // PullFile is a file entry from GET /repos/{owner}/{repo}/pulls/{pr}/files
 type PullFile struct {
 	// SHA is the git object ID of the file.

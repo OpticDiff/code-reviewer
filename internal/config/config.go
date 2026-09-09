@@ -85,6 +85,20 @@ const (
 	ChunkStrategySplit ChunkStrategy = "split"
 )
 
+// ConfigError represents a configuration error (exit code 2).
+// Invalid flags, missing required config, conflicting options.
+type ConfigError struct{ Err error }
+
+func (e *ConfigError) Error() string { return e.Err.Error() }
+func (e *ConfigError) Unwrap() error { return e.Err }
+
+// InfraError represents an infrastructure error (exit code 3).
+// LLM unreachable, VCS API failure, authentication errors.
+type InfraError struct{ Err error }
+
+func (e *InfraError) Error() string { return e.Err.Error() }
+func (e *InfraError) Unwrap() error { return e.Err }
+
 // Config holds all configuration for a code-reviewer run.
 type Config struct {
 	// Input mode (exactly one should be set).
@@ -188,6 +202,9 @@ type Config struct {
 	PlatformMinSeverity     *Severity         // Baseline severity floor enforced by platform.
 	PlatformRuleFileHashes  map[string]string // Filename -> SHA-256 for audit trail.
 	PlatformAutoDiscovered  bool              // True if platform config/markdown was auto-discovered from local repo.
+
+	// Review profile isolation.
+	Profile string // Review profile: "platform", "product", or "all" (default: "all").
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -251,9 +268,18 @@ func Load() (*Config, error) {
 		CacheMaxAge:      7 * 24 * time.Hour,
 	}
 
+	// Pre-detect profile from CLI args and env so we can gate config loading.
+	// CLI flag takes precedence over env var.
+	cfg.Profile = preDetectProfile()
+
 	// Layer 1: .code-reviewer.yaml (if exists).
-	if err := cfg.loadRepoConfig(); err != nil {
-		return nil, fmt.Errorf("loading .code-reviewer.yaml: %w", err)
+	// Skipped entirely when --profile platform: repo config cannot influence platform review.
+	if cfg.Profile != "platform" {
+		if err := cfg.loadRepoConfig(); err != nil {
+			return nil, fmt.Errorf("loading .code-reviewer.yaml: %w", err)
+		}
+	} else {
+		slog.Info("profile=platform: skipping .code-reviewer.yaml and repo REVIEW.md")
 	}
 
 	// Layer 2: Environment variables.
@@ -267,9 +293,14 @@ func Load() (*Config, error) {
 	// Auto-detect CI environment.
 	cfg.loadCIEnv()
 
-	// Layer 4: Platform configuration and guidelines (composes with repo config).
-	if err := cfg.loadPlatformConfig(); err != nil {
-		return nil, fmt.Errorf("loading platform config: %w", err)
+	// Layer 4: Platform configuration and guidelines.
+	// Skipped when --profile product: platform config is not relevant.
+	if cfg.Profile != "product" {
+		if err := cfg.loadPlatformConfig(); err != nil {
+			return nil, fmt.Errorf("loading platform config: %w", err)
+		}
+	} else {
+		slog.Info("profile=product: skipping platform configuration")
 	}
 
 	// Intent review: default on in CI, off in local.
@@ -286,6 +317,36 @@ func Load() (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// preDetectProfile reads the profile from CLI args and env vars before
+// the full config loading pipeline runs. This allows profile-aware gating
+// of repo config and platform config loading.
+// Priority: CLI --profile flag > CODE_REVIEWER_PROFILE > CODE_REVIEW_PROFILE.
+func preDetectProfile() string {
+	// Check CLI args for --profile. Use last-value semantics to match
+	// Go's flag package (last flag wins when duplicated).
+	var result string
+	args := os.Args[1:]
+	for i, arg := range args {
+		if arg == "--profile" && i+1 < len(args) {
+			result = args[i+1]
+		}
+		if strings.HasPrefix(arg, "--profile=") {
+			result = strings.TrimPrefix(arg, "--profile=")
+		}
+	}
+	if result != "" {
+		return result
+	}
+	// Fall back to env vars.
+	if v := os.Getenv("CODE_REVIEWER_PROFILE"); v != "" {
+		return v
+	}
+	if v := os.Getenv("CODE_REVIEW_PROFILE"); v != "" {
+		return v
+	}
+	return ""
 }
 
 func (c *Config) loadRepoConfig() error {
@@ -353,6 +414,15 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	var rc repoConfig
 	if err := yaml.Unmarshal(data, &rc); err != nil {
 		return err
+	}
+
+	// N4: profile must NOT be settable from .code-reviewer.yaml.
+	// Detect and warn if repo authors try to set it.
+	var raw map[string]interface{}
+	if err := yaml.Unmarshal(data, &raw); err == nil {
+		if _, ok := raw["profile"]; ok {
+			slog.Warn("ignoring 'profile' in .code-reviewer.yaml: profiles are controlled by CI config, not repo-level files")
+		}
 	}
 
 	if rc.Model != "" {
@@ -594,6 +664,12 @@ func (c *Config) loadEnv() {
 	} else if v := os.Getenv("REVIEW_PLATFORM_REVIEW_MD"); v != "" {
 		c.PlatformReviewMD = v
 	}
+	// Profile env var (lowest priority; CLI --profile overrides in loadFlags).
+	if v := os.Getenv("CODE_REVIEWER_PROFILE"); v != "" {
+		c.Profile = v
+	} else if v := os.Getenv("CODE_REVIEW_PROFILE"); v != "" {
+		c.Profile = v
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -641,6 +717,7 @@ func (c *Config) loadFlags() error {
 	explain := fs.Bool("explain", false, "Explain the diff instead of reviewing it")
 	fix := fs.Bool("fix", false, "Apply suggested fixes to the working tree after review")
 	autoApprove := fs.Bool("auto-approve", false, "Automatically approve MR/PR when review finds no issues (CI mode only)")
+	profile := fs.String("profile", "", "Review profile: platform, product, or all (default: all)")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -783,6 +860,10 @@ func (c *Config) loadFlags() error {
 			c.AutoApprove = *autoApprove
 		}
 	})
+	// Profile flag: CLI is immutable — if set, env var is silently ignored.
+	if *profile != "" {
+		c.Profile = *profile
+	}
 	return nil
 }
 
@@ -836,6 +917,31 @@ func (c *Config) loadGitHubCIEnv() {
 }
 
 func (c *Config) validate() error {
+	// Normalize and validate profile.
+	if c.Profile == "" {
+		c.Profile = "all"
+	}
+	switch c.Profile {
+	case "platform", "product", "all":
+		// Valid.
+	default:
+		return &ConfigError{Err: fmt.Errorf("invalid --profile %q: must be platform, product, or all", c.Profile)}
+	}
+
+	// Fail-closed: platform profile requires platform governance config (N2).
+	if c.Profile == "platform" {
+		if c.PlatformConfig == "" && !c.PlatformAutoDiscovered {
+			return &ConfigError{Err: fmt.Errorf(
+				"--profile platform requires platform governance config; " +
+					"set --platform-config, CODE_REVIEW_PLATFORM_CONFIG, or place rules in .platform/")}
+		}
+		if len(c.PlatformRules) == 0 && c.PlatformReviewMDContent == "" {
+			return &ConfigError{Err: fmt.Errorf(
+				"--profile platform loaded 0 rules and 0 guidelines from %s; "+
+					"refusing to silently pass (fail-closed)", c.PlatformConfig)}
+		}
+	}
+
 	// Must specify exactly one input mode.
 	modes := 0
 	if c.CIMode {
@@ -1237,6 +1343,8 @@ func (c *Config) loadPlatformConfig() error {
 		if c.PlatformAutoDiscovered {
 			discoveredMD := strings.TrimSpace(sb.String())
 			if discoveredMD != "" {
+				// Store as platform content for fail-closed validation.
+				c.PlatformReviewMDContent = discoveredMD
 				if c.ReviewMD == "" {
 					c.ReviewMD = discoveredMD
 				} else {

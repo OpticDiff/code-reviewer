@@ -16,6 +16,7 @@ type AuditEntry struct {
 	DurationMs     int64              `json:"duration_ms"`
 	Version        string             `json:"version"`
 	Mode           string             `json:"mode"`
+	Profile        string             `json:"profile,omitempty"`
 	Model          string             `json:"model"`
 	ProjectID      string             `json:"project_id,omitempty"`
 	MRID           string             `json:"mr_id,omitempty"`
@@ -51,6 +52,7 @@ func buildAuditEntry(cfg *config.Config, diffs []diff.FileDiff, skippedFiles []s
 		Timestamp:      time.Now().UTC(),
 		DurationMs:     duration.Milliseconds(),
 		Mode:           cfg.Mode(),
+		Profile:        cfg.Profile,
 		Model:          cfg.Model,
 		FilesReviewed:  files,
 		FilesSkipped:   skippedFiles,

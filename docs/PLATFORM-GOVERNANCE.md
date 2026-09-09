@@ -9,6 +9,83 @@ OpticDiff `code-reviewer` natively composes platform mandates with repository gu
 
 ---
 
+## Dual-Review CI Architecture (Platform Gate vs. Product Quality Review)
+
+### Overview
+The `--profile platform|product|all` flag enables running two independent, isolated reviews per PR/MR:
+- **Platform review** (`--profile platform`): Enforces enterprise compliance, security invariants, and platform architecture rules. Ignores repo-level `.code-reviewer.yaml` and `REVIEW.md`. Cannot be influenced by product teams.
+- **Product review** (`--profile product`): Focuses on code quality, bugs, readability, and domain conventions. Loads repo-level config. Does not load platform governance.
+- **Unified review** (`--profile all`, default): Existing composite behavior for backward compatibility.
+
+### Exit Code Contract
+| Exit Code | Meaning |
+|---|---|
+| 0 | Review completed, no blocking findings |
+| 1 | Review completed, blocking findings present |
+| 2 | Configuration error (invalid profile, missing platform config) |
+| 3 | Infrastructure error (LLM unreachable, VCS API failure) |
+
+### Fail-Closed Guarantee
+When `--profile platform` cannot load its governance rules (missing config, empty rules), it fails with exit code 2 rather than silently passing with zero findings.
+
+### GitHub Actions Example
+```yaml
+jobs:
+  platform-review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: OpticDiff/code-reviewer-action@v1
+        with:
+          profile: platform
+          platform-config: 'path/to/platform-rules/*.yaml'
+          platform-review-md: 'path/to/platform-guidelines/*.md'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT }}
+
+  product-review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: OpticDiff/code-reviewer-action@v1
+        with:
+          profile: product
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOGLE_CLOUD_PROJECT: ${{ vars.GCP_PROJECT }}
+```
+
+### GitLab CI Example (Pipeline Execution Policy)
+```yaml
+# Platform review — injected centrally via Pipeline Execution Policy
+platform-review:
+  image: ghcr.io/opticdiff/code-reviewer:latest
+  script:
+    - code-reviewer --ci --profile platform
+  variables:
+    CODE_REVIEW_PLATFORM_CONFIG: "$CI_PROJECT_DIR/.platform/rules/*.yaml"
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+```
+
+### Comment Isolation
+- Platform comments use marker `<!-- code-reviewer:platform -->`
+- Product comments use marker `<!-- code-reviewer:product -->`
+- Each profile's cleanup only touches its own comments — zero cross-deletion
+
+### SARIF Categories
+- Platform: `code-reviewer/platform` driver name in SARIF
+- Product: `code-reviewer/product` driver name in SARIF
+- Appear as separate tools in GitHub Security tab
+
+---
+
 ## 1. Multi-File Organization
 
 Rather than maintaining a single monolithic configuration, platform teams can modularize rules and guidelines across multiple files and directories:
