@@ -135,6 +135,63 @@ func TestFormatSummaryNote_NoFindings(t *testing.T) {
 	}
 }
 
+func TestFormatSummaryNote_Redacted(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary: "Found SQL injection in db/query.go and hardcoded secret in config.go",
+		Findings: []model.Finding{
+			{File: "db/query.go", Line: 10, Severity: "CRITICAL", Title: "SQL injection via string concat", Body: "sensitive details"},
+			{File: "config.go", Line: 5, Severity: "HIGH", Title: "Hardcoded API key", Body: "more sensitive details"},
+		},
+	}
+	out := formatSummaryNote(result, "platform", true)
+
+	// Must use safe fixed summary, not the LLM-generated one.
+	if strings.Contains(out, "SQL injection") {
+		t.Error("redacted output leaked finding title 'SQL injection'")
+	}
+	if strings.Contains(out, "hardcoded secret") {
+		t.Error("redacted output leaked finding title 'hardcoded secret'")
+	}
+	if strings.Contains(out, "db/query.go") {
+		t.Error("redacted output leaked file path")
+	}
+	if strings.Contains(out, "sensitive details") {
+		t.Error("redacted output leaked finding body")
+	}
+
+	// Must contain safe summary and redaction notice.
+	if !strings.Contains(out, "Platform compliance review completed") {
+		t.Error("expected safe summary message")
+	}
+	if !strings.Contains(out, "redacted") {
+		t.Error("expected redaction notice")
+	}
+	if !strings.Contains(out, "SARIF") {
+		t.Error("expected SARIF reference in redaction notice")
+	}
+
+	// Severity counts should still be present.
+	if !strings.Contains(out, "CRITICAL") {
+		t.Error("expected severity table even when redacted")
+	}
+	if !strings.Contains(out, "HIGH") {
+		t.Error("expected HIGH in severity table")
+	}
+}
+
+func TestFormatSummaryNote_Redacted_NoFindings(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary:  "All checks passed, no issues.",
+		Findings: nil,
+	}
+	out := formatSummaryNote(result, "platform", true)
+
+	// Even when redacted, zero findings should show the clean message.
+	if !strings.Contains(out, "All platform and compliance requirements passed") {
+		t.Error("expected clean platform message for zero findings")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Helper function tests
 // ---------------------------------------------------------------------------

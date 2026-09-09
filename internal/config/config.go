@@ -314,13 +314,10 @@ func Load() (*Config, error) {
 	cfg.loadCIEnv()
 
 	// Layer 4: Platform configuration and guidelines.
-	// Skipped when --profile product: platform config is not relevant.
-	if cfg.Profile != "product" {
-		if err := cfg.loadPlatformConfig(); err != nil {
-			return nil, fmt.Errorf("loading platform config: %w", err)
-		}
-	} else {
-		slog.Info("profile=product: skipping platform configuration")
+	// Always loaded — even for product profile, rule names are needed
+	// by filterFindingsByProfile to exclude platform-attributed findings.
+	if err := cfg.loadPlatformConfig(); err != nil {
+		return nil, fmt.Errorf("loading platform config: %w", err)
 	}
 
 	// Intent review: default on in CI, off in local.

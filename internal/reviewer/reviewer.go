@@ -97,7 +97,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		if d == nil {
 			d = diffs
 		}
-		entry := buildAuditEntry(r.cfg, d, skippedFiles, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
+		auditSkipped := append(skippedFiles, r.parseFailedFiles...)
+		entry := buildAuditEntry(r.cfg, d, auditSkipped, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
 		entry.ProfileFilteredCount = r.profileFilteredCount
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
@@ -575,15 +576,29 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Step 8: Apply fixes if requested.
 	if r.cfg.Fix && len(allFindings) > 0 {
+		// When redacted, suppress the detailed fix summary to prevent
+		// leaking finding details (titles, descriptions, suggestions)
+		// into CI build logs.
+		redacted := r.cfg.PlatformVisibility == "security-team-only" && r.cfg.Profile == "platform"
 		repoRoot := findRepoRoot()
 		fixes := ApplyFixes(allFindings, repoRoot)
-		useColor := !r.cfg.NoColor && isTTY()
-		summary := FormatFixSummary(fixes, useColor)
-		if r.cfg.OutputJSON {
-			// Keep stdout machine-readable; emit fix summary on stderr.
-			fmt.Fprint(os.Stderr, summary)
+		if redacted {
+			applied := 0
+			for _, f := range fixes {
+				if f.Applied {
+					applied++
+				}
+			}
+			fmt.Fprintf(os.Stderr, "🔒 %d fix(es) applied, details redacted (--platform-visibility=security-team-only)\n", applied)
 		} else {
-			fmt.Print(summary)
+			useColor := !r.cfg.NoColor && isTTY()
+			summary := FormatFixSummary(fixes, useColor)
+			if r.cfg.OutputJSON {
+				// Keep stdout machine-readable; emit fix summary on stderr.
+				fmt.Fprint(os.Stderr, summary)
+			} else {
+				fmt.Print(summary)
+			}
 		}
 	}
 
