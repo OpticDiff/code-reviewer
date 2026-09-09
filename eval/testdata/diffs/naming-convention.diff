@@ -1,0 +1,25 @@
+diff --git a/pkg/math/calc.go b/pkg/math/calc.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/pkg/math/calc.go
+@@ -0,0 +1,19 @@
++package math
++
++// Bad naming conventions
++type T struct {
++	s string
++	i int
++}
++
++func Process(lst []T) int {
++	var iRet int = 0 // Hungarian notation
++	
++	for _, x := range lst {
++		if x.i > 0 {
++			iRet += x.i
++		}
++	}
++	
++	return iRet
++}

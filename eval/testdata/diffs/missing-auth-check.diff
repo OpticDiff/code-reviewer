@@ -1,0 +1,30 @@
+diff --git a/internal/handlers/admin.go b/internal/handlers/admin.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/internal/handlers/admin.go
+@@ -0,0 +1,24 @@
++package handlers
++
++import (
++	"encoding/json"
++	"net/http"
++)
++
++type AdminHandler struct {
++	store Store
++}
++
++func (h *AdminHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
++	userID := r.URL.Query().Get("id")
++	
++	// Missing auth check - anyone can call this endpoint
++	
++	err := h.store.DeleteUser(userID)
++	if err != nil {
++		http.Error(w, err.Error(), http.StatusInternalServerError)
++		return
++	}
++	
++	w.WriteHeader(http.StatusOK)
++}

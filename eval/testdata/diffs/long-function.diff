@@ -1,0 +1,42 @@
+diff --git a/internal/app/process.go b/internal/app/process.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/internal/app/process.go
+@@ -0,0 +1,38 @@
++package app
++
++import (
++	"fmt"
++)
++
++func ProcessOrder(order map[string]interface{}) error {
++	// Simulating a very long function
++	fmt.Println("Step 1: Validating order...")
++	if order["id"] == nil {
++		return fmt.Errorf("missing id")
++	}
++	
++	fmt.Println("Step 2: Checking inventory...")
++	// ... long block of code ...
++	
++	fmt.Println("Step 3: Calculating taxes...")
++	// ... long block of code ...
++	
++	fmt.Println("Step 4: Processing payment...")
++	// ... long block of code ...
++	
++	fmt.Println("Step 5: Updating database...")
++	// ... long block of code ...
++	
++	fmt.Println("Step 6: Sending email notification...")
++	// ... long block of code ...
++	
++	fmt.Println("Step 7: Generating invoice PDF...")
++	// ... long block of code ...
++	
++	fmt.Println("Step 8: Archiving order...")
++	// ... long block of code ...
++	
++	return nil
++}

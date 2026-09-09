@@ -1,0 +1,24 @@
+diff --git a/pkg/retry/backoff.go b/pkg/retry/backoff.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/pkg/retry/backoff.go
+@@ -0,0 +1,18 @@
++package retry
++
++import (
++	"time"
++)
++
++func CalculateDelay(attempt int) time.Duration {
++	// Magic numbers
++	if attempt > 5 {
++		return 30 * time.Second
++	}
++	
++	if attempt == 1 {
++		return 2 * time.Second
++	}
++	
++	return time.Duration(attempt*2) * time.Second
++}

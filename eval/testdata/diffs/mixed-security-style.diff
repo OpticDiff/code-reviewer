@@ -1,0 +1,28 @@
+diff --git a/internal/api/search.go b/internal/api/search.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/internal/api/search.go
+@@ -0,0 +1,22 @@
++package api
++
++import (
++	"database/sql"
++	"fmt"
++	"net/http"
++)
++
++// mixed bad code
++func Search(w http.ResponseWriter, r *http.Request, db *sql.DB) {
++	q := r.URL.Query().Get("q")
++	
++	var iRet int = 0
++	
++	// SQL injection AND bad naming
++	sQuery := fmt.Sprintf("SELECT id FROM items WHERE name LIKE '%%%s%%'", q)
++	row := db.QueryRow(sQuery)
++	
++	row.Scan(&iRet)
++	
++	fmt.Fprintf(w, "Result: %d", iRet)
++}

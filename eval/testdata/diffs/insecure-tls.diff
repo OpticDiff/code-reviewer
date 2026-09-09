@@ -1,0 +1,28 @@
+diff --git a/pkg/client/tls.go b/pkg/client/tls.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/pkg/client/tls.go
+@@ -0,0 +1,22 @@
++package client
++
++import (
++	"crypto/tls"
++	"net/http"
++)
++
++func NewInsecureClient() *http.Client {
++	// Insecure TLS configuration
++	tlsConfig := &tls.Config{
++		InsecureSkipVerify: true,
++		MinVersion:         tls.VersionTLS10,
++	}
++
++	transport := &http.Transport{
++		TLSClientConfig: tlsConfig,
++	}
++
++	return &http.Client{
++		Transport: transport,
++	}
++}

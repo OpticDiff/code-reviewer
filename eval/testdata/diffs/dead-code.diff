@@ -1,0 +1,24 @@
+diff --git a/internal/logic/rules.go b/internal/logic/rules.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/internal/logic/rules.go
+@@ -0,0 +1,18 @@
++package logic
++
++func Evaluate(score int) string {
++	if score >= 90 {
++		return "A"
++	} else if score >= 80 {
++		return "B"
++	}
++	
++	return "C"
++	
++	// Dead code below
++	if score < 50 {
++		return "F"
++	}
++	
++	return "Unknown"
++}

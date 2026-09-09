@@ -1,0 +1,29 @@
+diff --git a/pkg/net/client.go b/pkg/net/client.go
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/pkg/net/client.go
+@@ -0,0 +1,24 @@
++package net
++
++import (
++	"net/http"
++	"time"
++)
++
++type Config struct {
++	Timeout time.Duration
++	Retries int
++}
++
++type Client struct {
++	cfg Config
++	hc  *http.Client
++}
++
++func NewClient(c Config) *Client {
++	return &Client{
++		cfg: c,
++		hc:  &http.Client{Timeout: c.Timeout},
++	}
++}
