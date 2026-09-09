@@ -18,11 +18,13 @@ type AuditEntry struct {
 	Mode           string             `json:"mode"`
 	Profile        string             `json:"profile,omitempty"`
 	Model          string             `json:"model"`
+	PlatformVisibility string         `json:"platform_visibility,omitempty"`
 	ProjectID      string             `json:"project_id,omitempty"`
 	MRID           string             `json:"mr_id,omitempty"`
 	FilesReviewed  []string           `json:"files_reviewed"`
 	FilesSkipped   []string           `json:"files_skipped,omitempty"`
 	FindingsCount  int                `json:"findings_count"`
+	ProfileFilteredCount int          `json:"profile_filtered_count,omitempty"`
 	DedupedCount   int                `json:"deduped_count,omitempty"`
 	CacheHits      int                `json:"cache_hits,omitempty"`
 	SeverityCounts map[string]int     `json:"severity_counts"`
@@ -49,18 +51,19 @@ func buildAuditEntry(cfg *config.Config, diffs []diff.FileDiff, skippedFiles []s
 	}
 
 	entry := AuditEntry{
-		Timestamp:      time.Now().UTC(),
-		DurationMs:     duration.Milliseconds(),
-		Mode:           cfg.Mode(),
-		Profile:        cfg.Profile,
-		Model:          cfg.Model,
-		FilesReviewed:  files,
-		FilesSkipped:   skippedFiles,
-		FindingsCount:  len(findings),
-		DedupedCount:   dedupedCount,
-		CacheHits:      cacheHits,
-		SeverityCounts: severityCounts,
-		Incremental:    cfg.Incremental,
+		Timestamp:          time.Now().UTC(),
+		DurationMs:         duration.Milliseconds(),
+		Mode:               cfg.Mode(),
+		Profile:            cfg.Profile,
+		Model:              cfg.Model,
+		PlatformVisibility: cfg.PlatformVisibility,
+		FilesReviewed:      files,
+		FilesSkipped:       skippedFiles,
+		FindingsCount:      len(findings),
+		DedupedCount:       dedupedCount,
+		CacheHits:          cacheHits,
+		SeverityCounts:     severityCounts,
+		Incremental:        cfg.Incremental,
 		PlatformRuleHashes: cfg.PlatformRuleFileHashes,
 		PlatformRulesCount: len(cfg.PlatformRules),
 	}

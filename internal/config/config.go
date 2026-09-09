@@ -204,7 +204,27 @@ type Config struct {
 	PlatformAutoDiscovered  bool              // True if platform config/markdown was auto-discovered from local repo.
 
 	// Review profile isolation.
-	Profile string // Review profile: "platform", "product", or "all" (default: "all").
+	Profile            string // Review profile: "platform", "product", or "all" (default: "all").
+	PlatformModel      string // Model override when profile=platform.
+	ProductModel       string // Model override when profile=product.
+	PlatformVisibility string // Visibility for platform findings: "public" (default) or "security-team-only".
+}
+
+// EffectiveModel returns the model to use for the current profile.
+// Per-profile overrides (--platform-model, --product-model) take precedence
+// over the base --model when the matching profile is active.
+func (c *Config) EffectiveModel() string {
+	switch c.Profile {
+	case "platform":
+		if c.PlatformModel != "" {
+			return c.PlatformModel
+		}
+	case "product":
+		if c.ProductModel != "" {
+			return c.ProductModel
+		}
+	}
+	return c.Model
 }
 
 // repoConfig represents the .code-reviewer.yaml file.
@@ -670,6 +690,17 @@ func (c *Config) loadEnv() {
 	} else if v := os.Getenv("CODE_REVIEW_PROFILE"); v != "" {
 		c.Profile = v
 	}
+	// Per-profile model overrides.
+	if v := os.Getenv("CODE_REVIEW_PLATFORM_MODEL"); v != "" {
+		c.PlatformModel = v
+	}
+	if v := os.Getenv("CODE_REVIEW_PRODUCT_MODEL"); v != "" {
+		c.ProductModel = v
+	}
+	// Platform visibility.
+	if v := os.Getenv("CODE_REVIEW_PLATFORM_VISIBILITY"); v != "" {
+		c.PlatformVisibility = v
+	}
 }
 
 func (c *Config) loadFlags() error {
@@ -718,6 +749,9 @@ func (c *Config) loadFlags() error {
 	fix := fs.Bool("fix", false, "Apply suggested fixes to the working tree after review")
 	autoApprove := fs.Bool("auto-approve", false, "Automatically approve MR/PR when review finds no issues (CI mode only)")
 	profile := fs.String("profile", "", "Review profile: platform, product, or all (default: all)")
+	platformModel := fs.String("platform-model", "", "Model override when --profile=platform")
+	productModel := fs.String("product-model", "", "Model override when --profile=product")
+	platformVisibility := fs.String("platform-visibility", "", "Platform findings visibility: public (default) or security-team-only")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -864,6 +898,15 @@ func (c *Config) loadFlags() error {
 	if *profile != "" {
 		c.Profile = *profile
 	}
+	if *platformModel != "" {
+		c.PlatformModel = *platformModel
+	}
+	if *productModel != "" {
+		c.ProductModel = *productModel
+	}
+	if *platformVisibility != "" {
+		c.PlatformVisibility = *platformVisibility
+	}
 	return nil
 }
 
@@ -940,6 +983,24 @@ func (c *Config) validate() error {
 				"--profile platform loaded 0 rules and 0 guidelines from %s; "+
 					"refusing to silently pass (fail-closed)", c.PlatformConfig)}
 		}
+	}
+
+	// Validate platform visibility.
+	if c.PlatformVisibility == "" {
+		c.PlatformVisibility = "public"
+	}
+	switch c.PlatformVisibility {
+	case "public", "security-team-only":
+		// Valid.
+	default:
+		return &ConfigError{Err: fmt.Errorf("invalid --platform-visibility %q: must be public or security-team-only", c.PlatformVisibility)}
+	}
+
+	// Apply per-profile model override: swap cfg.Model so the rest of the
+	// pipeline (provider creation, audit log, startup log) uses the right model.
+	if effective := c.EffectiveModel(); effective != c.Model {
+		slog.Info("per-profile model override", "profile", c.Profile, "base_model", c.Model, "effective_model", effective)
+		c.Model = effective
 	}
 
 	// Must specify exactly one input mode.

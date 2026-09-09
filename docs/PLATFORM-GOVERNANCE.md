@@ -84,6 +84,36 @@ platform-review:
 - Product: `code-reviewer/product` driver name in SARIF
 - Appear as separate tools in GitHub Security tab
 
+### Per-Profile Model Override
+Use `--platform-model` and `--product-model` to assign different models to each profile:
+
+```yaml
+# Platform uses a premium model for deep security analysis
+- uses: OpticDiff/code-reviewer-action@v1
+  with:
+    profile: platform
+    platform-model: gemini-2.5-pro
+
+# Product uses a faster model for code quality
+- uses: OpticDiff/code-reviewer-action@v1
+  with:
+    profile: product
+    product-model: gemini-2.5-flash
+```
+
+Environment variables: `CODE_REVIEW_PLATFORM_MODEL`, `CODE_REVIEW_PRODUCT_MODEL`.
+
+### Platform Visibility
+
+Control whether platform compliance findings are visible to all PR participants or restricted:
+
+```
+--platform-visibility public              # Default: visible to everyone
+--platform-visibility security-team-only  # Minimize info in PR comments
+```
+
+When set to `security-team-only`, platform findings are recorded in SARIF and the audit log but the PR comment summary omits detailed vulnerability descriptions. Environment variable: `CODE_REVIEW_PLATFORM_VISIBILITY`.
+
 ---
 
 ## 1. Multi-File Organization
