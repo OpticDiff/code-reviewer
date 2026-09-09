@@ -1,0 +1,42 @@
+name: Persona Evaluation
+
+on:
+  schedule:
+    # Weekly on Sundays at 06:00 UTC
+    - cron: '0 6 * * 0'
+  workflow_dispatch:
+    # Allow manual triggers for ad-hoc validation
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    name: Persona Isolation
+    runs-on: ubuntu-latest
+    # Only run in the main repo, not forks
+    if: github.repository == 'OpticDiff/code-reviewer'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Run persona evaluation suite
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
+        run: go test -tags=eval ./eval/ -v -timeout=600s -count=1
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: eval/
+          retention-days: 30

@@ -46,6 +46,7 @@ type sarifRule struct {
 	Name             string                 `json:"name,omitempty"`
 	ShortDescription sarifMessage           `json:"shortDescription"`
 	FullDescription  *sarifMessage          `json:"fullDescription,omitempty"`
+	HelpURI          string                 `json:"helpUri,omitempty"`
 	Help             *sarifMessage          `json:"help,omitempty"`
 	DefaultConfig    *sarifRuleConfig       `json:"defaultConfiguration,omitempty"`
 	Properties       map[string]interface{} `json:"properties,omitempty"`
@@ -150,7 +151,7 @@ func buildSARIF(result *model.ReviewResult, version, profile string) sarifReport
 			}
 			props["tags"] = []string{ruleID}
 
-			rules = append(rules, sarifRule{
+			rule := sarifRule{
 				ID:               ruleID,
 				Name:             titleCase(ruleID),
 				ShortDescription: sarifMessage{Text: ruleID},
@@ -158,7 +159,11 @@ func buildSARIF(result *model.ReviewResult, version, profile string) sarifReport
 				Help:             &sarifMessage{Text: "Please review the finding details."},
 				DefaultConfig:    &sarifRuleConfig{Level: level},
 				Properties:       props,
-			})
+			}
+			if f.RuleURL != "" {
+				rule.HelpURI = f.RuleURL
+			}
+			rules = append(rules, rule)
 		} else {
 			// SARIF §3.19.3 requires driver.rules to have unique IDs.
 			// When multiple findings share a category, update the rule's
