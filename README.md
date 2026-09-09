@@ -307,6 +307,9 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--update-description` | Inject review summary into MR/PR description | `false` |
 | `--cleanup-mode` | How to handle previous reviews: `delete` or `resolve` | `delete` |
 | `--profile` | Review profile: `platform`, `product`, or `all` (default: `all`). See [Dual-Review Architecture](docs/PLATFORM-GOVERNANCE.md#dual-review-ci-architecture-platform-gate-vs-product-quality-review). |
+| `--platform-model` | Model override for `--profile=platform` (e.g. `gemini-2.5-pro`) | — |
+| `--product-model` | Model override for `--profile=product` (e.g. `gemini-2.5-flash`) | — |
+| `--platform-visibility` | Platform findings visibility: `public` (default) or `security-team-only` | `public` |
 | `--platform-config` | Platform rule config file, comma-separated paths, or glob | — |
 | `--platform-review-md` | Platform review guidelines markdown file or glob | — |
 | `--version` | Print version and exit | — |

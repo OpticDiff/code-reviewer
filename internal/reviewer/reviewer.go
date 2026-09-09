@@ -28,14 +28,15 @@ type DiffSource interface {
 
 // Reviewer orchestrates the full review pipeline.
 type Reviewer struct {
-	cfg              *config.Config
-	provider         ModelReviewer
-	glClient         VCSClient
-	diffSource       DiffSource
-	contextProvider  ctxpkg.Provider
-	mrDraft          bool
-	parseFailedFiles []string // files whose diffs failed to parse (unreviewed)
-	cache            *cache.Cache
+	cfg                  *config.Config
+	provider             ModelReviewer
+	glClient             VCSClient
+	diffSource           DiffSource
+	contextProvider      ctxpkg.Provider
+	mrDraft              bool
+	parseFailedFiles     []string // files whose diffs failed to parse (unreviewed)
+	cache                *cache.Cache
+	profileFilteredCount int // findings dropped by profile category enforcement
 }
 
 // New creates a new Reviewer.
@@ -97,6 +98,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			d = diffs
 		}
 		entry := buildAuditEntry(r.cfg, d, skippedFiles, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
+		entry.ProfileFilteredCount = r.profileFilteredCount
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -446,7 +448,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	allFindings = r.enforceRuleAttributionAndSuppressions(allFindings, auditDiffs)
 
 	// Step 5e: Profile-based category enforcement (N3 defense-in-depth).
+	preProfileCount := len(allFindings)
 	allFindings = r.filterFindingsByProfile(allFindings)
+	r.profileFilteredCount = preProfileCount - len(allFindings)
 
 	// Step 6: Filter by severity.
 	// Preserve raw count for auto-approve safety: approval must consider ALL

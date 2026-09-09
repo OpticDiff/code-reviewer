@@ -65,14 +65,20 @@ func TerminalOutput(result *model.ReviewResult) string {
 // PostReview posts review results to a GitLab merge request or GitHub pull request.
 // If changedFiles is non-nil, only cleans previous comments on those files (incremental mode).
 func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion, changedFiles []string, profile string) error {
+	// When platform visibility is security-team-only, redact finding details
+	// from PR comments. Full details are preserved in SARIF and audit log.
+	redacted := cfg.PlatformVisibility == "security-team-only" && profile == "platform"
+
 	req := vcs.SubmitReviewRequest{
-		Summary:      formatSummaryNote(result, profile),
+		Summary:      formatSummaryNote(result, profile, redacted),
 		Version:      version,
 		CleanupMode:  string(cfg.CleanupMode),
 		ChangedFiles: changedFiles,
 	}
 
-	if cfg.CommentMode == config.CommentModeDiscussions && version != nil {
+	// Suppress inline comments entirely when redacted — finding details
+	// are only available via SARIF (Security tab) and the audit log.
+	if !redacted && cfg.CommentMode == config.CommentModeDiscussions && version != nil {
 		for _, f := range result.Findings {
 			req.Comments = append(req.Comments, vcs.ReviewComment{
 				Path:       f.File,
@@ -90,7 +96,7 @@ func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, resul
 
 	if cfg.UpdateDescription {
 		if updater, ok := client.(vcs.DescriptionUpdater); ok {
-			section := buildDescriptionSection(formatSummaryNote(result, profile), profile)
+			section := buildDescriptionSection(formatSummaryNote(result, profile, redacted), profile)
 			existing, err := updater.GetDescription(ctx, cfg.CIProjectID, cfg.CIMergeRequestID)
 			if err != nil {
 				slog.Warn("failed to get description for update", "error", err)
@@ -120,12 +126,18 @@ func profileHeader(profile string) string {
 	}
 }
 
-func formatSummaryNote(result *model.ReviewResult, profile string) string {
+func formatSummaryNote(result *model.ReviewResult, profile string, redacted bool) string {
 	var sb strings.Builder
 
 	sb.WriteString(profileHeader(profile) + "\n\n")
-	sb.WriteString(result.Summary)
-	sb.WriteString("\n\n")
+	if redacted {
+		// Use a safe fixed message — result.Summary is LLM-generated and
+		// may reference specific findings, file paths, or vulnerabilities.
+		sb.WriteString("Platform compliance review completed. Detailed findings are available in the SARIF report (Security tab) and audit log.\n\n")
+	} else {
+		sb.WriteString(result.Summary)
+		sb.WriteString("\n\n")
+	}
 
 	if len(result.Findings) == 0 {
 		switch profile {
@@ -153,6 +165,13 @@ func formatSummaryNote(result *model.ReviewResult, profile string) string {
 		}
 	}
 	sb.WriteString("\n")
+
+	// When redacted, show only severity counts — no file paths, titles, or descriptions.
+	// Full details are available in SARIF (Security tab) and the audit log.
+	if redacted {
+		fmt.Fprintf(&sb, "🔒 *%d finding(s) redacted from PR comments (--platform-visibility=security-team-only). See SARIF report in Security tab for full details.*\n", len(result.Findings))
+		return sb.String()
+	}
 
 	// List findings.
 	for _, f := range result.Findings {
