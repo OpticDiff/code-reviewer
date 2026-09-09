@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -581,6 +582,15 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		// into CI build logs.
 		redacted := r.cfg.PlatformVisibility == "security-team-only" && r.cfg.Profile == "platform"
 		repoRoot := findRepoRoot()
+
+		// Suppress slog during fix application when redacted — ApplyFixes
+		// logs file paths and line numbers via slog.Info/Warn.
+		if redacted {
+			prev := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+			defer slog.SetDefault(prev)
+		}
+
 		fixes := ApplyFixes(allFindings, repoRoot)
 		if redacted {
 			applied := 0
