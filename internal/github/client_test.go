@@ -167,7 +167,7 @@ func TestPostComment_BotMarker(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if !strings.Contains(gotBody, botMarker) {
+	if !strings.Contains(gotBody, "<!-- code-reviewer -->") {
 		t.Errorf("expected bot marker in body, got: %q", gotBody)
 	}
 }
@@ -273,7 +273,7 @@ func TestSubmitReview_SummaryOnly(t *testing.T) {
 func TestListBotComments_FiltersByMarker(t *testing.T) {
 	notes := []IssueComment{
 		{ID: 1, Body: "human comment"},
-		{ID: 2, Body: "bot review\n" + botMarker},
+		{ID: 2, Body: "bot review\n" + "<!-- code-reviewer -->"},
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -296,8 +296,8 @@ func TestListBotComments_FiltersByMarker(t *testing.T) {
 }
 
 func TestListBotComments_Pagination(t *testing.T) {
-	page1 := []IssueComment{{ID: 1, Body: botMarker}}
-	page2 := []IssueComment{{ID: 2, Body: botMarker}}
+	page1 := []IssueComment{{ID: 1, Body: "<!-- code-reviewer -->"}}
+	page2 := []IssueComment{{ID: 2, Body: "<!-- code-reviewer -->"}}
 
 	reqCount := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -343,8 +343,8 @@ func TestDeleteComment(t *testing.T) {
 
 func TestCleanPreviousReviews_ContinuesOnDeleteError(t *testing.T) {
 	notes := []IssueComment{
-		{ID: 1, Body: botMarker},
-		{ID: 2, Body: botMarker},
+		{ID: 1, Body: "<!-- code-reviewer -->"},
+		{ID: 2, Body: "<!-- code-reviewer -->"},
 	}
 
 	var mu sync.Mutex

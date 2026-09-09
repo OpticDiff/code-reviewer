@@ -88,6 +88,7 @@ type SubmitReviewRequest struct {
 	Version      *DiffVersion    // SHA context for inline comment positioning (may be nil).
 	CleanupMode  string          // "delete" or "resolve" — controls how old bot comments are handled.
 	ChangedFiles []string        // If set, only clean comments referencing these files (incremental mode).
+	Profile      string
 }
 
 // DescriptionUpdater is implemented by VCS clients that support updating

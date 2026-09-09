@@ -330,7 +330,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	}
 
 	// Step 4: Build prompt and call model for each chunk.
-	systemPrompt := model.BuildPromptWithPlatform(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, extraRules, intentContext)
+	systemPrompt := model.BuildPromptWithProfile(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, extraRules, intentContext, r.cfg.Profile)
 	var summary string
 
 	budgetExceeded := false
@@ -444,6 +444,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Step 5d: Enforce platform rule attribution, severity locking, and inline comment suppressions.
 	allFindings = r.enforceRuleAttributionAndSuppressions(allFindings, auditDiffs)
+
+	// Step 5e: Profile-based category enforcement (N3 defense-in-depth).
+	allFindings = r.filterFindingsByProfile(allFindings)
 
 	// Step 6: Filter by severity.
 	// Preserve raw count for auto-approve safety: approval must consider ALL
@@ -906,4 +909,59 @@ func initCache(cfg *config.Config) *cache.Cache {
 		return nil
 	}
 	return c
+}
+
+// filterFindingsByProfile implements N3 post-processing category enforcement.
+// This is defense-in-depth against LLM persona drift — even if the model
+// returns findings outside its persona scope, they are filtered here.
+func (r *Reviewer) filterFindingsByProfile(findings []model.Finding) []model.Finding {
+	if r.cfg.Profile == "all" || r.cfg.Profile == "" {
+		return findings
+	}
+
+	platformRuleNames := make(map[string]bool)
+	for _, rule := range r.cfg.PlatformRules {
+		platformRuleNames[rule.Name] = true
+	}
+
+	var filtered []model.Finding
+	switch r.cfg.Profile {
+	case "platform":
+		// Platform profile: keep security/bug/scope findings only.
+		// Findings with a known platform rule name are always kept.
+		// Security findings without a rule name are kept (general security issues).
+		// Style, docs, performance-only findings are dropped.
+		for _, f := range findings {
+			cat := strings.ToLower(f.Category)
+			if platformRuleNames[f.RuleName] {
+				filtered = append(filtered, f)
+				continue
+			}
+			switch cat {
+			case "security", "bug", "scope":
+				filtered = append(filtered, f)
+			default:
+				slog.Info("profile=platform: dropping non-platform finding",
+					"file", f.File, "line", f.Line, "category", f.Category, "rule", f.RuleName)
+			}
+		}
+	case "product":
+		// Product profile: drop findings that reference platform rule IDs.
+		for _, f := range findings {
+			if f.RuleName != "" && platformRuleNames[f.RuleName] {
+				slog.Info("profile=product: dropping platform-rule finding",
+					"file", f.File, "line", f.Line, "rule", f.RuleName)
+				continue
+			}
+			filtered = append(filtered, f)
+		}
+	default:
+		return findings
+	}
+
+	if dropped := len(findings) - len(filtered); dropped > 0 {
+		slog.Info("profile category enforcement", "profile", r.cfg.Profile,
+			"original", len(findings), "kept", len(filtered), "dropped", dropped)
+	}
+	return filtered
 }

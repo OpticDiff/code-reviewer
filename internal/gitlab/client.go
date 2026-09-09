@@ -18,7 +18,6 @@ import (
 )
 
 const (
-	botMarker      = "<!-- code-reviewer -->"
 	apiRateDelay   = 100 * time.Millisecond
 	maxRetries     = 3
 	defaultRetryMs = 1000
@@ -30,13 +29,16 @@ type Client struct {
 	token      string
 	httpClient *http.Client
 	retryBaseMs int // default retry delay in ms; 0 uses defaultRetryMs. Overridable for tests.
+	profile     string
+	botMarker   string
 }
 
 // NewClient creates a new GitLab API client.
 func NewClient(baseURL, token string) *Client {
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/") + "/api/v4",
-		token:   token,
+		baseURL:   strings.TrimRight(baseURL, "/") + "/api/v4",
+		token:     token,
+		botMarker: "<!-- code-reviewer -->",
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -50,6 +52,16 @@ func NewClient(baseURL, token string) *Client {
 				return nil
 			},
 		},
+	}
+}
+
+// SetProfile sets the profile for the bot marker.
+func (c *Client) SetProfile(profile string) {
+	c.profile = profile
+	if profile == "" {
+		c.botMarker = "<!-- code-reviewer -->"
+	} else {
+		c.botMarker = fmt.Sprintf("<!-- code-reviewer:%s -->", profile)
 	}
 }
 
@@ -146,7 +158,7 @@ func (c *Client) ApproveReview(ctx context.Context, projectID, mrIID, headSHA st
 // PostNote creates a simple note (comment) on a merge request.
 func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/notes", c.baseURL, url.PathEscape(projectID), mrIID)
-	req := CreateNoteRequest{Body: body + "\n" + botMarker}
+	req := CreateNoteRequest{Body: body + "\n" + c.botMarker}
 
 	var note Note
 	if err := c.post(ctx, url, req, &note); err != nil {
@@ -161,7 +173,7 @@ func (c *Client) CreateDiscussion(ctx context.Context, projectID, mrIID string, 
 
 	// Convert vcs.InlineCommentRequest to GitLab-specific API request.
 	glReq := CreateDiscussionRequest{
-		Body: req.Body + "\n" + botMarker,
+		Body: req.Body + "\n" + c.botMarker,
 	}
 	if req.Position != nil {
 		glReq.Position = &DiscussionPosition{
@@ -208,7 +220,7 @@ func (c *Client) ListBotNotes(ctx context.Context, projectID, mrIID string) ([]v
 
 	var botNotes []vcs.Comment
 	for _, n := range allNotes {
-		if strings.Contains(n.Body, botMarker) {
+		if strings.Contains(n.Body, c.botMarker) {
 			botNotes = append(botNotes, *n.toVCS())
 		}
 	}
@@ -271,7 +283,7 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 		}
 		for _, d := range discussions {
 			for _, n := range d.Notes {
-				if strings.Contains(n.Body, botMarker) && n.Position != nil && changedSet[n.Position.NewPath] {
+				if strings.Contains(n.Body, c.botMarker) && n.Position != nil && changedSet[n.Position.NewPath] {
 					if err := c.DeleteNote(ctx, projectID, mrIID, n.ID); err != nil {
 						continue
 					}
@@ -332,7 +344,7 @@ func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID st
 		isNonPositioned := true
 
 		for _, n := range d.Notes {
-			if strings.Contains(n.Body, botMarker) {
+			if strings.Contains(n.Body, c.botMarker) {
 				isBotDiscussion = true
 			}
 			if n.Position != nil {
@@ -415,7 +427,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 
 	// Create summary draft note.
 	summaryReq := CreateDraftNoteRequest{
-		Note: req.Summary + "\n" + botMarker,
+		Note: req.Summary + "\n" + c.botMarker,
 	}
 	if _, err := c.createDraftNote(ctx, projectID, mrIID, summaryReq); err != nil {
 		return fmt.Errorf("creating summary draft: %w", err)
@@ -447,7 +459,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 				}
 			}
 			draftReq := CreateDraftNoteRequest{
-				Note: noteBody + "\n" + botMarker,
+				Note: noteBody + "\n" + c.botMarker,
 				Position: &DiscussionPosition{
 					PositionType: "text",
 					BaseSHA:      req.Version.BaseSHA,
