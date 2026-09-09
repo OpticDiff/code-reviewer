@@ -205,12 +205,7 @@ func TestPersonaIsolation(t *testing.T) {
 				} else {
 					// Platform should NOT find product-only issues.
 					for _, f := range findings {
-						if f.RuleSource == "platform" {
-							// Platform-attributed findings are fine
-							continue
-						}
-						// Non-platform findings leaked into platform profile
-						t.Logf("platform: unexpected non-platform finding: %s [%s] %s",
+						t.Errorf("platform: unexpected finding on product-only diff: [%s] %s — %s",
 							f.Category, f.Severity, f.Title)
 					}
 				}
@@ -230,11 +225,9 @@ func TestPersonaIsolation(t *testing.T) {
 						}
 					}
 				} else {
-					if len(findings) > 0 {
-						t.Logf("product: got %d findings for security-only diff (may be code quality nits):", len(findings))
-						for _, f := range findings {
-							t.Logf("  - [%s] %s: %s", f.Severity, f.Category, f.Title)
-						}
+					for _, f := range findings {
+						t.Errorf("product: unexpected finding on security-only diff: [%s] %s — %s",
+							f.Category, f.Severity, f.Title)
 					}
 				}
 			})
@@ -267,8 +260,8 @@ func TestProfileCountInvariant(t *testing.T) {
 
 	// The combined profile-filtered findings should be <= all findings,
 	// because filtering can only reduce, never add.
-	if len(platform)+len(product) > len(all)*2 {
-		t.Errorf("profile isolation violation: platform(%d) + product(%d) >> all(%d)",
+	if len(platform)+len(product) > len(all) {
+		t.Errorf("profile isolation violation: platform(%d) + product(%d) > all(%d)",
 			len(platform), len(product), len(all))
 	}
 }
@@ -329,7 +322,7 @@ func assertCategoriesMatch(t *testing.T, findings []finding, expected []string) 
 	for _, f := range findings {
 		cat := strings.ToLower(f.Category)
 		if cat != "" && !allowed[cat] {
-			t.Logf("finding category %q not in expected %v (title: %s)", f.Category, expected, f.Title)
+			t.Errorf("finding category %q not in expected %v (title: %s)", f.Category, expected, f.Title)
 		}
 	}
 }

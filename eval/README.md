@@ -6,7 +6,7 @@ between platform and product profiles.
 
 ## Structure
 
-```
+```text
 eval/
 ├── README.md               # This file
 ├── eval_test.go             # Test harness (go test -tags=eval)
