@@ -298,7 +298,10 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 			return deleted, err
 		}
 		for _, n := range notes {
-			if strings.Contains(n.Body, "## 📋 Code Review Summary") {
+			// Match all profile-specific summary headers for cleanup.
+			if strings.Contains(n.Body, "## 📋 Code Review Summary") ||
+				strings.Contains(n.Body, "## 🛡️ Platform & Compliance Review") ||
+				strings.Contains(n.Body, "## 🚀 Product & Code Quality Review") {
 				if err := c.DeleteNote(ctx, projectID, mrIID, n.ID); err != nil {
 					continue
 				}

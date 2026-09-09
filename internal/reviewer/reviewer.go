@@ -921,7 +921,7 @@ func (r *Reviewer) filterFindingsByProfile(findings []model.Finding) []model.Fin
 
 	platformRuleNames := make(map[string]bool)
 	for _, rule := range r.cfg.PlatformRules {
-		platformRuleNames[rule.Name] = true
+		platformRuleNames[strings.ToLower(rule.Name)] = true
 	}
 
 	var filtered []model.Finding
@@ -933,7 +933,7 @@ func (r *Reviewer) filterFindingsByProfile(findings []model.Finding) []model.Fin
 		// Style, docs, performance-only findings are dropped.
 		for _, f := range findings {
 			cat := strings.ToLower(f.Category)
-			if platformRuleNames[f.RuleName] {
+			if platformRuleNames[strings.ToLower(f.RuleName)] {
 				filtered = append(filtered, f)
 				continue
 			}
@@ -948,7 +948,7 @@ func (r *Reviewer) filterFindingsByProfile(findings []model.Finding) []model.Fin
 	case "product":
 		// Product profile: drop findings that reference platform rule IDs.
 		for _, f := range findings {
-			if f.RuleName != "" && platformRuleNames[f.RuleName] {
+			if f.RuleName != "" && platformRuleNames[strings.ToLower(f.RuleName)] {
 				slog.Info("profile=product: dropping platform-rule finding",
 					"file", f.File, "line", f.Line, "rule", f.RuleName)
 				continue

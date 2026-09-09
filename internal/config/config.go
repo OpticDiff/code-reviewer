@@ -324,15 +324,20 @@ func Load() (*Config, error) {
 // of repo config and platform config loading.
 // Priority: CLI --profile flag > CODE_REVIEWER_PROFILE > CODE_REVIEW_PROFILE.
 func preDetectProfile() string {
-	// Check CLI args for --profile.
+	// Check CLI args for --profile. Use last-value semantics to match
+	// Go's flag package (last flag wins when duplicated).
+	var result string
 	args := os.Args[1:]
 	for i, arg := range args {
 		if arg == "--profile" && i+1 < len(args) {
-			return args[i+1]
+			result = args[i+1]
 		}
 		if strings.HasPrefix(arg, "--profile=") {
-			return strings.TrimPrefix(arg, "--profile=")
+			result = strings.TrimPrefix(arg, "--profile=")
 		}
+	}
+	if result != "" {
+		return result
 	}
 	// Fall back to env vars.
 	if v := os.Getenv("CODE_REVIEWER_PROFILE"); v != "" {
@@ -1338,6 +1343,8 @@ func (c *Config) loadPlatformConfig() error {
 		if c.PlatformAutoDiscovered {
 			discoveredMD := strings.TrimSpace(sb.String())
 			if discoveredMD != "" {
+				// Store as platform content for fail-closed validation.
+				c.PlatformReviewMDContent = discoveredMD
 				if c.ReviewMD == "" {
 					c.ReviewMD = discoveredMD
 				} else {

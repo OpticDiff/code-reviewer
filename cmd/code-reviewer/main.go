@@ -93,7 +93,7 @@ func main() {
 func run(ctx, initCtx context.Context) (int, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return 0, fmt.Errorf("configuration: %w", err)
+		return 0, &config.ConfigError{Err: fmt.Errorf("configuration: %w", err)}
 	}
 	cfg.Version = version
 

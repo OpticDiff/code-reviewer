@@ -249,6 +249,11 @@ func BuildPromptWithProfile(customPromptPath, platformReviewMD, reviewMD string,
 		sb.WriteString(extraRules)
 	}
 
+	// Product profile: strip platform content from the prompt entirely.
+	if profile == "product" {
+		platformReviewMD = ""
+	}
+
 	hasPlatformRules := platformReviewMD != "" || strings.Contains(extraRules, "MANDATORY PLATFORM COMPLIANCE RULES")
 
 	// Append REVIEW.md instructions (repository-level guidance).
