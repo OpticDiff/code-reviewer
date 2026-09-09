@@ -130,8 +130,14 @@ func formatSummaryNote(result *model.ReviewResult, profile string, redacted bool
 	var sb strings.Builder
 
 	sb.WriteString(profileHeader(profile) + "\n\n")
-	sb.WriteString(result.Summary)
-	sb.WriteString("\n\n")
+	if redacted {
+		// Use a safe fixed message — result.Summary is LLM-generated and
+		// may reference specific findings, file paths, or vulnerabilities.
+		sb.WriteString("Platform compliance review completed. Detailed findings are available in the SARIF report (Security tab) and audit log.\n\n")
+	} else {
+		sb.WriteString(result.Summary)
+		sb.WriteString("\n\n")
+	}
 
 	if len(result.Findings) == 0 {
 		switch profile {
