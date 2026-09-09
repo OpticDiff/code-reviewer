@@ -242,6 +242,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	if len(r.cfg.Models) > 1 {
 		cacheModelID = fmt.Sprintf("consensus:%s:threshold=%d", strings.Join(r.cfg.Models, "+"), r.cfg.ConsensusThreshold)
 	}
+	if r.cfg.Profile != "" && r.cfg.Profile != "all" {
+		cacheModelID += ":profile=" + r.cfg.Profile
+	}
 
 	// Step 2e: Cache lookup.
 	// Snapshot diffs for audit before Partition filters to uncached only.
@@ -460,7 +463,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Step 7a: Write SARIF if requested (before posting to GitLab so it's not
 	// skipped when PostReview fails).
 	if r.cfg.SARIFOutput != "" {
-		if err := WriteSARIF(r.cfg.SARIFOutput, result, r.cfg.Version); err != nil {
+		if err := WriteSARIF(r.cfg.SARIFOutput, result, r.cfg.Version, r.cfg.Profile); err != nil {
 			return len(allFindings), fmt.Errorf("writing SARIF: %w", err)
 		}
 		slog.Info("SARIF output written", "path", r.cfg.SARIFOutput)
@@ -512,7 +515,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			result.Summary = FormatScopeMarkdown(scopeAssessment) + result.Summary
 		}
 
-		if err := PostReview(ctx, r.cfg, r.glClient, result, version, incrementalChangedFiles); err != nil {
+		if err := PostReview(ctx, r.cfg, r.glClient, result, version, incrementalChangedFiles, r.cfg.Profile); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
 

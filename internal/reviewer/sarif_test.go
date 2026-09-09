@@ -20,7 +20,7 @@ func TestBuildSARIF(t *testing.T) {
 		},
 	}
 
-	report := buildSARIF(result, "1.2.3")
+	report := buildSARIF(result, "1.2.3", "")
 
 	if report.Version != "2.1.0" {
 		t.Errorf("expected version 2.1.0, got %s", report.Version)
@@ -136,7 +136,7 @@ func TestBuildSARIF(t *testing.T) {
 
 func TestBuildSARIF_EmptyFindings(t *testing.T) {
 	result := &model.ReviewResult{Summary: "Clean.", Findings: nil}
-	report := buildSARIF(result, "dev")
+	report := buildSARIF(result, "dev", "")
 
 	if len(report.Runs[0].Results) != 0 {
 		t.Errorf("expected 0 results, got %d", len(report.Runs[0].Results))
@@ -151,7 +151,7 @@ func TestWriteSARIF(t *testing.T) {
 	}
 
 	path := filepath.Join(t.TempDir(), "results.sarif")
-	if err := WriteSARIF(path, result, "dev"); err != nil {
+	if err := WriteSARIF(path, result, "dev", ""); err != nil {
 		t.Fatalf("WriteSARIF error: %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestBuildSARIF_EmptyCategory(t *testing.T) {
 			{File: "a.go", Line: 1, Severity: "LOW", Category: "", Title: "test", Body: "body"},
 		},
 	}
-	report := buildSARIF(result, "dev")
+	report := buildSARIF(result, "dev", "")
 	if report.Runs[0].Results[0].RuleID != "general" {
 		t.Errorf("expected 'general' for empty category, got %s", report.Runs[0].Results[0].RuleID)
 	}

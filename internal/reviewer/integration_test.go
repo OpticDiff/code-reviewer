@@ -87,6 +87,8 @@ func (c *capturingVCS) SubmitReview(ctx context.Context, projectID, mrIID string
 	return nil
 }
 
+func (c *capturingVCS) SetProfile(string) {}
+
 // mockSummarizeModel implements ModelReviewer + SummarizeProvider for
 // two-pass intent and summary pipeline testing.
 type mockSummarizeModel struct {
