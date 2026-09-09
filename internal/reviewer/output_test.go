@@ -110,7 +110,7 @@ func TestFormatSummaryNote_WithFindings(t *testing.T) {
 			{File: "a.go", Line: 4, Severity: "LOW", Title: "low", Body: "l"},
 		},
 	}
-	out := formatSummaryNote(result, "")
+	out := formatSummaryNote(result, "", false)
 
 	if !strings.Contains(out, "📋 Code Review Summary") {
 		t.Error("expected summary header")
@@ -129,7 +129,7 @@ func TestFormatSummaryNote_NoFindings(t *testing.T) {
 		Summary:  "All clean.",
 		Findings: nil,
 	}
-	out := formatSummaryNote(result, "")
+	out := formatSummaryNote(result, "", false)
 	if !strings.Contains(out, "No issues found") {
 		t.Error("expected 'No issues found' in summary note")
 	}

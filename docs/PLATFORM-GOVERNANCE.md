@@ -107,7 +107,7 @@ Environment variables: `CODE_REVIEW_PLATFORM_MODEL`, `CODE_REVIEW_PRODUCT_MODEL`
 
 Control whether platform compliance findings are visible to all PR participants or restricted:
 
-```
+```bash
 --platform-visibility public              # Default: visible to everyone
 --platform-visibility security-team-only  # Minimize info in PR comments
 ```
