@@ -333,6 +333,9 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
 | `CODE_REVIEW_PLATFORM_REVIEW_MD` | Platform guidelines markdown path or glob | — |
+| `CODE_REVIEW_PLATFORM_MODEL` | Model for `--profile platform` | inherits `--model` |
+| `CODE_REVIEW_PRODUCT_MODEL` | Model for `--profile product` | inherits `--model` |
+| `CODE_REVIEW_PLATFORM_VISIBILITY` | Platform review visibility: `public` or `security-team-only` | `public` |
 | `REVIEW_OUTPUT_JSON` | Output results as JSON (`true`/`false`) | `false` |
 | `SARIF_OUTPUT` | Write SARIF output to this file path | — |
 | `INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
@@ -701,18 +704,18 @@ git push origin v0.7.0
 Suppress specific findings directly in your source code:
 
 ```go
-// opticdiff:ignore no-sql-injection — parameterized at the caller
+// opticdiff:ignore no-sql-injection: parameterized at the caller
 query := "SELECT * FROM users WHERE id = " + id
 ```
 
 Suppress all rules on a line:
 
 ```go
-// opticdiff:ignore-all — false positive, tested extensively
-password := os.Getenv("DB_PASSWORD") //nolint
+// opticdiff:ignore all: false positive, tested extensively
+password := os.Getenv("DB_PASSWORD")
 ```
 
-Suppressions work for both platform and product profiles. For full details on rule-level suppression and governance, see [PLATFORM-GOVERNANCE.md](docs/PLATFORM-GOVERNANCE.md).
+> **Note:** Platform rules **deny suppression by default** (`allow_suppression: false` in the rule YAML). Only repo-sourced rules allow inline suppression unless explicitly opted in. For full details on rule-level suppression and governance, see [PLATFORM-GOVERNANCE.md](docs/PLATFORM-GOVERNANCE.md).
 
 ## License
 
