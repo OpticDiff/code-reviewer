@@ -112,7 +112,82 @@ Control whether platform compliance findings are visible to all PR participants 
 --platform-visibility security-team-only  # Minimize info in PR comments
 ```
 
-When set to `security-team-only`, platform findings are recorded in SARIF and the audit log but the PR comment summary omits detailed vulnerability descriptions. Environment variable: `CODE_REVIEW_PLATFORM_VISIBILITY`.
+When set to `security-team-only`, detailed platform findings are restricted:
+
+- **Inline review comments** are **completely suppressed** (not posted to the PR/MR).
+- The **LLM-generated summary** is overwritten with a fixed, non-leaking message.
+- The **PR/MR comment** shows only **aggregate severity counts** (e.g., "2 CRITICAL, 1 HIGH"), with no individual finding titles, descriptions, file paths, or line numbers.
+- **Fix mode** (`--fix`) suppresses per-finding logs and outputs only an applied count.
+- **SARIF output** and **audit log** always contain full details regardless of visibility setting.
+- Redaction only activates when `--profile platform` — it has no effect on `product` or `all`.
+
+Environment variable: `CODE_REVIEW_PLATFORM_VISIBILITY`.
+
+### N3 Post-Processing Category Enforcement
+
+As defense-in-depth against LLM persona drift, findings are post-filtered after LLM evaluation:
+
+- **Platform profile**: Keeps only `security`, `bug`, and `scope` categories, plus any finding that matches a known platform rule name. Drops `style`, `docs`, `performance`, and other non-platform categories.
+- **Product profile**: Drops any finding attributed to a known platform rule name. Keeps everything else.
+- **All/default**: No filtering.
+
+Dropped findings are logged via `slog.Info` and the count is recorded in the audit log as `profile_filtered_count`. This ensures persona isolation even if the LLM returns findings outside its assigned scope.
+
+### Auto-Discovery of Platform Configuration
+
+When `--platform-config` is not explicitly set, the tool auto-discovers platform files by walking parent directories up to the repository root, looking for:
+
+- `.code-reviewer.platform.yaml` or `.code-reviewer.platform.yml`
+- `PLATFORM_REVIEW.md`
+
+> **Note:** Auto-discovery does **not** scan `.platform/` subdirectories. To use files in `.platform/rules/*.yaml`, set `--platform-config` or `CODE_REVIEW_PLATFORM_CONFIG` explicitly.
+
+In CI mode, auto-discovered files are read from the **trusted base commit ref** (`GITHUB_BASE_REF` / `CI_MERGE_REQUEST_TARGET_BRANCH_SHA`) via `git show` to prevent contributors from tampering with platform rules in their branch. If `CIDiffBaseSHA` is empty in CI mode, auto-discovered rules are rejected and `--profile platform` fails closed (exit code 2).
+
+### Supply Chain Verification
+
+Releases are signed with [Sigstore Cosign](https://docs.sigstore.dev/) keyless signing and attested with [SLSA Level 3](https://slsa.dev) provenance.
+
+**Verify binary checksums:**
+```bash
+cosign verify-blob \
+  --certificate checksums.txt.pem \
+  --signature checksums.txt.sig \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp 'github.com/OpticDiff/code-reviewer' \
+  checksums.txt
+```
+
+**Verify SLSA provenance:**
+```bash
+gh attestation verify checksums.txt -R OpticDiff/code-reviewer
+```
+
+**Verify Docker image:**
+```bash
+cosign verify \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp 'github.com/OpticDiff/code-reviewer' \
+  ghcr.io/opticdiff/code-reviewer:latest
+```
+
+### SARIF `versionControlProvenance`
+
+SARIF output includes `versionControlProvenance` linking findings to the exact source commit:
+
+```json
+{
+  "runs": [{
+    "versionControlProvenance": [{
+      "repositoryUri": "https://github.com/OpticDiff/code-reviewer",
+      "revisionId": "abc123def456...",
+      "branch": "main"
+    }]
+  }]
+}
+```
+
+Populated automatically from GitHub Actions (`GITHUB_REPOSITORY`, `GITHUB_SHA`, `GITHUB_REF_NAME`), GitLab CI (`CI_PROJECT_URL`, `CI_COMMIT_SHA`, `CI_COMMIT_REF_NAME`), or local git info.
 
 ---
 
@@ -343,14 +418,17 @@ rows = db.execute("SELECT * FROM patients")
 - **Syntax**: `// opticdiff:ignore <rule-name>: <justification>` or `# opticdiff:ignore <rule-name>: <justification>`
 - **Suppression of All Rules**: `// opticdiff:ignore all: emergency hotfix approved by lead`
 - **Default Behavior**: Platform rules **deny** suppression by default (`allow_suppression: false`) unless explicitly configured with `allow_suppression: true`.
-- **Auditing**: Suppressed findings do not block CI, but are recorded in the structured JSONL audit log (`REVIEW_AUDIT_LOG`) with the author's justification, rule name, and SHA-256 file hashes:
+- **Auditing**: Suppressed findings do not block CI. When suppressed, a `slog.Info` entry is emitted with the rule name, file, and justification. The structured JSONL audit log (`REVIEW_AUDIT_LOG`) records review-level metadata including profile and platform governance hashes:
   ```json
   {
     "timestamp": "2026-09-08T03:45:20Z",
+    "profile": "platform",
+    "platform_visibility": "security-team-only",
+    "profile_filtered_count": 3,
     "platform_rules_count": 5,
     "platform_rule_hashes": {
-      "01-hipaa-phi.yaml": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      "02-multitenancy.yaml": "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
+      "01-hipaa-phi.yaml": "e3b0c44298fc1c149afbf4c8996fb924...",
+      "02-multitenancy.yaml": "b94d27b9934d3e08a52e52d7da7dabfa..."
     }
   }
   ```
