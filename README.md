@@ -111,6 +111,21 @@ cd code-reviewer && go build -o code-reviewer ./cmd/code-reviewer
 
 ## Quick Start
 
+### 🔧 10-Second Interactive Setup (`code-reviewer init`)
+
+Bootstrap a production-ready `.code-reviewer.yaml` configuration tailored to your repository with a single command:
+
+```bash
+# Interactive setup: auto-detects GitHub vs GitLab, prompts for model & focus areas
+code-reviewer init
+
+# Non-interactive: generate instantly with sensible defaults
+code-reviewer init --yes
+
+# Force overwrite existing configuration
+code-reviewer init --force
+```
+
 ### ⚡ 30-Second Local Test Drive (Zero Cloud Setup with Ollama)
 
 Review your current uncommitted changes against `origin/HEAD` completely offline:
@@ -218,22 +233,25 @@ code-review:
     when: always
 ```
 
-See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
-
-#### Incremental Reviews & Commit Triggers
-
-When running in CI with `--incremental`, `code-reviewer` only analyzes files modified in the latest push, saving tokens and review turnaround time.
-
-To force a full review of all files across the entire merge request (bypassing incremental filtering and the review cache), include a trigger string in your commit message:
-
-```bash
-git commit -m "fix: resolve rebase conflicts [re-review]"
+```yaml
+# With native GitLab SAST security report (Free, Premium, and Ultimate)
+code-review-sast:
+  stage: review
+  image: gcr.io/$PROJECT/code-reviewer:latest
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GITLAB_TOKEN: $CI_JOB_TOKEN
+    SAST_OUTPUT: "gl-sast-report.json"
+  script:
+    - code-reviewer --ci --incremental --sast gl-sast-report.json
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+    when: always
 ```
 
-By default, any commit message containing `[re-review]` or `[full-review]` (case-insensitive) triggers a full re-review. You can customize the trigger strings via:
-- CLI flag: `--re-review-trigger="[re-review],[full-review]"`
-- Environment variable: `RE_REVIEW_TRIGGER="[re-review]"`
-- Repository YAML: `re_review_triggers: ["[re-review]", "[full-review]"]` in `.code-reviewer.yaml`
+See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
 
 ### GitHub Actions
 
@@ -250,20 +268,40 @@ Use the [reusable action](https://github.com/OpticDiff/code-reviewer-action) for
 ```
 
 ```yaml
-# Vertex AI with auto-approve
+# Vertex AI with auto-approve & incremental review
 - uses: google-github-actions/auth@v2
   with:
     workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
     service_account: ${{ secrets.WIF_SA }}
 - uses: OpticDiff/code-reviewer-action@v1
   with:
-    extra-args: --auto-approve --audit-log review.jsonl
+    extra-args: --incremental --auto-approve --audit-log review.jsonl
   env:
     GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 See [`examples/github/`](examples/github/) for complete workflows: [basic](examples/github/basic.yml), [SARIF + Code Scanning](examples/github/sarif.yml), [self-hosted Ollama](examples/github/self-hosted.yml), [multi-model consensus](examples/github/consensus.yml), [AWS Bedrock](examples/github/bedrock.yml).
+
+### ⚡ Incremental Reviews & Commit Triggers (GitHub PRs & GitLab MRs)
+
+When running in CI with `--incremental`, `code-reviewer` only analyzes files modified in the latest push/commit, saving LLM tokens and dramatically accelerating pipeline runtimes.
+
+#### Automatic Commit & Event Inspection
+- **GitLab CI**: Automatically reads `$CI_COMMIT_MESSAGE` to inspect the latest pushed commit.
+- **GitHub Actions**: Automatically reads `pull_request` event payloads (`GITHUB_EVENT_PATH` / `head_commit.message`). When GitHub Actions checks out a synthetic merge commit (`refs/pull/<PR>/merge`), `code-reviewer` automatically inspects the secondary parent commit (`HEAD^2`) to retrieve the PR branch's actual commit message.
+
+#### Forcing a Full Re-Review
+To force a full review of all files across the entire PR or MR (bypassing incremental filtering and clearing cached findings for that review run), include a trigger string in your commit message:
+
+```bash
+git commit -m "fix: resolve rebase conflicts [re-review]"
+```
+
+By default, any commit message containing `[re-review]` or `[full-review]` (case-insensitive) triggers a full re-review. You can customize the trigger strings via:
+- CLI flag: `--re-review-trigger="[re-review],[full-review]"`
+- Environment variable: `RE_REVIEW_TRIGGER="[re-review]"`
+- Repository YAML: `re_review_triggers: ["[re-review]", "[full-review]"]` in `.code-reviewer.yaml`
 
 ### Enterprise Platform Governance & Pod Specifics
 
@@ -302,6 +340,9 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--dry-run` | Analyze without posting | `false` |
 | `--json` | Output results as JSON | `false` |
 | `--sarif` | Write SARIF 2.1.0 output to file | — |
+| `--sast` | Write GitLab SAST report to file | — |
+| `--cache-dir` | Custom cache directory path | `~/.cache/code-reviewer` |
+| `--no-cache` | Disable review caching and force fresh analysis | `false` |
 | `--no-color` | Disable ANSI color output | `false` |
 | `--no-context` | Disable repo-aware cross-file context injection | `false` |
 | `--max-tokens` | Maximum total tokens per review (0 = unlimited) | `0` |
@@ -312,7 +353,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--api-url` | OpenAI-compatible API endpoint (e.g., `http://localhost:11434/v1`) | — |
 | `--api-key` | API key for HTTP provider (optional for IAM/ADC auth) | — |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
-| `--re-review-trigger` | Comma-separated commit message triggers that force a full MR review in incremental mode | `[re-review],[full-review]` |
+| `--re-review-trigger` | Comma-separated commit message triggers that force a full PR/MR review in incremental mode | `[re-review],[full-review]` |
 | `--proxy-url` | Route model calls through an LLM proxy (e.g. Candela) | — |
 | `--summarize` | Generate structured MR summary instead of review | `false` |
 | `--summary-update-description` | Update MR description with generated summary | `false` |
@@ -329,8 +370,11 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--platform-config` | Platform rule config file, comma-separated paths, or glob | — |
 | `--platform-review-md` | Platform review guidelines markdown file or glob | — |
 | `--version` | Print version and exit | — |
+| `init` | Interactively scaffold `.code-reviewer.yaml` (`-y`/`--yes`, `-f`/`--force`) | — |
 | `hook install` | Install a pre-push git hook | — |
 | `hook uninstall` | Remove the pre-push git hook | — |
+| `cache stats` | Display cache entry count, total disk size, and oldest entry | — |
+| `cache clear` | Purge all cached review entries | — |
 
 ### Environment Variables
 
@@ -349,10 +393,17 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
 | `CODE_REVIEW_PLATFORM_REVIEW_MD` | Platform guidelines markdown path or glob | — |
+| `CODE_REVIEWER_PROFILE` | Review profile: `platform`, `product`, or `all` | `all` |
+| `CODE_REVIEW_PLATFORM_MODEL` | Model override when `--profile=platform` | — |
+| `CODE_REVIEW_PRODUCT_MODEL` | Model override when `--profile=product` | — |
+| `CODE_REVIEW_PLATFORM_VISIBILITY` | Platform findings visibility: `public` or `security-team-only` | `public` |
 | `REVIEW_OUTPUT_JSON` | Output results as JSON (`true`/`false`) | `false` |
 | `SARIF_OUTPUT` | Write SARIF output to this file path | — |
+| `SAST_OUTPUT` | Write GitLab SAST report to this file path | — |
 | `INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
-| `RE_REVIEW_TRIGGER` | Comma-separated commit message triggers forcing full MR review | `[re-review],[full-review]` |
+| `RE_REVIEW_TRIGGER` | Comma-separated commit message triggers forcing full PR/MR review | `[re-review],[full-review]` |
+| `REVIEW_CACHE_DIR` | Custom cache directory path | `~/.cache/code-reviewer` |
+| `REVIEW_NO_CACHE` | Disable review caching (`true`/`false`) | `false` |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
 | `REVIEW_MAX_TOKENS` | Maximum total tokens per review (0 = unlimited) | `0` |
 | `REVIEW_MAX_FILES` | Maximum files before scope enforcement (0 = unlimited) | `0` |
@@ -382,6 +433,12 @@ excluded_patterns:
 extra_rules: |
   Always flag raw SQL string concatenation.
   Check that zerolog is used instead of log/fmt.
+re_review_triggers:      # Force full re-review when commit message matches trigger
+  - "[re-review]"
+  - "[full-review]"
+cache_dir: ~/.cache/code-reviewer # Optional: cache directory
+no_cache: false                   # Optional: set true to disable caching
+sast_output: gl-sast-report.json  # Optional: export native GitLab SAST report
 max_tokens: 50000  # Optional: cap total tokens per review
 api_url: http://localhost:11434/v1  # Optional: use a self-hosted model
 update_description: false  # Inject summary into MR/PR description

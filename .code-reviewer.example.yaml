@@ -30,15 +30,16 @@ comment_mode: notes
 # update_description: false  # Inject review summary into MR/PR description
 
 # output_json: false         # Output results as JSON instead of posting
+# sast_output: gl-sast-report.json # Export findings to native GitLab SAST report
 
 # summarize: false           # Generate MR summary instead of review
 # summary_update_description: false # Update MR description with the generated summary
 
 # intent_review: true        # Enable two-pass intent-aware review (default: true in CI)
 
-# Commit message triggers that force a full MR re-review in incremental mode.
+# Commit message triggers that force a full PR/MR re-review in incremental mode.
 # When any of these strings appear in the latest commit message, incremental filtering
-# and review caching are bypassed, re-evaluating all files in the MR.
+# and review caching are bypassed, re-evaluating all files in the PR/MR.
 # Default: ["[re-review]", "[full-review]"]
 # re_review_triggers:
 #   - "[re-review]"
