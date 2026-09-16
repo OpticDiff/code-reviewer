@@ -3,7 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
+	"testing/quick"
 )
 
 // TestParseSeverity_AllLevels is a table-driven test covering all valid
@@ -91,6 +94,8 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("SKIP_DRAFT_MRS", "")
 	t.Setenv("EXCLUDED_PATTERNS", "")
 	t.Setenv("REVIEW_EXTRA_RULES", "")
+	t.Setenv("RE_REVIEW_TRIGGER", "")
+	t.Setenv("REVIEW_RE_REVIEW_TRIGGER", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -367,6 +372,8 @@ func TestLoad_YAMLConfig(t *testing.T) {
 	t.Setenv("REVIEW_MIN_SEVERITY", "")
 	t.Setenv("REVIEW_EXTRA_RULES", "")
 	t.Setenv("REVIEW_PROXY_URL", "")
+	t.Setenv("RE_REVIEW_TRIGGER", "")
+	t.Setenv("REVIEW_RE_REVIEW_TRIGGER", "")
 
 	tmpDir := t.TempDir()
 	yamlContent := []byte(`model: yaml-model
@@ -1092,6 +1099,37 @@ func TestLoad_CICommitMessage_GitHub(t *testing.T) {
 	}
 }
 
+func TestLoad_CICommitMessage_GitHub_EventPath(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--ci"}
+
+	tmpDir := t.TempDir()
+	eventFile := filepath.Join(tmpDir, "event.json")
+	eventPayload := []byte(`{"head_commit":{"message":"chore: push commit [re-review]\n\nDetailed message"}}`)
+	if err := os.WriteFile(eventFile, eventPayload, 0o644); err != nil {
+		t.Fatalf("writing event file: %v", err)
+	}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "")
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	t.Setenv("GITHUB_REF", "refs/pull/42/merge")
+	t.Setenv("CI_COMMIT_MESSAGE", "") // Unset CI_COMMIT_MESSAGE so it falls back to GITHUB_EVENT_PATH.
+	t.Setenv("GITHUB_EVENT_PATH", eventFile)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.CICommitMessage != "chore: push commit [re-review]\n\nDetailed message" {
+		t.Errorf("CICommitMessage = %q, want %q", cfg.CICommitMessage, "chore: push commit [re-review]\n\nDetailed message")
+	}
+}
+
 func TestLoad_ReviewReReviewTrigger_FallbackEnv(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
@@ -1108,5 +1146,36 @@ func TestLoad_ReviewReReviewTrigger_FallbackEnv(t *testing.T) {
 
 	if len(cfg.ReReviewTriggers) != 1 || cfg.ReReviewTriggers[0] != "[fallback-trigger]" {
 		t.Errorf("ReReviewTriggers = %v, want [[fallback-trigger]]", cfg.ReReviewTriggers)
+	}
+}
+
+func TestProperty_SplitAndTrim(t *testing.T) {
+	// Property-Based Test:
+	// For any string:
+	// 1. No item in splitAndTrim(s) is empty.
+	// 2. No item in splitAndTrim(s) has leading or trailing whitespace.
+	// 3. Idempotency: re-splitting the comma-joined result produces the exact same slice.
+	property := func(s string) bool {
+		parts := splitAndTrim(s)
+		for _, part := range parts {
+			if part == "" {
+				return false
+			}
+			if strings.TrimSpace(part) != part {
+				return false
+			}
+		}
+
+		// Idempotency check:
+		joined := strings.Join(parts, ",")
+		reparts := splitAndTrim(joined)
+		if len(parts) == 0 && len(reparts) == 0 {
+			return true
+		}
+		return reflect.DeepEqual(parts, reparts)
+	}
+
+	if err := quick.Check(property, &quick.Config{MaxCount: 500}); err != nil {
+		t.Fatalf("Property TestProperty_SplitAndTrim failed: %v", err)
 	}
 }

@@ -146,9 +146,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Step 2b: Incremental review — filter to only files changed in latest push.
 	var incrementalChangedFiles []string // tracks which files changed (for selective cleanup)
-	forceFullReview, triggerMatched := r.shouldForceFullReview(ctx)
-	if forceFullReview {
-		slog.Info("forcing full MR review based on commit trigger", "trigger", triggerMatched)
+	forceFullReview := false
+	var triggerMatched string
+	if r.cfg.Incremental && r.cfg.CIMode {
+		forceFullReview, triggerMatched = r.shouldForceFullReview(ctx)
+		if forceFullReview {
+			slog.Info("forcing full MR review based on commit trigger", "trigger", triggerMatched)
+		}
 	}
 	if !forceFullReview && r.cfg.Incremental && r.cfg.CIMode && r.glClient != nil {
 		versions, verr := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
@@ -1030,12 +1034,23 @@ func (r *Reviewer) shouldForceFullReview(ctx context.Context) (bool, string) {
 
 // getCommitMessage returns the commit message for the HEAD / latest commit.
 // In CI mode, it uses cfg.CICommitMessage if populated, otherwise falling back
-// to running git log -1 --pretty=%B.
+// to reading git log. If HEAD is a merge commit (as produced by GitHub Actions
+// checkout on pull_request events), it inspects the secondary parent HEAD^2
+// which corresponds to the pull request's head commit.
 func (r *Reviewer) getCommitMessage(ctx context.Context) string {
 	if r.cfg.CICommitMessage != "" {
 		return r.cfg.CICommitMessage
 	}
-	out, err := exec.CommandContext(ctx, "git", "log", "-1", "--pretty=%B").Output()
+	// In GitHub Actions PR runs, actions/checkout checks out refs/pull/<id>/merge,
+	// which is a synthetic merge commit. The PR head commit is HEAD^2.
+	if _, err := exec.CommandContext(ctx, "git", "rev-parse", "-q", "--verify", "HEAD^2").Output(); err == nil {
+		if out, err := exec.CommandContext(ctx, "git", "log", "-1", "--pretty=%B", "HEAD^2").Output(); err == nil {
+			if msg := strings.TrimSpace(string(out)); msg != "" {
+				return msg
+			}
+		}
+	}
+	out, err := exec.CommandContext(ctx, "git", "log", "-1", "--pretty=%B", "HEAD").Output()
 	if err != nil {
 		slog.Debug("failed to read commit message from git log", "error", err)
 		return ""

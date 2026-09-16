@@ -5,6 +5,7 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -969,6 +970,17 @@ func (c *Config) loadGitHubCIEnv() {
 	}
 	if v := os.Getenv("CI_COMMIT_MESSAGE"); v != "" {
 		c.CICommitMessage = v
+	} else if eventPath := os.Getenv("GITHUB_EVENT_PATH"); eventPath != "" {
+		if data, err := os.ReadFile(eventPath); err == nil {
+			var evt struct {
+				HeadCommit struct {
+					Message string `json:"message"`
+				} `json:"head_commit"`
+			}
+			if err := json.Unmarshal(data, &evt); err == nil && evt.HeadCommit.Message != "" {
+				c.CICommitMessage = evt.HeadCommit.Message
+			}
+		}
 	}
 
 	// Parse PR number from GITHUB_REF (e.g., "refs/pull/42/merge").
