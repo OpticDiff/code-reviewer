@@ -36,6 +36,14 @@ comment_mode: notes
 
 # intent_review: true        # Enable two-pass intent-aware review (default: true in CI)
 
+# Commit message triggers that force a full MR re-review in incremental mode.
+# When any of these strings appear in the latest commit message, incremental filtering
+# and review caching are bypassed, re-evaluating all files in the MR.
+# Default: ["[re-review]", "[full-review]"]
+# re_review_triggers:
+#   - "[re-review]"
+#   - "[full-review]"
+
 # Cache settings — skip re-reviewing identical file diffs.
 # cache_dir: ~/.cache/code-reviewer  # Default location
 # no_cache: false                      # Set to true to disable caching
