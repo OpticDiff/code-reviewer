@@ -3,7 +3,10 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
+	"testing/quick"
 )
 
 // TestParseSeverity_AllLevels is a table-driven test covering all valid
@@ -91,6 +94,8 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("SKIP_DRAFT_MRS", "")
 	t.Setenv("EXCLUDED_PATTERNS", "")
 	t.Setenv("REVIEW_EXTRA_RULES", "")
+	t.Setenv("RE_REVIEW_TRIGGER", "")
+	t.Setenv("REVIEW_RE_REVIEW_TRIGGER", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -127,6 +132,16 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.GCPProject != "test-project" {
 		t.Errorf("GCPProject = %q, want %q", cfg.GCPProject, "test-project")
 	}
+	wantTriggers := []string{"[re-review]", "[full-review]"}
+	if len(cfg.ReReviewTriggers) != len(wantTriggers) {
+		t.Errorf("ReReviewTriggers = %v, want %v", cfg.ReReviewTriggers, wantTriggers)
+	} else {
+		for i := range wantTriggers {
+			if cfg.ReReviewTriggers[i] != wantTriggers[i] {
+				t.Errorf("ReReviewTriggers[%d] = %q, want %q", i, cfg.ReReviewTriggers[i], wantTriggers[i])
+			}
+		}
+	}
 }
 
 // TestLoad_EnvOverrides sets REVIEW_* env vars and verifies they override
@@ -141,6 +156,7 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	t.Setenv("REVIEW_FOCUS", "bugs,security")
 	t.Setenv("REVIEW_MIN_SEVERITY", "high")
 	t.Setenv("REVIEW_OUTPUT_JSON", "true")
+	t.Setenv("RE_REVIEW_TRIGGER", "[custom-trigger],[another-trigger]")
 
 	cfg, err := Load()
 	if err != nil {
@@ -159,6 +175,16 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	if !cfg.OutputJSON {
 		t.Error("OutputJSON = false, want true")
 	}
+	wantTriggers := []string{"[custom-trigger]", "[another-trigger]"}
+	if len(cfg.ReReviewTriggers) != len(wantTriggers) {
+		t.Errorf("ReReviewTriggers = %v, want %v", cfg.ReReviewTriggers, wantTriggers)
+	} else {
+		for i := range wantTriggers {
+			if cfg.ReReviewTriggers[i] != wantTriggers[i] {
+				t.Errorf("ReReviewTriggers[%d] = %q, want %q", i, cfg.ReReviewTriggers[i], wantTriggers[i])
+			}
+		}
+	}
 }
 
 // TestLoad_FlagOverrides verifies that CLI flags override both defaults and env
@@ -173,6 +199,7 @@ func TestLoad_FlagOverrides(t *testing.T) {
 		"--focus", "performance,docs",
 		"--min-severity", "critical",
 		"--json",
+		"--re-review-trigger", "[flag-trigger],[flag-trigger-2]",
 	}
 
 	// Set env vars that should be overridden by flags.
@@ -180,6 +207,7 @@ func TestLoad_FlagOverrides(t *testing.T) {
 	t.Setenv("REVIEW_MODEL", "env-model-should-be-overridden")
 	t.Setenv("REVIEW_FOCUS", "env-focus-should-be-overridden")
 	t.Setenv("REVIEW_MIN_SEVERITY", "low")
+	t.Setenv("RE_REVIEW_TRIGGER", "env-trigger-should-be-overridden")
 
 	cfg, err := Load()
 	if err != nil {
@@ -197,6 +225,16 @@ func TestLoad_FlagOverrides(t *testing.T) {
 	}
 	if !cfg.OutputJSON {
 		t.Error("OutputJSON = false, want true")
+	}
+	wantTriggers := []string{"[flag-trigger]", "[flag-trigger-2]"}
+	if len(cfg.ReReviewTriggers) != len(wantTriggers) {
+		t.Errorf("ReReviewTriggers = %v, want %v", cfg.ReReviewTriggers, wantTriggers)
+	} else {
+		for i := range wantTriggers {
+			if cfg.ReReviewTriggers[i] != wantTriggers[i] {
+				t.Errorf("ReReviewTriggers[%d] = %q, want %q", i, cfg.ReReviewTriggers[i], wantTriggers[i])
+			}
+		}
 	}
 }
 
@@ -334,6 +372,8 @@ func TestLoad_YAMLConfig(t *testing.T) {
 	t.Setenv("REVIEW_MIN_SEVERITY", "")
 	t.Setenv("REVIEW_EXTRA_RULES", "")
 	t.Setenv("REVIEW_PROXY_URL", "")
+	t.Setenv("RE_REVIEW_TRIGGER", "")
+	t.Setenv("REVIEW_RE_REVIEW_TRIGGER", "")
 
 	tmpDir := t.TempDir()
 	yamlContent := []byte(`model: yaml-model
@@ -344,6 +384,9 @@ min_severity: medium
 extra_rules: "always check for nil"
 output_json: true
 proxy_url: http://yaml-proxy:8181/proxy/google/
+re_review_triggers:
+  - "[custom-yaml-trigger]"
+  - "[retest-all]"
 `)
 	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), yamlContent, 0o644); err != nil {
 		t.Fatalf("writing yaml: %v", err)
@@ -380,6 +423,16 @@ proxy_url: http://yaml-proxy:8181/proxy/google/
 	}
 	if cfg.ProxyURL != "http://yaml-proxy:8181/proxy/google/" {
 		t.Errorf("ProxyURL = %q, want %q", cfg.ProxyURL, "http://yaml-proxy:8181/proxy/google/")
+	}
+	wantTriggers := []string{"[custom-yaml-trigger]", "[retest-all]"}
+	if len(cfg.ReReviewTriggers) != len(wantTriggers) {
+		t.Errorf("ReReviewTriggers = %v, want %v", cfg.ReReviewTriggers, wantTriggers)
+	} else {
+		for i := range wantTriggers {
+			if cfg.ReReviewTriggers[i] != wantTriggers[i] {
+				t.Errorf("ReReviewTriggers[%d] = %q, want %q", i, cfg.ReReviewTriggers[i], wantTriggers[i])
+			}
+		}
 	}
 }
 
@@ -993,5 +1046,136 @@ func TestLoadGitHubCIEnv(t *testing.T) {
 	}
 	if cfg.CIMergeRequestID != "42" {
 		t.Errorf("CIMergeRequestID = %q, want '42'", cfg.CIMergeRequestID)
+	}
+}
+
+func TestLoad_CICommitMessage_GitLab(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--ci"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "123")
+	t.Setenv("CI_MERGE_REQUEST_IID", "456")
+	t.Setenv("GITLAB_TOKEN", "glpat-test")
+	t.Setenv("CI_COMMIT_MESSAGE", "feat: exciting feature [re-review]")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.Platform != "gitlab" {
+		t.Errorf("Platform = %q, want 'gitlab'", cfg.Platform)
+	}
+	if cfg.CICommitMessage != "feat: exciting feature [re-review]" {
+		t.Errorf("CICommitMessage = %q, want %q", cfg.CICommitMessage, "feat: exciting feature [re-review]")
+	}
+}
+
+func TestLoad_CICommitMessage_GitHub(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--ci"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "")
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	t.Setenv("GITHUB_REF", "refs/pull/42/merge")
+	t.Setenv("CI_COMMIT_MESSAGE", "fix: bug fix [full-review]")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.Platform != "github" {
+		t.Errorf("Platform = %q, want 'github'", cfg.Platform)
+	}
+	if cfg.CICommitMessage != "fix: bug fix [full-review]" {
+		t.Errorf("CICommitMessage = %q, want %q", cfg.CICommitMessage, "fix: bug fix [full-review]")
+	}
+}
+
+func TestLoad_CICommitMessage_GitHub_EventPath(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--ci"}
+
+	tmpDir := t.TempDir()
+	eventFile := filepath.Join(tmpDir, "event.json")
+	eventPayload := []byte(`{"head_commit":{"message":"chore: push commit [re-review]\n\nDetailed message"}}`)
+	if err := os.WriteFile(eventFile, eventPayload, 0o644); err != nil {
+		t.Fatalf("writing event file: %v", err)
+	}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("CI_PROJECT_ID", "")
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_REPOSITORY", "owner/repo")
+	t.Setenv("GITHUB_TOKEN", "ghp_test")
+	t.Setenv("GITHUB_REF", "refs/pull/42/merge")
+	t.Setenv("CI_COMMIT_MESSAGE", "") // Unset CI_COMMIT_MESSAGE so it falls back to GITHUB_EVENT_PATH.
+	t.Setenv("GITHUB_EVENT_PATH", eventFile)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.CICommitMessage != "chore: push commit [re-review]\n\nDetailed message" {
+		t.Errorf("CICommitMessage = %q, want %q", cfg.CICommitMessage, "chore: push commit [re-review]\n\nDetailed message")
+	}
+}
+
+func TestLoad_ReviewReReviewTrigger_FallbackEnv(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = []string{"code-reviewer", "--diff"}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("RE_REVIEW_TRIGGER", "")
+	t.Setenv("REVIEW_RE_REVIEW_TRIGGER", "[fallback-trigger]")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if len(cfg.ReReviewTriggers) != 1 || cfg.ReReviewTriggers[0] != "[fallback-trigger]" {
+		t.Errorf("ReReviewTriggers = %v, want [[fallback-trigger]]", cfg.ReReviewTriggers)
+	}
+}
+
+func TestProperty_SplitAndTrim(t *testing.T) {
+	// Property-Based Test:
+	// For any string:
+	// 1. No item in splitAndTrim(s) is empty.
+	// 2. No item in splitAndTrim(s) has leading or trailing whitespace.
+	// 3. Idempotency: re-splitting the comma-joined result produces the exact same slice.
+	property := func(s string) bool {
+		parts := splitAndTrim(s)
+		for _, part := range parts {
+			if part == "" {
+				return false
+			}
+			if strings.TrimSpace(part) != part {
+				return false
+			}
+		}
+
+		// Idempotency check:
+		joined := strings.Join(parts, ",")
+		reparts := splitAndTrim(joined)
+		if len(parts) == 0 && len(reparts) == 0 {
+			return true
+		}
+		return reflect.DeepEqual(parts, reparts)
+	}
+
+	if err := quick.Check(property, &quick.Config{MaxCount: 500}); err != nil {
+		t.Fatalf("Property TestProperty_SplitAndTrim failed: %v", err)
 	}
 }

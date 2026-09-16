@@ -5,6 +5,7 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -127,8 +128,9 @@ type Config struct {
 	MinSeverity  Severity
 	ExtraRules   string
 	CustomPrompt string // Path to custom system prompt file.
-	Incremental  bool   // Only review files changed in the latest push (CI mode).
-	ReviewMD     string // Contents of REVIEW.md (repo-level review instructions).
+	Incremental      bool     // Only review files changed in the latest push (CI mode).
+	ReReviewTriggers []string // Commit message substrings that force a full MR review in incremental mode (default: [re-review], [full-review]).
+	ReviewMD         string   // Contents of REVIEW.md (repo-level review instructions).
 
 	// Output settings.
 	CommentMode CommentMode
@@ -156,10 +158,11 @@ type Config struct {
 	Platform string
 
 	// CI auto-detected.
-	CIProjectID      string
-	CIMergeRequestID string
-	CIDiffBaseSHA      string // Reserved: loaded from CI_MERGE_REQUEST_DIFF_BASE_SHA for future incremental review.
-	CICommitBeforeSHA  string // Loaded from CI env; reserved for future use.
+	CIProjectID       string
+	CIMergeRequestID  string
+	CIDiffBaseSHA     string // Reserved: loaded from CI_MERGE_REQUEST_DIFF_BASE_SHA for future incremental review.
+	CICommitBeforeSHA string // Loaded from CI env; reserved for future use.
+	CICommitMessage   string // Loaded from CI env (e.g. CI_COMMIT_MESSAGE); used for commit triggers.
 
 	// Exclusions.
 	ExcludedPatterns []string
@@ -254,6 +257,7 @@ type repoConfig struct {
 	UpdateDescription        *bool    `yaml:"update_description"`
 	IntentReview             *bool    `yaml:"intent_review"`
 	AutoApprove              *bool    `yaml:"auto_approve"`
+	ReReviewTriggers         []string `yaml:"re_review_triggers"`
 	Rules                    []Rule   `yaml:"rules"`
 	PlatformConfig           string   `yaml:"platform_config"`
 	PlatformReviewMD         string   `yaml:"platform_review_md"`
@@ -284,6 +288,7 @@ func Load() (*Config, error) {
 		GitHubBaseURL:    "https://api.github.com",
 		SkipDraftMRs:     true,
 		ExcludedPatterns: DefaultExcludedPatterns,
+		ReReviewTriggers: []string{"[re-review]", "[full-review]"},
 		ScopeAction:      "warn",
 		CacheMaxAge:      7 * 24 * time.Hour,
 	}
@@ -528,6 +533,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.AutoApprove != nil {
 		c.AutoApprove = *rc.AutoApprove
 	}
+	if len(rc.ReReviewTriggers) > 0 {
+		c.ReReviewTriggers = rc.ReReviewTriggers
+	}
 	if len(rc.Rules) > 0 {
 		if err := ValidateRules(rc.Rules); err != nil {
 			return fmt.Errorf("invalid config: %w", err)
@@ -620,6 +628,11 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("INCREMENTAL"); strings.EqualFold(v, "true") {
 		c.Incremental = true
+	}
+	if v := os.Getenv("RE_REVIEW_TRIGGER"); v != "" {
+		c.ReReviewTriggers = splitAndTrim(v)
+	} else if v := os.Getenv("REVIEW_RE_REVIEW_TRIGGER"); v != "" {
+		c.ReReviewTriggers = splitAndTrim(v)
 	}
 	if v := os.Getenv("REVIEW_PROXY_URL"); v != "" {
 		c.ProxyURL = v
@@ -730,6 +743,7 @@ func (c *Config) loadFlags() error {
 	models := fs.String("models", "", "Comma-separated list of models for consensus review")
 	consensusThreshold := fs.Int("consensus-threshold", 0, "Min models that must agree on a finding (default: 2)")
 	incremental := fs.Bool("incremental", false, "Only review files changed in the latest push (CI mode)")
+	reReviewTrigger := fs.String("re-review-trigger", "", "Comma-separated commit message triggers that force a full MR review in incremental mode")
 	proxyURL := fs.String("proxy-url", "", "LLM proxy URL for observability (e.g., http://localhost:8181/proxy/google/)")
 	noContext := fs.Bool("no-context", false, "Disable repo-aware context discovery")
 	maxTokens := fs.Int("max-tokens", 0, "Maximum total tokens (input+output) per review (0 = unlimited)")
@@ -833,6 +847,9 @@ func (c *Config) loadFlags() error {
 	if *incremental {
 		c.Incremental = true
 	}
+	if *reReviewTrigger != "" {
+		c.ReReviewTriggers = splitAndTrim(*reReviewTrigger)
+	}
 	if *proxyURL != "" {
 		c.ProxyURL = *proxyURL
 	}
@@ -931,6 +948,10 @@ func (c *Config) loadCIEnv() {
 		// Try GitLab env vars anyway for manual runs.
 		c.loadGitLabCIEnv()
 	}
+
+	if c.CICommitMessage == "" {
+		c.CICommitMessage = os.Getenv("CI_COMMIT_MESSAGE")
+	}
 }
 
 func (c *Config) loadGitLabCIEnv() {
@@ -938,6 +959,7 @@ func (c *Config) loadGitLabCIEnv() {
 	c.CIMergeRequestID = os.Getenv("CI_MERGE_REQUEST_IID")
 	c.CIDiffBaseSHA = os.Getenv("CI_MERGE_REQUEST_DIFF_BASE_SHA")
 	c.CICommitBeforeSHA = os.Getenv("CI_COMMIT_BEFORE_SHA")
+	c.CICommitMessage = os.Getenv("CI_COMMIT_MESSAGE")
 }
 
 func (c *Config) loadGitHubCIEnv() {
@@ -945,6 +967,20 @@ func (c *Config) loadGitHubCIEnv() {
 	c.GitHubToken = os.Getenv("GITHUB_TOKEN")
 	if v := os.Getenv("GITHUB_API_URL"); v != "" {
 		c.GitHubBaseURL = v // GitHub Enterprise support.
+	}
+	if v := os.Getenv("CI_COMMIT_MESSAGE"); v != "" {
+		c.CICommitMessage = v
+	} else if eventPath := os.Getenv("GITHUB_EVENT_PATH"); eventPath != "" {
+		if data, err := os.ReadFile(eventPath); err == nil {
+			var evt struct {
+				HeadCommit struct {
+					Message string `json:"message"`
+				} `json:"head_commit"`
+			}
+			if err := json.Unmarshal(data, &evt); err == nil && evt.HeadCommit.Message != "" {
+				c.CICommitMessage = evt.HeadCommit.Message
+			}
+		}
 	}
 
 	// Parse PR number from GITHUB_REF (e.g., "refs/pull/42/merge").

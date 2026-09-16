@@ -146,7 +146,15 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Step 2b: Incremental review — filter to only files changed in latest push.
 	var incrementalChangedFiles []string // tracks which files changed (for selective cleanup)
-	if r.cfg.Incremental && r.cfg.CIMode && r.glClient != nil {
+	forceFullReview := false
+	var triggerMatched string
+	if r.cfg.Incremental && r.cfg.CIMode {
+		forceFullReview, triggerMatched = r.shouldForceFullReview(ctx)
+		if forceFullReview {
+			slog.Info("forcing full MR review based on commit trigger", "trigger", triggerMatched)
+		}
+	}
+	if !forceFullReview && r.cfg.Incremental && r.cfg.CIMode && r.glClient != nil {
 		versions, verr := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
 		if verr == nil {
 			cachedVersions = versions
@@ -258,9 +266,14 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
 		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules))
-		diffs, cachedFindings, cacheHits, cacheKeys = cache.Partition(diffs, r.cache, cacheModelID, promptHash)
-		if cacheHits > 0 {
-			slog.Info("cache", "hits", cacheHits, "cached_findings", len(cachedFindings), "uncached_files", len(diffs))
+		if forceFullReview {
+			slog.Info("bypassing review cache due to commit trigger", "trigger", triggerMatched)
+			diffs, _, _, cacheKeys = cache.Partition(diffs, nil, cacheModelID, promptHash)
+		} else {
+			diffs, cachedFindings, cacheHits, cacheKeys = cache.Partition(diffs, r.cache, cacheModelID, promptHash)
+			if cacheHits > 0 {
+				slog.Info("cache", "hits", cacheHits, "cached_findings", len(cachedFindings), "uncached_files", len(diffs))
+			}
 		}
 	}
 
@@ -993,4 +1006,54 @@ func (r *Reviewer) filterFindingsByProfile(findings []model.Finding) []model.Fin
 			"original", len(findings), "kept", len(filtered), "dropped", dropped)
 	}
 	return filtered
+}
+
+// shouldForceFullReview checks whether the latest commit message contains any configured
+// trigger substring (e.g. "[re-review]", "[full-review]").
+// If matched, it returns true and the matched trigger string.
+func (r *Reviewer) shouldForceFullReview(ctx context.Context) (bool, string) {
+	if len(r.cfg.ReReviewTriggers) == 0 {
+		return false, ""
+	}
+	msg := r.getCommitMessage(ctx)
+	if msg == "" {
+		return false, ""
+	}
+	lower := strings.ToLower(msg)
+	for _, trigger := range r.cfg.ReReviewTriggers {
+		trimmed := strings.TrimSpace(trigger)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(trimmed)) {
+			return true, trigger
+		}
+	}
+	return false, ""
+}
+
+// getCommitMessage returns the commit message for the HEAD / latest commit.
+// In CI mode, it uses cfg.CICommitMessage if populated, otherwise falling back
+// to reading git log. If HEAD is a merge commit (as produced by GitHub Actions
+// checkout on pull_request events), it inspects the secondary parent HEAD^2
+// which corresponds to the pull request's head commit.
+func (r *Reviewer) getCommitMessage(ctx context.Context) string {
+	if r.cfg.CICommitMessage != "" {
+		return r.cfg.CICommitMessage
+	}
+	// In GitHub Actions PR runs, actions/checkout checks out refs/pull/<id>/merge,
+	// which is a synthetic merge commit. The PR head commit is HEAD^2.
+	if _, err := exec.CommandContext(ctx, "git", "rev-parse", "-q", "--verify", "HEAD^2").Output(); err == nil {
+		if out, err := exec.CommandContext(ctx, "git", "log", "-1", "--pretty=%B", "HEAD^2").Output(); err == nil {
+			if msg := strings.TrimSpace(string(out)); msg != "" {
+				return msg
+			}
+		}
+	}
+	out, err := exec.CommandContext(ctx, "git", "log", "-1", "--pretty=%B", "HEAD").Output()
+	if err != nil {
+		slog.Debug("failed to read commit message from git log", "error", err)
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }

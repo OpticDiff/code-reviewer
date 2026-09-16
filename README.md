@@ -220,6 +220,21 @@ code-review:
 
 See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
 
+#### Incremental Reviews & Commit Triggers
+
+When running in CI with `--incremental`, `code-reviewer` only analyzes files modified in the latest push, saving tokens and review turnaround time.
+
+To force a full review of all files across the entire merge request (bypassing incremental filtering and the review cache), include a trigger string in your commit message:
+
+```bash
+git commit -m "fix: resolve rebase conflicts [re-review]"
+```
+
+By default, any commit message containing `[re-review]` or `[full-review]` (case-insensitive) triggers a full re-review. You can customize the trigger strings via:
+- CLI flag: `--re-review-trigger="[re-review],[full-review]"`
+- Environment variable: `RE_REVIEW_TRIGGER="[re-review]"`
+- Repository YAML: `re_review_triggers: ["[re-review]", "[full-review]"]` in `.code-reviewer.yaml`
+
 ### GitHub Actions
 
 Use the [reusable action](https://github.com/OpticDiff/code-reviewer-action) for the simplest setup:
@@ -297,6 +312,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--api-url` | OpenAI-compatible API endpoint (e.g., `http://localhost:11434/v1`) | — |
 | `--api-key` | API key for HTTP provider (optional for IAM/ADC auth) | — |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
+| `--re-review-trigger` | Comma-separated commit message triggers that force a full MR review in incremental mode | `[re-review],[full-review]` |
 | `--proxy-url` | Route model calls through an LLM proxy (e.g. Candela) | — |
 | `--summarize` | Generate structured MR summary instead of review | `false` |
 | `--summary-update-description` | Update MR description with generated summary | `false` |
@@ -336,6 +352,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_OUTPUT_JSON` | Output results as JSON (`true`/`false`) | `false` |
 | `SARIF_OUTPUT` | Write SARIF output to this file path | — |
 | `INCREMENTAL` | Only review changed files in latest push (`true`/`false`) | `false` |
+| `RE_REVIEW_TRIGGER` | Comma-separated commit message triggers forcing full MR review | `[re-review],[full-review]` |
 | `EXCLUDED_PATTERNS` | Glob patterns to skip | `go.sum,*.lock,vendor/*` |
 | `REVIEW_MAX_TOKENS` | Maximum total tokens per review (0 = unlimited) | `0` |
 | `REVIEW_MAX_FILES` | Maximum files before scope enforcement (0 = unlimited) | `0` |

@@ -3,8 +3,12 @@ package reviewer
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"testing/quick"
 	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/cache"
@@ -1282,6 +1286,446 @@ func TestRun_IncrementalReview_CompareErrorFallback(t *testing.T) {
 	}
 	if count != 2 {
 		t.Errorf("expected 2 findings (all files reviewed), got %d", count)
+	}
+}
+
+func TestRun_IncrementalReview_BypassedByCommitTrigger_Default(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go", "util.go", "docs.go")
+
+	cfg := &config.Config{
+		NoCache:          true,
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		Incremental:      true,
+		ReReviewTriggers: []string{"[re-review]", "[full-review]"},
+		CICommitMessage:  "fix: handle edge case [re-review]",
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "full review",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
+		},
+	}
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{
+			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
+			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
+		},
+		compareFiles: []string{"main.go"}, // Only main.go changed in latest push.
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+	if mm.calls != 1 {
+		t.Errorf("expected 1 model call, got %d", mm.calls)
+	}
+
+	// Verify all 3 files reached the model (incremental filtering bypassed).
+	if !strings.Contains(mm.lastUserPrompt, "main.go") {
+		t.Error("expected model prompt to contain 'main.go'")
+	}
+	if !strings.Contains(mm.lastUserPrompt, "util.go") {
+		t.Error("expected model prompt to contain 'util.go'")
+	}
+	if !strings.Contains(mm.lastUserPrompt, "docs.go") {
+		t.Error("expected model prompt to contain 'docs.go'")
+	}
+
+	// Verify CompareCommits was NOT called.
+	if mockClient.compareCommitsCalls != 0 {
+		t.Errorf("expected 0 CompareCommits calls, got %d", mockClient.compareCommitsCalls)
+	}
+
+	// Verify CleanPreviousReviews was called with empty changedFiles (cleans all previous bot comments across MR).
+	if mockClient.submitReviewReq == nil {
+		t.Fatal("expected SubmitReview to be called")
+	}
+	if len(mockClient.submitReviewReq.ChangedFiles) != 0 {
+		t.Errorf("expected empty ChangedFiles for full MR cleanup, got %v", mockClient.submitReviewReq.ChangedFiles)
+	}
+}
+
+func TestRun_IncrementalReview_BypassedByCommitTrigger_CaseInsensitive(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go", "util.go")
+
+	cfg := &config.Config{
+		NoCache:          true,
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		Incremental:      true,
+		ReReviewTriggers: []string{"[re-review]", "[full-review]"},
+		CICommitMessage:  "chore: bump deps [FULL-REVIEW]",
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "full review",
+			Findings: []model.Finding{},
+		},
+	}
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{
+			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
+			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
+		},
+		compareFiles: []string{"main.go"},
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify both files reached model.
+	if !strings.Contains(mm.lastUserPrompt, "main.go") || !strings.Contains(mm.lastUserPrompt, "util.go") {
+		t.Error("expected model prompt to contain both files")
+	}
+	if mockClient.compareCommitsCalls != 0 {
+		t.Errorf("expected 0 CompareCommits calls, got %d", mockClient.compareCommitsCalls)
+	}
+}
+
+func TestRun_IncrementalReview_BypassedByCommitTrigger_Custom(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go", "util.go")
+
+	cfg := &config.Config{
+		NoCache:          true,
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		Incremental:      true,
+		ReReviewTriggers: []string{"FORCE_RECHECK"},
+		CICommitMessage:  "refactor: auth logic (FORCE_RECHECK)",
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "full review",
+			Findings: []model.Finding{},
+		},
+	}
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{
+			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
+			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
+		},
+		compareFiles: []string{"main.go"},
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !strings.Contains(mm.lastUserPrompt, "main.go") || !strings.Contains(mm.lastUserPrompt, "util.go") {
+		t.Error("expected model prompt to contain both files")
+	}
+	if mockClient.compareCommitsCalls != 0 {
+		t.Errorf("expected 0 CompareCommits calls, got %d", mockClient.compareCommitsCalls)
+	}
+}
+
+func TestRun_IncrementalReview_NotBypassedWhenNoTrigger(t *testing.T) {
+	allDiffs := makeTestDiffs("main.go", "util.go", "docs.go")
+
+	cfg := &config.Config{
+		NoCache:          true,
+		CIMode:           true,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CommentMode:      config.CommentModeNotes,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		Incremental:      true,
+		ReReviewTriggers: []string{"[re-review]", "[full-review]"},
+		CICommitMessage:  "fix: regular commit with no trigger",
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "incremental",
+			Findings: []model.Finding{{File: "main.go", Line: 1, Severity: "LOW", Category: "style", Title: "t", Body: "b"}},
+		},
+	}
+	mockClient := &mockVCS{
+		mrVersions: []vcs.DiffVersion{
+			{ID: 2, HeadSHA: "new-head", BaseSHA: "base", StartSHA: "start"},
+			{ID: 1, HeadSHA: "old-head", BaseSHA: "base", StartSHA: "start"},
+		},
+		compareFiles: []string{"main.go"},
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	count, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 finding, got %d", count)
+	}
+
+	// Only main.go should be reviewed.
+	if !strings.Contains(mm.lastUserPrompt, "main.go") {
+		t.Error("expected model prompt to contain 'main.go'")
+	}
+	if strings.Contains(mm.lastUserPrompt, "util.go") {
+		t.Error("expected model prompt to NOT contain 'util.go'")
+	}
+	if strings.Contains(mm.lastUserPrompt, "docs.go") {
+		t.Error("expected model prompt to NOT contain 'docs.go'")
+	}
+	if mockClient.compareCommitsCalls != 1 {
+		t.Errorf("expected 1 CompareCommits call, got %d", mockClient.compareCommitsCalls)
+	}
+	if len(mockClient.submitReviewReq.ChangedFiles) != 1 || mockClient.submitReviewReq.ChangedFiles[0] != "main.go" {
+		t.Errorf("expected ChangedFiles [main.go], got %v", mockClient.submitReviewReq.ChangedFiles)
+	}
+}
+
+func TestRun_BypassesCacheOnCommitTrigger(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go", "file2.go")
+
+	cacheDir := t.TempDir()
+	cfg := &config.Config{
+		NoCache:          false,
+		CacheDir:         cacheDir,
+		CacheMaxAge:      time.Hour,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CIMode:           true,
+		Incremental:      true,
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		CommentMode:      config.CommentModeNotes,
+		ReReviewTriggers: []string{"[re-review]"},
+		CICommitMessage:  "docs: trigger full re-review [re-review]",
+	}
+
+	c, err := cache.New(cacheDir, time.Hour)
+	if err != nil {
+		t.Fatalf("creating cache: %v", err)
+	}
+
+	// Pre-populate cache with entries for both files.
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", "", cfg.Focus, cfg.ExtraRules, "")
+	key1 := cache.CacheKey(cache.DiffHash(allDiffs[0]), cfg.Model, promptHash)
+	if err := c.Store(key1, cache.Entry{FilePath: "file1.go", DiffHash: cache.DiffHash(allDiffs[0]), Model: cfg.Model, Findings: nil}); err != nil {
+		t.Fatalf("storing key1 in cache: %v", err)
+	}
+	key2 := cache.CacheKey(cache.DiffHash(allDiffs[1]), cfg.Model, promptHash)
+	if err := c.Store(key2, cache.Entry{FilePath: "file2.go", DiffHash: cache.DiffHash(allDiffs[1]), Model: cfg.Model, Findings: nil}); err != nil {
+		t.Fatalf("storing key2 in cache: %v", err)
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "model fresh run",
+			Findings: []model.Finding{},
+		},
+	}
+	mockClient := &mockVCS{}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err = r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Even though both files were cached, the commit trigger should bypass cache and invoke model.
+	if mm.calls != 1 {
+		t.Errorf("expected 1 model call due to cache bypass, got %d", mm.calls)
+	}
+}
+
+func TestRun_NonIncrementalReview_RetainsCacheEvenWithCommitTrigger(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go", "file2.go")
+
+	cacheDir := t.TempDir()
+	cfg := &config.Config{
+		NoCache:          false,
+		CacheDir:         cacheDir,
+		CacheMaxAge:      time.Hour,
+		Model:            "gemini-2.5-flash",
+		ChunkStrategy:    config.ChunkStrategyFail,
+		MinSeverity:      config.SeverityLow,
+		CIMode:           true,
+		Incremental:      false, // NOT incremental — standard review
+		CIProjectID:      "123",
+		CIMergeRequestID: "456",
+		CommentMode:      config.CommentModeNotes,
+		ReReviewTriggers: []string{"[re-review]"},
+		CICommitMessage:  "docs: update notes [re-review]",
+	}
+
+	c, err := cache.New(cacheDir, time.Hour)
+	if err != nil {
+		t.Fatalf("creating cache: %v", err)
+	}
+
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", "", cfg.Focus, cfg.ExtraRules, "")
+	key1 := cache.CacheKey(cache.DiffHash(allDiffs[0]), cfg.Model, promptHash)
+	if err := c.Store(key1, cache.Entry{FilePath: "file1.go", DiffHash: cache.DiffHash(allDiffs[0]), Model: cfg.Model, Findings: nil}); err != nil {
+		t.Fatalf("storing key1: %v", err)
+	}
+	key2 := cache.CacheKey(cache.DiffHash(allDiffs[1]), cfg.Model, promptHash)
+	if err := c.Store(key2, cache.Entry{FilePath: "file2.go", DiffHash: cache.DiffHash(allDiffs[1]), Model: cfg.Model, Findings: nil}); err != nil {
+		t.Fatalf("storing key2: %v", err)
+	}
+
+	mm := &mockModel{}
+	mockClient := &mockVCS{}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err = r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Because Incremental is false, the trigger must NOT bypass the cache.
+	// Both files are cached, so model calls should be 0.
+	if mm.calls != 0 {
+		t.Errorf("expected 0 model calls (cache hits preserved in non-incremental mode), got %d", mm.calls)
+	}
+}
+
+func TestReviewer_GetCommitMessage_SyntheticMergeCommit(t *testing.T) {
+	// Simulate GitHub Actions PR checkout where HEAD is a synthetic merge commit
+	// (e.g. refs/pull/42/merge) and the PR head commit is HEAD^2.
+	tmpDir := t.TempDir()
+
+	runGit := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = tmpDir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com",
+		)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v failed: %v, output: %s", args, err, out)
+		}
+	}
+
+	runGit("init")
+	runGit("config", "user.name", "Test")
+	runGit("config", "user.email", "test@example.com")
+
+	// Base commit on default branch.
+	if err := os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("base"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "file.txt")
+	runGit("commit", "-m", "initial commit")
+
+	// Branch out.
+	runGit("checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("change"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("commit", "-am", "feature commit [re-review]")
+
+	// Switch back to master/main and create another commit so merge commit is created.
+	runGit("checkout", "-")
+	if err := os.WriteFile(filepath.Join(tmpDir, "other.txt"), []byte("other"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "other.txt")
+	runGit("commit", "-m", "main branch advancement")
+
+	// Merge feature into main with --no-ff.
+	runGit("merge", "--no-ff", "feature", "-m", "Merge pull request #42 from feature into main")
+
+	// Now in tmpDir, HEAD is the synthetic merge commit, and HEAD^2 is "feature commit [re-review]".
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd) //nolint:errcheck
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		ReReviewTriggers: []string{"[re-review]"},
+	}
+	r := &Reviewer{cfg: cfg}
+
+	msg := r.getCommitMessage(context.Background())
+	if msg != "feature commit [re-review]" {
+		t.Errorf("getCommitMessage() = %q, want %q", msg, "feature commit [re-review]")
+	}
+
+	forced, trigger := r.shouldForceFullReview(context.Background())
+	if !forced {
+		t.Error("shouldForceFullReview() = false, want true")
+	}
+	if trigger != "[re-review]" {
+		t.Errorf("trigger = %q, want '[re-review]'", trigger)
+	}
+}
+
+func TestProperty_ShouldForceFullReview(t *testing.T) {
+	// Property-Based Test:
+	// For any prefix, suffix, casing variation of an active trigger,
+	// shouldForceFullReview MUST identify the trigger and return (true, trigger).
+	triggers := []string{"[re-review]", "[full-review]", "RETEST_ALL"}
+
+	property := func(prefix, suffix string, triggerIdx uint8, upperCase bool) bool {
+		trigger := triggers[int(triggerIdx)%len(triggers)]
+		var embedTrigger string
+		if upperCase {
+			embedTrigger = strings.ToUpper(trigger)
+		} else {
+			embedTrigger = strings.ToLower(trigger)
+		}
+
+		commitMsg := fmt.Sprintf("%s %s %s", prefix, embedTrigger, suffix)
+		cfg := &config.Config{
+			ReReviewTriggers: triggers,
+			CICommitMessage:  commitMsg,
+		}
+		r := &Reviewer{cfg: cfg}
+
+		forced, matched := r.shouldForceFullReview(context.Background())
+		if !forced {
+			return false
+		}
+		return strings.EqualFold(matched, trigger)
+	}
+
+	if err := quick.Check(property, &quick.Config{MaxCount: 200}); err != nil {
+		t.Fatalf("Property TestProperty_ShouldForceFullReview failed: %v", err)
 	}
 }
 
