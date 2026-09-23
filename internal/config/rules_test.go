@@ -79,6 +79,16 @@ func TestRule_Validate_InvalidCategory(t *testing.T) {
 	}
 }
 
+func TestRule_Validate_PlatformCategories(t *testing.T) {
+	categories := []string{"architecture", "compliance", "reliability", "governance", "quality", "contract", "guidance"}
+	for _, cat := range categories {
+		r := Rule{Name: "r-" + cat, Description: "d", Category: cat}
+		if err := r.Validate(); err != nil {
+			t.Errorf("expected category %q to be valid, got: %v", cat, err)
+		}
+	}
+}
+
 func TestRule_Validate_InvalidSeverity(t *testing.T) {
 	r := Rule{Name: "r1", Description: "d", Severity: "extreme"}
 	err := r.Validate()
@@ -356,5 +366,44 @@ func TestFilterRulesByPaths_EmptyFiles(t *testing.T) {
 	result := FilterRulesByPaths(rules, nil)
 	if len(result) != 0 {
 		t.Errorf("expected 0 rules for empty files, got %d", len(result))
+	}
+}
+
+func TestFilterRulesByPaths_GlobstarPatterns(t *testing.T) {
+	rules := []Rule{
+		{
+			Name:        "no-heavyweight-jvm-frameworks",
+			Description: "Prohibit Spring/Micronaut/Quarkus",
+			Paths: []string{
+				"**/*.gradle*",
+				"**/pom.xml",
+				"**/*.kt",
+				"**/*.java",
+			},
+		},
+	}
+
+	testCases := []struct {
+		file  string
+		match bool
+	}{
+		{"Service.kt", true},
+		{"src/main/kotlin/Service.kt", true},
+		{"build.gradle.kts", true},
+		{"subproject/build.gradle", true},
+		{"pom.xml", true},
+		{"deep/path/pom.xml", true},
+		{"Main.java", true},
+		{"src/main/java/Main.java", true},
+		{"main.go", false},
+		{"package.json", false},
+	}
+
+	for _, tc := range testCases {
+		res := FilterRulesByPaths(rules, []string{tc.file})
+		matched := len(res) > 0
+		if matched != tc.match {
+			t.Errorf("FilterRulesByPaths for file %q: got matched=%v, want %v", tc.file, matched, tc.match)
+		}
 	}
 }

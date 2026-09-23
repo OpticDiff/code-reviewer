@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -56,12 +57,19 @@ func (r *Rule) IsSuppressionAllowed() bool {
 
 // validRuleCategories are the allowed rule categories.
 var validRuleCategories = map[string]bool{
-	"bug":         true,
-	"security":    true,
-	"performance": true,
-	"style":       true,
-	"docs":        true,
-	"custom":      true,
+	"bug":          true,
+	"security":     true,
+	"performance":  true,
+	"style":        true,
+	"docs":         true,
+	"custom":       true,
+	"architecture": true,
+	"compliance":   true,
+	"reliability":  true,
+	"governance":   true,
+	"quality":      true,
+	"contract":     true,
+	"guidance":     true,
 }
 
 // validRuleSeverities are the allowed rule severities.
@@ -81,7 +89,7 @@ func (r *Rule) Validate() error {
 		return fmt.Errorf("rule %q missing required field: description", r.Name)
 	}
 	if r.Category != "" && !validRuleCategories[strings.ToLower(r.Category)] {
-		return fmt.Errorf("rule %q has invalid category %q (valid: bug, security, performance, style, docs, custom)", r.Name, r.Category)
+		return fmt.Errorf("rule %q has invalid category %q (valid: bug, security, performance, style, docs, custom, architecture, compliance, reliability, governance, quality, contract, guidance)", r.Name, r.Category)
 	}
 	if r.Severity != "" && !validRuleSeverities[strings.ToLower(r.Severity)] {
 		return fmt.Errorf("rule %q has invalid severity %q (valid: low, medium, high, critical)", r.Name, r.Severity)
@@ -209,14 +217,43 @@ func FilterRulesByPaths(rules []Rule, filePaths []string) []Rule {
 // ruleMatchesAnyFile checks if any file path matches any of the glob patterns.
 func ruleMatchesAnyFile(patterns, filePaths []string) bool {
 	for _, fp := range filePaths {
-		base := filepath.Base(fp)
 		for _, pattern := range patterns {
-			// Match against both full path and basename to support
-			// patterns like "*.go" (basename) and "internal/*.go" (path).
-			if matched, _ := filepath.Match(pattern, fp); matched {
+			if matchPathPattern(pattern, fp) {
 				return true
 			}
-			if matched, _ := filepath.Match(pattern, base); matched {
+		}
+	}
+	return false
+}
+
+func matchPathPattern(pattern, fp string) bool {
+	base := filepath.Base(fp)
+	// Standard filepath.Match against full path and basename
+	if matched, _ := filepath.Match(pattern, fp); matched {
+		return true
+	}
+	if matched, _ := filepath.Match(pattern, base); matched {
+		return true
+	}
+	// Prefix **/ (e.g. **/*.kt matches Service.kt and path/to/Service.kt)
+	if strings.HasPrefix(pattern, "**/") {
+		subPattern := strings.TrimPrefix(pattern, "**/")
+		if matched, _ := filepath.Match(subPattern, base); matched {
+			return true
+		}
+		if matched, _ := filepath.Match(subPattern, fp); matched {
+			return true
+		}
+	}
+	// Globstar regex translation
+	if strings.Contains(pattern, "**") {
+		rePattern := regexp.QuoteMeta(pattern)
+		rePattern = strings.ReplaceAll(rePattern, `\*\*\/`, `(?:.*/)?`)
+		rePattern = strings.ReplaceAll(rePattern, `\*\*`, `.*`)
+		rePattern = strings.ReplaceAll(rePattern, `\*`, `[^/]*`)
+		rePattern = strings.ReplaceAll(rePattern, `\?`, `[^/]`)
+		if re, err := regexp.Compile("^" + rePattern + "$"); err == nil {
+			if re.MatchString(fp) || re.MatchString(base) {
 				return true
 			}
 		}
