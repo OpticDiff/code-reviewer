@@ -79,6 +79,16 @@ func TestRule_Validate_InvalidCategory(t *testing.T) {
 	}
 }
 
+func TestRule_Validate_PlatformCategories(t *testing.T) {
+	categories := []string{"architecture", "compliance", "reliability", "governance", "quality", "contract", "guidance"}
+	for _, cat := range categories {
+		r := Rule{Name: "r-" + cat, Description: "d", Category: cat}
+		if err := r.Validate(); err != nil {
+			t.Errorf("expected category %q to be valid, got: %v", cat, err)
+		}
+	}
+}
+
 func TestRule_Validate_InvalidSeverity(t *testing.T) {
 	r := Rule{Name: "r1", Description: "d", Severity: "extreme"}
 	err := r.Validate()
@@ -356,5 +366,80 @@ func TestFilterRulesByPaths_EmptyFiles(t *testing.T) {
 	result := FilterRulesByPaths(rules, nil)
 	if len(result) != 0 {
 		t.Errorf("expected 0 rules for empty files, got %d", len(result))
+	}
+}
+
+func TestFilterRulesByPaths_GlobstarPatterns(t *testing.T) {
+	rules := []Rule{
+		{
+			Name:        "no-heavyweight-jvm-frameworks",
+			Description: "Prohibit Spring/Micronaut/Quarkus",
+			Paths: []string{
+				"**/*.gradle*",
+				"**/pom.xml",
+				"**/*.kt",
+				"**/*.java",
+			},
+		},
+		{
+			Name:        "middle-globstar-rule",
+			Description: "Match src/**/Main.java",
+			Paths: []string{
+				"src/**/Main.java",
+			},
+		},
+		{
+			Name:        "char-class-globstar-rule",
+			Description: "Match src/**/Test[0-9].kt",
+			Paths: []string{
+				"src/**/Test[0-9].kt",
+			},
+		},
+	}
+
+	testCases := []struct {
+		ruleName string
+		file     string
+		match    bool
+	}{
+		// no-heavyweight-jvm-frameworks tests
+		{"no-heavyweight-jvm-frameworks", "Service.kt", true},
+		{"no-heavyweight-jvm-frameworks", "src/main/kotlin/Service.kt", true},
+		{"no-heavyweight-jvm-frameworks", "build.gradle.kts", true},
+		{"no-heavyweight-jvm-frameworks", "subproject/build.gradle", true},
+		{"no-heavyweight-jvm-frameworks", "pom.xml", true},
+		{"no-heavyweight-jvm-frameworks", "deep/path/pom.xml", true},
+		{"no-heavyweight-jvm-frameworks", "Main.java", true},
+		{"no-heavyweight-jvm-frameworks", "src/main/java/Main.java", true},
+		{"no-heavyweight-jvm-frameworks", "main.go", false},
+		{"no-heavyweight-jvm-frameworks", "package.json", false},
+
+		// middle-globstar-rule tests (zero, one, multiple intermediate directories)
+		{"middle-globstar-rule", "src/Main.java", true},
+		{"middle-globstar-rule", "src/core/Main.java", true},
+		{"middle-globstar-rule", "src/nested/deep/path/Main.java", true},
+		{"middle-globstar-rule", "other/Main.java", false},
+		{"middle-globstar-rule", "src/Other.java", false},
+
+		// char-class-globstar-rule tests (character class preservation across intermediate directories)
+		{"char-class-globstar-rule", "src/Test1.kt", true},
+		{"char-class-globstar-rule", "src/a/b/Test9.kt", true},
+		{"char-class-globstar-rule", "src/a/b/TestA.kt", false},
+		{"char-class-globstar-rule", "src/Test.kt", false},
+	}
+
+	for _, tc := range testCases {
+		var targetRule []Rule
+		for _, r := range rules {
+			if r.Name == tc.ruleName {
+				targetRule = []Rule{r}
+				break
+			}
+		}
+		res := FilterRulesByPaths(targetRule, []string{tc.file})
+		matched := len(res) > 0
+		if matched != tc.match {
+			t.Errorf("FilterRulesByPaths rule %q for file %q: got matched=%v, want %v", tc.ruleName, tc.file, matched, tc.match)
+		}
 	}
 }
