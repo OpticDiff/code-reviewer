@@ -245,18 +245,91 @@ func matchPathPattern(pattern, fp string) bool {
 			return true
 		}
 	}
-	// Globstar regex translation
+	// Globstar regex translation supporting **, *, ?, and character classes [...]
 	if strings.Contains(pattern, "**") {
-		rePattern := regexp.QuoteMeta(pattern)
-		rePattern = strings.ReplaceAll(rePattern, `\*\*\/`, `(?:.*/)?`)
-		rePattern = strings.ReplaceAll(rePattern, `\*\*`, `.*`)
-		rePattern = strings.ReplaceAll(rePattern, `\*`, `[^/]*`)
-		rePattern = strings.ReplaceAll(rePattern, `\?`, `[^/]`)
-		if re, err := regexp.Compile("^" + rePattern + "$"); err == nil {
+		if re, err := globstarToRegexp(pattern); err == nil {
 			if re.MatchString(fp) || re.MatchString(base) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// globstarToRegexp translates a glob pattern supporting ** (globstar), *, ?, and [character classes] into a regex.
+func globstarToRegexp(pattern string) (*regexp.Regexp, error) {
+	var sb strings.Builder
+	sb.WriteString("^")
+	i := 0
+	n := len(pattern)
+	for i < n {
+		// Middle or trailing /**/ matches / or /.../ (zero or more directories)
+		if strings.HasPrefix(pattern[i:], "/**/") {
+			sb.WriteString("(?:/.+)?/")
+			i += 4
+			continue
+		}
+		// Leading **/ matches zero or more directories at the beginning
+		if strings.HasPrefix(pattern[i:], "**/") {
+			sb.WriteString("(?:.*/)?")
+			i += 3
+			continue
+		}
+		// Trailing /** matches zero or more directories at the end
+		if strings.HasPrefix(pattern[i:], "/**") && i+3 == n {
+			sb.WriteString("(?:/.*)?")
+			i += 3
+			continue
+		}
+		// Standalone ** matches any path sequence
+		if strings.HasPrefix(pattern[i:], "**") {
+			sb.WriteString(".*")
+			i += 2
+			continue
+		}
+
+		ch := pattern[i]
+		switch ch {
+		case '*':
+			sb.WriteString("[^/]*")
+			i++
+		case '?':
+			sb.WriteString("[^/]")
+			i++
+		case '[':
+			// Preserve character classes [0-9], [a-z], [!...]
+			j := i + 1
+			if j < n && (pattern[j] == '!' || pattern[j] == '^') {
+				j++
+			}
+			if j < n && pattern[j] == ']' {
+				j++
+			}
+			for j < n && pattern[j] != ']' {
+				j++
+			}
+			if j < n && pattern[j] == ']' {
+				classContent := pattern[i+1 : j]
+				sb.WriteString("[")
+				if strings.HasPrefix(classContent, "!") {
+					sb.WriteString("^")
+					classContent = classContent[1:]
+				}
+				sb.WriteString(classContent)
+				sb.WriteString("]")
+				i = j + 1
+			} else {
+				sb.WriteString(`\[`)
+				i++
+			}
+		default:
+			if strings.ContainsRune(".+()|{}^$\\-", rune(ch)) {
+				sb.WriteByte('\\')
+			}
+			sb.WriteByte(ch)
+			i++
+		}
+	}
+	sb.WriteString("$")
+	return regexp.Compile(sb.String())
 }
