@@ -4,7 +4,6 @@
 package vcs
 
 import (
-	"context"
 	"time"
 )
 
@@ -91,18 +90,4 @@ type SubmitReviewRequest struct {
 	Profile      string
 }
 
-// DescriptionUpdater is implemented by VCS clients that support updating
-// MR/PR descriptions. This is a separate interface for interface segregation.
-type DescriptionUpdater interface {
-	GetDescription(ctx context.Context, projectID, mrIID string) (string, error)
-	SetDescription(ctx context.Context, projectID, mrIID, description string) error
-}
 
-// VCSApprover is implemented by VCS clients that support approving MRs/PRs.
-// This is a separate interface for interface segregation — not all platforms
-// or token scopes may support approvals.
-// headSHA pins the approval to the reviewed revision. On GitLab, a mismatched
-// SHA returns 409 Conflict. On GitHub, it sets commit_id on the review.
-type VCSApprover interface {
-	ApproveReview(ctx context.Context, projectID, reviewID, headSHA string) error
-}

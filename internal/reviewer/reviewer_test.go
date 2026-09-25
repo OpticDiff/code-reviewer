@@ -135,6 +135,14 @@ func (m *mockVCS) ApproveReview(ctx context.Context, projectID, reviewID, headSH
 	return m.approveErr
 }
 
+func (m *mockVCS) GetDescription(ctx context.Context, projectID, mrIID string) (string, error) {
+	return "", nil
+}
+
+func (m *mockVCS) SetDescription(ctx context.Context, projectID, mrIID, description string) error {
+	return nil
+}
+
 func (m *mockVCS) SetProfile(string) {}
 
 // ---------------------------------------------------------------------------

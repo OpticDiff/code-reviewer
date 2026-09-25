@@ -64,7 +64,7 @@ func TerminalOutput(result *model.ReviewResult) string {
 
 // PostReview posts review results to a GitLab merge request or GitHub pull request.
 // If changedFiles is non-nil, only cleans previous comments on those files (incremental mode).
-func PostReview(ctx context.Context, cfg *config.Config, client VCSClient, result *model.ReviewResult, version *vcs.DiffVersion, changedFiles []string, profile string) error {
+func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, result *model.ReviewResult, version *vcs.DiffVersion, changedFiles []string, profile string) error {
 	// When platform visibility is security-team-only, redact finding details
 	// from PR comments. Full details are preserved in SARIF and audit log.
 	redacted := cfg.PlatformVisibility == "security-team-only" && profile == "platform"
