@@ -478,6 +478,10 @@ func (m *outputMockVCS) SetDescription(ctx context.Context, projectID, mrIID, de
 	return m.setDescriptionErr
 }
 
+func (m *outputMockVCS) ApproveReview(context.Context, string, string, string) error {
+	return nil
+}
+
 func (m *outputMockVCS) SetProfile(string) {}
 
 // Compile-time check that outputMockVCS implements VCSClient and DescriptionUpdater.

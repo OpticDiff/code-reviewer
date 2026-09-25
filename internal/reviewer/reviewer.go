@@ -31,7 +31,7 @@ type DiffSource interface {
 type Reviewer struct {
 	cfg                  *config.Config
 	provider             ModelReviewer
-	glClient             VCSClient
+	glClient             vcs.VCSProvider
 	diffSource           DiffSource
 	contextProvider      ctxpkg.Provider
 	mrDraft              bool
@@ -41,7 +41,7 @@ type Reviewer struct {
 }
 
 // New creates a new Reviewer.
-func New(cfg *config.Config, provider ModelReviewer, glClient VCSClient) *Reviewer {
+func New(cfg *config.Config, provider ModelReviewer, glClient vcs.VCSProvider) *Reviewer {
 	return &Reviewer{
 		cfg:      cfg,
 		provider: provider,
@@ -51,7 +51,7 @@ func New(cfg *config.Config, provider ModelReviewer, glClient VCSClient) *Review
 }
 
 // NewWithContext creates a Reviewer with a context provider for repo-aware reviews.
-func NewWithContext(cfg *config.Config, provider ModelReviewer, glClient VCSClient, cp ctxpkg.Provider) *Reviewer {
+func NewWithContext(cfg *config.Config, provider ModelReviewer, glClient vcs.VCSProvider, cp ctxpkg.Provider) *Reviewer {
 	return &Reviewer{
 		cfg:             cfg,
 		provider:        provider,
@@ -62,7 +62,7 @@ func NewWithContext(cfg *config.Config, provider ModelReviewer, glClient VCSClie
 }
 
 // NewWithDiffSource creates a Reviewer with a custom DiffSource (useful for testing).
-func NewWithDiffSource(cfg *config.Config, provider ModelReviewer, glClient VCSClient, ds DiffSource) *Reviewer {
+func NewWithDiffSource(cfg *config.Config, provider ModelReviewer, glClient vcs.VCSProvider, ds DiffSource) *Reviewer {
 	return &Reviewer{
 		cfg:        cfg,
 		provider:   provider,
@@ -129,6 +129,41 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		slog.Info("no files to review after filtering")
 		fmt.Println("✅ No reviewable files in diff.")
 		return 0, nil
+	}
+
+	// Step 2.0: Config poisoning detection.
+	var poisonCheckPaths []string
+	for _, d := range diffs {
+		if d.OldPath != "" {
+			poisonCheckPaths = append(poisonCheckPaths, d.OldPath)
+		}
+		if d.NewPath != "" && d.NewPath != d.OldPath {
+			poisonCheckPaths = append(poisonCheckPaths, d.NewPath)
+		}
+	}
+	if poisoned := DetectConfigPoisoning(poisonCheckPaths); len(poisoned) > 0 {
+		slog.Warn("Config file modified in this PR — review manually")
+		for _, p := range poisoned {
+			line := 1
+			// Anchor to first changed line so ValidateFindings doesn't drop it.
+			for _, d := range diffs {
+				if d.NewPath == p || d.OldPath == p {
+					for _, h := range d.Hunks {
+						for _, l := range h.Lines {
+							if l.NewLineNo > 0 {
+								line = l.NewLineNo
+								break
+							}
+						}
+						if line > 1 {
+							break
+						}
+					}
+					break
+				}
+			}
+			allFindings = append(allFindings, ConfigPoisoningFinding(p, line))
+		}
 	}
 
 	// Step 2a: Scope enforcement — warn or fail on oversized MRs.
@@ -551,7 +586,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				scopeAssessment != nil && scopeAssessment.IsOversized,
 				anyTruncated, r.mrDraft)
 			if decision.Approved {
-				if approver, ok := r.glClient.(vcs.VCSApprover); ok {
+				if approver, ok := r.glClient.(vcs.Approver); ok {
 					// Pin approval to the reviewed HEAD SHA to prevent
 					// approving unreviewed pushes that land between
 					// diff retrieval and approval.

@@ -752,8 +752,9 @@ func (c *Client) doRaw(ctx context.Context, method, url string) ([]byte, string,
 		}
 
 		linkHeader := resp.Header.Get("Link")
-		raw, err := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
+		const maxResponseBytes = 10 * 1024 * 1024 // 10MB limit
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		_ = resp.Body.Close() //nolint:errcheck
 		if err != nil {
 			return nil, "", fmt.Errorf("reading response: %w", err)
 		}
