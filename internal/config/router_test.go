@@ -89,7 +89,7 @@ func TestRuleLoader_Load(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer loader.Close()
+	defer loader.Close() //nolint:errcheck
 
 	content, err := loader.Load("rule.md")
 	if err != nil {
@@ -120,7 +120,7 @@ func TestRuleLoader_Load_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer loader.Close()
+	defer loader.Close() //nolint:errcheck
 
 	_, err = loader.Load("missing.md")
 	if err == nil {
@@ -140,7 +140,7 @@ func TestRuleLoader_BoundedRead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer loader.Close()
+	defer loader.Close() //nolint:errcheck
 
 	content, err := loader.Load("large.md")
 	if err != nil {
@@ -162,7 +162,7 @@ func TestRuleLoader_ConcurrentAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer loader.Close()
+	defer loader.Close() //nolint:errcheck
 
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {
