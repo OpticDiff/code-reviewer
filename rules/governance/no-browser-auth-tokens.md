@@ -1,8 +1,8 @@
 # no-browser-auth-tokens
 
 ## Focus
-Authentication tokens, JWTs, Macaroons, and API keys must NEVER be stored in the browser
-(localStorage, sessionStorage, cookies, or JavaScript memory variables).
+Authentication tokens, JWTs, Macaroons, and API keys must NEVER be stored in JavaScript-accessible browser storage
+(localStorage, sessionStorage, or JavaScript memory variables). Secure, HTTP-only cookies managed by the platform shell for session state are permitted.
 In AzraONE, the BFF (Backend-For-Frontend) holds all session state and upstream credentials.
 The browser communicates strictly via secure HTTP-only cookies managed by the platform shell.
 Direct token management, custom login forms, or storing tokens in browser storage violates

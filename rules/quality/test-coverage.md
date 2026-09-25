@@ -32,8 +32,8 @@ Flag test patterns including:
 - Modifying exported domain logic or critical business rules with zero corresponding test updates
 
 ## DO NOT Flag
-Benchmark tests (Benchmark* using b.N), Fuzz tests (Fuzz* relying on crashes),
-and Example tests (Example* relying on Output comments) are exempt from explicit assertions.
+`Benchmark*` tests (using `b.N`), `Fuzz*` tests (relying on crashes),
+and `Example*` tests (relying on `Output` comments) are exempt from explicit assertions.
 
 ## Severity
 Blocking
