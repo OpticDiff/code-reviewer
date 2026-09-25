@@ -134,15 +134,36 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Step 2.0: Config poisoning detection.
 	var poisonCheckPaths []string
 	for _, d := range diffs {
-		if d.NewPath != "" {
-			poisonCheckPaths = append(poisonCheckPaths, d.NewPath)
-		} else {
+		if d.OldPath != "" {
 			poisonCheckPaths = append(poisonCheckPaths, d.OldPath)
 		}
+		if d.NewPath != "" && d.NewPath != d.OldPath {
+			poisonCheckPaths = append(poisonCheckPaths, d.NewPath)
+		}
 	}
-	if DetectConfigPoisoning(poisonCheckPaths) {
+	if poisoned := DetectConfigPoisoning(poisonCheckPaths); len(poisoned) > 0 {
 		slog.Warn("Config file modified in this PR — review manually")
-		allFindings = append(allFindings, ConfigPoisoningFinding())
+		for _, p := range poisoned {
+			line := 1
+			// Anchor to first changed line so ValidateFindings doesn't drop it.
+			for _, d := range diffs {
+				if d.NewPath == p || d.OldPath == p {
+					for _, h := range d.Hunks {
+						for _, l := range h.Lines {
+							if l.NewLineNo > 0 {
+								line = l.NewLineNo
+								break
+							}
+						}
+						if line > 1 {
+							break
+						}
+					}
+					break
+				}
+			}
+			allFindings = append(allFindings, ConfigPoisoningFinding(p, line))
+		}
 	}
 
 	// Step 2a: Scope enforcement — warn or fail on oversized MRs.
