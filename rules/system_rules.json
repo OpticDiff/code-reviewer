@@ -1,0 +1,15 @@
+{
+  "default_rule": "languages/default.md",
+  "path_rule_map": {
+    "**/*.go": "languages/go.md",
+    "**/*.java": "languages/java.md",
+    "**/*.{py,pyi}": "languages/python.md",
+    "**/*.{ts,tsx,js,jsx,mjs,cjs}": "languages/typescript.md",
+    "**/*.proto": "languages/protobuf.md",
+    "**/migrations/*.sql": "languages/sql_migrations.md",
+    "**/*.{tf,tfvars}": "languages/terraform.md",
+    "**/*.nix": "languages/nix.md",
+    "**/Dockerfile*": "languages/dockerfile.md",
+    "**/*.{yaml,yml}": "languages/yaml_config.md"
+  }
+}

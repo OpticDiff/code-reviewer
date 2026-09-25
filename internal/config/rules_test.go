@@ -156,7 +156,7 @@ func TestValidateRules_Empty(t *testing.T) {
 }
 
 func TestFormatRulesPrompt_Empty(t *testing.T) {
-	if result := FormatRulesPrompt(nil); result != "" {
+	if result := FormatRulesPrompt(nil, nil); result != "" {
 		t.Errorf("expected empty string for nil rules, got %q", result)
 	}
 }
@@ -165,7 +165,7 @@ func TestFormatRulesPrompt_SingleRule(t *testing.T) {
 	rules := []Rule{
 		{Name: "no-raw-sql", Description: "Flag raw SQL concatenation", Category: "security", Severity: "critical"},
 	}
-	result := FormatRulesPrompt(rules)
+	result := FormatRulesPrompt(rules, nil)
 
 	if !strings.Contains(result, "## CUSTOM RULES") {
 		t.Error("expected CUSTOM RULES header")
@@ -188,7 +188,7 @@ func TestFormatRulesPrompt_WithPaths(t *testing.T) {
 	rules := []Rule{
 		{Name: "react-hooks", Description: "Check hooks rules", Paths: []string{"*.tsx", "*.jsx"}},
 	}
-	result := FormatRulesPrompt(rules)
+	result := FormatRulesPrompt(rules, nil)
 	if !strings.Contains(result, "**Applies to**: *.tsx, *.jsx") {
 		t.Error("expected paths in output")
 	}
@@ -198,7 +198,7 @@ func TestFormatRulesPrompt_DefaultCategoryAndSeverity(t *testing.T) {
 	rules := []Rule{
 		{Name: "my-rule", Description: "A custom check"},
 	}
-	result := FormatRulesPrompt(rules)
+	result := FormatRulesPrompt(rules, nil)
 	if !strings.Contains(result, "**Category**: custom") {
 		t.Error("expected default category 'custom'")
 	}
@@ -213,7 +213,7 @@ func TestFormatRulesPrompt_MultipleRules(t *testing.T) {
 		{Name: "r2", Description: "d2"},
 		{Name: "r3", Description: "d3"},
 	}
-	result := FormatRulesPrompt(rules)
+	result := FormatRulesPrompt(rules, nil)
 	if strings.Count(result, "### Rule:") != 3 {
 		t.Error("expected 3 rule sections")
 	}
