@@ -14,11 +14,18 @@ import (
 func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.Finding {
 	// Build a lookup: file -> set of valid new line numbers.
 	validLines := make(map[string]map[int]bool)
-	for _, d := range diffs {
+	parsedDiff := &ParsedDiff{
+		FileDiffs: make(map[string]*diff.FileDiff),
+		FullFiles: nil, // We don't have full files here currently.
+	}
+	for i := range diffs {
+		d := &diffs[i]
 		path := d.NewPath
 		if path == "" {
 			path = d.OldPath
 		}
+		parsedDiff.FileDiffs[path] = d
+
 		lines := make(map[int]bool)
 		for _, h := range d.Hunks {
 			for _, l := range h.Lines {
@@ -47,6 +54,14 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 				}
 			}
 			if !matched {
+				// Fall back to ResolvePosition before dropping
+				if pos := ResolvePosition(parsedDiff, f); pos != nil {
+					f.File = pos.File
+					f.Line = pos.Line
+					valid = append(valid, f)
+					continue
+				}
+
 				slog.Warn("dropping finding: file not in diff",
 					"file", f.File,
 					"title", f.Title,
@@ -63,6 +78,15 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 				valid = append(valid, f)
 				continue
 			}
+
+			// Fall back to ResolvePosition before dropping
+			if pos := ResolvePosition(parsedDiff, f); pos != nil {
+				f.File = pos.File
+				f.Line = pos.Line
+				valid = append(valid, f)
+				continue
+			}
+
 			slog.Warn("dropping finding: invalid line number",
 				"file", f.File,
 				"line", f.Line,

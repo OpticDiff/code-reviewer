@@ -34,12 +34,14 @@ type Finding struct {
 	Severity   string `json:"severity"`
 	Category   string `json:"category"`
 	Title      string `json:"title"`
-	Body       string `json:"body"`
-	Suggestion string `json:"suggestion,omitempty"`
-	RuleName   string `json:"rule_name,omitempty"`
-	RuleSource string `json:"rule_source,omitempty"` // "platform" or "repo"
-	RuleFile   string `json:"rule_file,omitempty"`   // e.g. "hipaa-phi.yaml"
-	RuleURL    string `json:"rule_url,omitempty"`    // documentation/runbook link
+	Body         string `json:"body"`
+	Suggestion   string `json:"suggestion,omitempty"`
+	CodeSnippet  string `json:"code_snippet,omitempty"`
+	ExistingCode string `json:"existing_code,omitempty"`
+	RuleName     string `json:"rule_name,omitempty"`
+	RuleSource   string `json:"rule_source,omitempty"` // "platform" or "repo"
+	RuleFile     string `json:"rule_file,omitempty"`   // e.g. "hipaa-phi.yaml"
+	RuleURL      string `json:"rule_url,omitempty"`    // documentation/runbook link
 }
 
 // Provider wraps the Vertex AI genai client for code review.
@@ -178,7 +180,11 @@ func extractText(result *genai.GenerateContentResponse) string {
 }
 
 func parseReviewJSON(text string) (*ReviewResult, error) {
-	cleaned := cleanJSONText(text)
+	repaired, _ := RepairJSON(text)
+	if !RepairedAcceptable(text, repaired) {
+		repaired = text
+	}
+	cleaned := cleanJSONText(repaired)
 
 	var result ReviewResult
 	if err := json.Unmarshal([]byte(cleaned), &result); err != nil {

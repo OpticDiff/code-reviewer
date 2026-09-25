@@ -34,6 +34,9 @@ type Rule struct {
 	// URL is an optional link to runbooks or documentation for this rule.
 	URL string `yaml:"url,omitempty"`
 
+	// Checklist is an optional path to a Markdown checklist file.
+	Checklist string `yaml:"checklist,omitempty"`
+
 	// AllowSuppression controls whether inline comment suppressions are honored.
 	// Defaults to true if nil.
 	AllowSuppression *bool `yaml:"allow_suppression,omitempty"`
@@ -133,7 +136,7 @@ func ValidateRules(rules []Rule) error {
 
 // FormatRulesPrompt formats custom rules into a prompt section for the AI model.
 // If platform rules are present, they are rendered under a distinct high-priority section.
-func FormatRulesPrompt(rules []Rule) string {
+func FormatRulesPrompt(rules []Rule, loader *RuleLoader) string {
 	if len(rules) == 0 {
 		return ""
 	}
@@ -155,7 +158,7 @@ func FormatRulesPrompt(rules []Rule) string {
 		sb.WriteString("When any of these rules is violated, you MUST report it with the specified category, severity, and include the exact rule name in the \"rule_name\" field of the finding.\n\n")
 
 		for _, r := range platformRules {
-			formatRuleEntry(&sb, r, true)
+			formatRuleEntry(&sb, r, true, loader)
 		}
 	}
 
@@ -168,14 +171,14 @@ func FormatRulesPrompt(rules []Rule) string {
 		sb.WriteString("When a rule is violated, use the specified category and severity, and include the rule name in the \"rule_name\" field.\n\n")
 
 		for _, r := range repoRules {
-			formatRuleEntry(&sb, r, false)
+			formatRuleEntry(&sb, r, false, loader)
 		}
 	}
 
 	return sb.String()
 }
 
-func formatRuleEntry(sb *strings.Builder, r Rule, isPlatform bool) {
+func formatRuleEntry(sb *strings.Builder, r Rule, isPlatform bool, loader *RuleLoader) {
 	if isPlatform {
 		fmt.Fprintf(sb, "### [Platform Mandate] %s\n", r.Name)
 	} else {
@@ -189,7 +192,15 @@ func formatRuleEntry(sb *strings.Builder, r Rule, isPlatform bool) {
 	if r.URL != "" {
 		fmt.Fprintf(sb, "- **Documentation**: %s\n", r.URL)
 	}
-	fmt.Fprintf(sb, "- **Rule**: %s\n\n", r.Description)
+	
+	description := r.Description
+	if r.Checklist != "" && loader != nil {
+		if content, err := loader.Load(r.Checklist); err == nil {
+			description += "\n\n" + content
+		}
+	}
+	
+	fmt.Fprintf(sb, "- **Rule**: %s\n\n", description)
 }
 
 // FilterRulesByPaths returns only rules that apply to the given file paths.
