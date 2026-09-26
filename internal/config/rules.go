@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/OpticDiff/code-reviewer/pkg/rules"
 )
 
 // Rule represents a single custom review rule defined in .code-reviewer.yaml.
@@ -136,13 +138,13 @@ func ValidateRules(rules []Rule) error {
 
 // FormatRulesPrompt formats custom rules into a prompt section for the AI model.
 // If platform rules are present, they are rendered under a distinct high-priority section.
-func FormatRulesPrompt(rules []Rule, loader *RuleLoader) string {
-	if len(rules) == 0 {
+func FormatRulesPrompt(customRules []Rule, loader *rules.RuleLoader) string {
+	if len(customRules) == 0 {
 		return ""
 	}
 
 	var platformRules, repoRules []Rule
-	for _, r := range rules {
+	for _, r := range customRules {
 		if r.Source == "platform" {
 			platformRules = append(platformRules, r)
 		} else {
@@ -178,7 +180,7 @@ func FormatRulesPrompt(rules []Rule, loader *RuleLoader) string {
 	return sb.String()
 }
 
-func formatRuleEntry(sb *strings.Builder, r Rule, isPlatform bool, loader *RuleLoader) {
+func formatRuleEntry(sb *strings.Builder, r Rule, isPlatform bool, loader *rules.RuleLoader) {
 	if isPlatform {
 		fmt.Fprintf(sb, "### [Platform Mandate] %s\n", r.Name)
 	} else {
