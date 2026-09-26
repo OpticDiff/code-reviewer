@@ -29,9 +29,9 @@ func TestLoadCases(t *testing.T) {
 		},
 	}
 	expectedBytes, _ := json.Marshal(expected)
-	os.WriteFile(filepath.Join(categoryDir, "expected.json"), expectedBytes, 0644)
+	os.WriteFile(filepath.Join(categoryDir, "expected.json"), expectedBytes, 0644) //nolint:errcheck
 
-	os.WriteFile(filepath.Join(categoryDir, "diff.patch"), []byte("--- a/main.go\n+++ b/main.go\n"), 0644)
+	os.WriteFile(filepath.Join(categoryDir, "diff.patch"), []byte("--- a/main.go\n+++ b/main.go\n"), 0644) //nolint:errcheck
 
 	cases, err := LoadCases(tmpDir)
 	if err != nil {

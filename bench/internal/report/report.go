@@ -10,6 +10,7 @@ import (
 	"github.com/OpticDiff/code-reviewer/bench/internal/scorer"
 )
 
+//nolint:errcheck // fmt.Fprintf errors to display writer are not actionable
 func PrintTable(w io.Writer, r *scorer.Report) {
 	fmt.Fprintf(w, "\nOVERALL RESULTS\n")
 	fmt.Fprintf(w, "===============\n")
@@ -51,6 +52,7 @@ func WriteJSON(w io.Writer, r *scorer.Report) error {
 	return enc.Encode(r)
 }
 
+//nolint:errcheck // fmt.Fprintf errors to display writer are not actionable
 func WriteMarkdown(w io.Writer, r *scorer.Report) error {
 	fmt.Fprintf(w, "# AACR-Bench Report\n\n")
 	
