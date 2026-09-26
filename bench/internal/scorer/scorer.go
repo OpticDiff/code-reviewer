@@ -2,6 +2,7 @@ package scorer
 
 import (
 	"math"
+	"strings"
 
 	"github.com/OpticDiff/code-reviewer/bench/internal/dataset"
 	"github.com/OpticDiff/code-reviewer/bench/internal/runner"
@@ -43,7 +44,7 @@ func BenchMatch(expected dataset.ExpectedFinding, actual model.Finding) bool {
 	if expected.File != actual.File {
 		return false
 	}
-	if expected.Category != "" && expected.Category != actual.Category {
+	if expected.Category != "" && !strings.EqualFold(expected.Category, actual.Category) {
 		return false
 	}
 	if math.Abs(float64(expected.Line-actual.Line)) > 5 {
@@ -56,7 +57,7 @@ func MatchFalsePositive(expected dataset.FalsePositive, actual model.Finding) bo
 	if expected.File != actual.File {
 		return false
 	}
-	if expected.Category != "" && expected.Category != actual.Category {
+	if expected.Category != "" && !strings.EqualFold(expected.Category, actual.Category) {
 		return false
 	}
 	if math.Abs(float64(expected.Line-actual.Line)) > 5 {
