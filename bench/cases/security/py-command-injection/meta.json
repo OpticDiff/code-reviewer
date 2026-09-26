@@ -1,0 +1,8 @@
+{
+  "language": "python",
+  "difficulty": "easy",
+  "tags": [
+    "command-injection",
+    "cwe-78"
+  ]
+}

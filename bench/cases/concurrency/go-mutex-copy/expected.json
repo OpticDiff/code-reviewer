@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "internal/cache/cache.go",
+      "line": 16,
+      "severity": "HIGH",
+      "category": "Concurrency",
+      "title": "Mutex Copied by Value",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

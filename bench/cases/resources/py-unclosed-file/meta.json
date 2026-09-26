@@ -1,0 +1,8 @@
+{
+  "language": "python",
+  "difficulty": "easy",
+  "tags": [
+    "resource-leak",
+    "cwe-772"
+  ]
+}

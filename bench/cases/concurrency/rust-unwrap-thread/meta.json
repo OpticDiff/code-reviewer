@@ -1,0 +1,7 @@
+{
+  "language": "rust",
+  "difficulty": "medium",
+  "tags": [
+    "thread-panic"
+  ]
+}

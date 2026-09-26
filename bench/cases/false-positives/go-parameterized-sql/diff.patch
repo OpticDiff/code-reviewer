@@ -1,0 +1,9 @@
+--- a/internal/db/users.go
++++ b/internal/db/users.go
+@@ -30,2 +30,8 @@
++func GetUserByEmail(db *sql.DB, email string) (*User, error) {
++    row := db.QueryRow("SELECT id, name, email FROM users WHERE email = $1", email)
++    var u User
++    err := row.Scan(&u.ID, &u.Name, &u.Email)
++    return &u, err
++}

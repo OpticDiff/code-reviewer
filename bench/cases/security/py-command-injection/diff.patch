@@ -1,0 +1,5 @@
+--- a/utils/sys.py
++++ b/utils/sys.py
+@@ -10,2 +10,3 @@
++def run_command(user_input):
++    subprocess.call(f"echo {user_input}", shell=True)

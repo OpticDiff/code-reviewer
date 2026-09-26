@@ -1,0 +1,13 @@
+{
+  "findings": [],
+  "false_positives": [
+    {
+      "file": "scripts/lint.py",
+      "line": 12,
+      "category": "Security",
+      "description": "Safe subprocess usage should not be flagged"
+    }
+  ],
+  "min_findings": 0,
+  "max_findings": 0
+}

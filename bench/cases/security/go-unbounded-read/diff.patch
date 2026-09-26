@@ -1,0 +1,9 @@
+--- a/internal/client/fetch.go
++++ b/internal/client/fetch.go
+@@ -30,2 +30,8 @@
++func fetchData(url string) ([]byte, error) {
++    resp, err := http.Get(url)
++    if err != nil { return nil, err }
++    defer resp.Body.Close() //nolint:errcheck
++    return io.ReadAll(resp.Body)
++}

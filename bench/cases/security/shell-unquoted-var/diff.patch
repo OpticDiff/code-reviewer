@@ -1,0 +1,6 @@
+--- a/scripts/clean.sh
++++ b/scripts/clean.sh
+@@ -1,2 +1,4 @@
++#!/bin/bash
++DIR=$1
++rm -rf $DIR

@@ -1,0 +1,7 @@
+--- a/config/parser.py
++++ b/config/parser.py
+@@ -5,2 +5,7 @@
++def read_config(path):
++    f = open(path, 'r')
++    data = json.load(f)
++    return data

@@ -1,0 +1,11 @@
+--- a/src/worker.rs
++++ b/src/worker.rs
+@@ -10,2 +10,10 @@
++fn process_files(paths: Vec<PathBuf>) {
++    for path in paths {
++        std::thread::spawn(move || {
++            let content = std::fs::read_to_string(&path).unwrap();
++            parse(content);
++        });
++    }
++}

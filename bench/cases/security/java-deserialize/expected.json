@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "src/main/java/com/example/Utils.java",
+      "line": 43,
+      "severity": "CRITICAL",
+      "category": "Security",
+      "title": "Unsafe Deserialization",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

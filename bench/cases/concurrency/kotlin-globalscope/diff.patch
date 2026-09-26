@@ -1,0 +1,9 @@
+--- a/src/main/kotlin/com/app/Main.kt
++++ b/src/main/kotlin/com/app/Main.kt
+@@ -20,2 +20,8 @@
++fun refreshData() {
++    GlobalScope.launch {
++        val data = api.fetchData()
++        updateUI(data)
++    }
++}

@@ -1,0 +1,13 @@
+{
+  "findings": [],
+  "false_positives": [
+    {
+      "file": "internal/cache/safe.go",
+      "line": 23,
+      "category": "Concurrency",
+      "description": "Safe mutex usage should not be flagged"
+    }
+  ],
+  "min_findings": 0,
+  "max_findings": 0
+}

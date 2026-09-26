@@ -1,0 +1,6 @@
+--- a/internal/config/save.go
++++ b/internal/config/save.go
+@@ -10,2 +10,5 @@
++func saveConfig(path string, data []byte) {
++    _ = os.WriteFile(path, data, 0644)
++}

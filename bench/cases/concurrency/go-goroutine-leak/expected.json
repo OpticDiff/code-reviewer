@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "internal/worker/pool.go",
+      "line": 52,
+      "severity": "MEDIUM",
+      "category": "Concurrency",
+      "title": "Goroutine Leak",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

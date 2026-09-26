@@ -1,0 +1,10 @@
+--- a/.github/workflows/greet.yml
++++ b/.github/workflows/greet.yml
+@@ -1,2 +1,8 @@
++name: Greet
++on: issues
++jobs:
++  greet:
++    runs-on: ubuntu-latest
++    steps:
++      - run: echo "Hello ${{ github.event.issue.title }}"

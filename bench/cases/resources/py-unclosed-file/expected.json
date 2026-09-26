@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "config/parser.py",
+      "line": 7,
+      "severity": "MEDIUM",
+      "category": "Resource Management",
+      "title": "File Not Closed",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

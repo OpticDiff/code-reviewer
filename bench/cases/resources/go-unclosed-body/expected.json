@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "internal/health/check.go",
+      "line": 18,
+      "severity": "HIGH",
+      "category": "Resource Management",
+      "title": "Response Body Not Closed",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}
