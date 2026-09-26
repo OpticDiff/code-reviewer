@@ -2,7 +2,11 @@
   "default_rule": "languages/default.md",
   "path_rule_map": {
     "**/*.go": "languages/go.md",
+    "**/*.{rs,toml}": "languages/rust.md",
     "**/*.java": "languages/java.md",
+    "**/*.{kt,kts}": "languages/kotlin.md",
+    "**/*.swift": "languages/swift.md",
+    "**/*.{c,h,cpp,cc,cxx,hpp,hxx}": "languages/c_cpp.md",
     "**/*.{py,pyi}": "languages/python.md",
     "**/*.{ts,tsx,js,jsx,mjs,cjs}": "languages/typescript.md",
     "**/*.proto": "languages/protobuf.md",
@@ -10,6 +14,9 @@
     "**/*.{tf,tfvars}": "languages/terraform.md",
     "**/*.nix": "languages/nix.md",
     "**/Dockerfile*": "languages/dockerfile.md",
+    "**/*.{sh,bash,zsh}": "languages/shell.md",
+    "**/.github/workflows/*.{yaml,yml}": "languages/github_workflows.md",
+    "**/*.md": "languages/markdown.md",
     "**/*.{yaml,yml}": "languages/yaml_config.md"
   }
 }
