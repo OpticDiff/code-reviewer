@@ -1,0 +1,7 @@
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -15,2 +15,6 @@
++pub fn parse_config(path: &str) -> Config {
++    let content = std::fs::read_to_string(path).unwrap();
++    serde_json::from_str(&content).unwrap()
++}

@@ -1,0 +1,8 @@
+--- a/internal/health/check.go
++++ b/internal/health/check.go
+@@ -15,2 +15,7 @@
++func checkHealth(url string) bool {
++    resp, err := http.Get(url)
++    if err != nil { return false }
++    return resp.StatusCode == 200
++}

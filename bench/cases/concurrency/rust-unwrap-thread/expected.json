@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "src/worker.rs",
+      "line": 14,
+      "severity": "HIGH",
+      "category": "Concurrency",
+      "title": "Unwrap in Spawned Thread",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

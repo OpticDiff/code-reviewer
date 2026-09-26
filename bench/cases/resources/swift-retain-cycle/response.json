@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for swift-retain-cycle",
+  "findings": [
+    {
+      "file": "App/NetworkManager.swift",
+      "line": 16,
+      "severity": "HIGH",
+      "category": "Resource Management",
+      "title": "Retain Cycle",
+      "body": "Replay finding for benchmark: Retain Cycle"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

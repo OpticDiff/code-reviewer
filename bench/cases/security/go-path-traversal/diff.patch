@@ -1,0 +1,8 @@
+--- a/internal/api/handlers.go
++++ b/internal/api/handlers.go
+@@ -20,3 +20,6 @@
++func ServeFile(w http.ResponseWriter, r *http.Request) {
++    filename := r.URL.Query().Get("file")
++    data, err := os.ReadFile("/data/" + filename)
++    w.Write(data)
++}

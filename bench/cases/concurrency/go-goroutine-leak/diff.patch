@@ -1,0 +1,10 @@
+--- a/internal/worker/pool.go
++++ b/internal/worker/pool.go
+@@ -50,2 +50,9 @@
++func startWorker(ch chan string) {
++    go func() {
++        for msg := range ch {
++            process(msg)
++        }
++    }()
++}

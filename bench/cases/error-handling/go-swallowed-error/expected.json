@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "internal/config/save.go",
+      "line": 12,
+      "severity": "MEDIUM",
+      "category": "Error Handling",
+      "title": "Swallowed Error",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

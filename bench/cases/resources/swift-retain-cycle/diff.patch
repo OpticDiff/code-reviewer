@@ -1,0 +1,13 @@
+--- a/App/NetworkManager.swift
++++ b/App/NetworkManager.swift
+@@ -10,2 +10,12 @@
++class NetworkManager {
++    var onComplete: (() -> Void)?
++    
++    func fetch() {
++        apiClient.request { 
++            self.onComplete?()
++            self.processResult()
++        }
++    }
++}

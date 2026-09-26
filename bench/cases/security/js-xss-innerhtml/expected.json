@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "components/UserBio.tsx",
+      "line": 7,
+      "severity": "HIGH",
+      "category": "Security",
+      "title": "Cross-Site Scripting (XSS)",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

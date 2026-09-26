@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "src/config.rs",
+      "line": 17,
+      "severity": "HIGH",
+      "category": "Error Handling",
+      "title": "Unwrap in Production Code",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

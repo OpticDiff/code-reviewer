@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for go-goroutine-leak",
+  "findings": [
+    {
+      "file": "internal/worker/pool.go",
+      "line": 52,
+      "severity": "MEDIUM",
+      "category": "Concurrency",
+      "title": "Goroutine Leak",
+      "body": "Replay finding for benchmark: Goroutine Leak"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

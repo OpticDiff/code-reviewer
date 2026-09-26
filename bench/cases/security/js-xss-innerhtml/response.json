@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for js-xss-innerhtml",
+  "findings": [
+    {
+      "file": "components/UserBio.tsx",
+      "line": 7,
+      "severity": "HIGH",
+      "category": "Security",
+      "title": "Cross-Site Scripting (XSS)",
+      "body": "Replay finding for benchmark: Cross-Site Scripting (XSS)"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

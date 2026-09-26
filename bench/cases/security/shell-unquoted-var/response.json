@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for shell-unquoted-var",
+  "findings": [
+    {
+      "file": "scripts/clean.sh",
+      "line": 4,
+      "severity": "HIGH",
+      "category": "Security",
+      "title": "Unquoted Variable",
+      "body": "Replay finding for benchmark: Unquoted Variable"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

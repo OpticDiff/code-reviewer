@@ -1,0 +1,8 @@
+{
+  "language": "rust",
+  "difficulty": "medium",
+  "tags": [
+    "unwrap",
+    "panic"
+  ]
+}

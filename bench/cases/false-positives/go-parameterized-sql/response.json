@@ -1,0 +1,10 @@
+{
+  "summary": "Replay response for go-parameterized-sql",
+  "findings": [],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

@@ -1,0 +1,6 @@
+--- a/scripts/lint.py
++++ b/scripts/lint.py
+@@ -10,2 +10,5 @@
++def run_lint(filename):
++    result = subprocess.run(["pylint", filename], capture_output=True)
++    return result.returncode == 0

@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for py-command-injection",
+  "findings": [
+    {
+      "file": "utils/sys.py",
+      "line": 12,
+      "severity": "CRITICAL",
+      "category": "Security",
+      "title": "Command Injection",
+      "body": "Replay finding for benchmark: Command Injection"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

@@ -1,0 +1,13 @@
+--- a/internal/db/queries.go
++++ b/internal/db/queries.go
+@@ -14,3 +14,9 @@ func GetUser(db *sql.DB, id string) (*User, error) {
++func SearchUsers(db *sql.DB, name string) ([]User, error) {
++    query := "SELECT * FROM users WHERE name = '" + name + "'"
++    rows, err := db.Query(query)
++    if err != nil {
++        return nil, err
++    }
++    defer rows.Close() //nolint:errcheck
++    // ... scan rows
++    return nil, nil
++}

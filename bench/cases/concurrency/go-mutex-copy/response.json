@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for go-mutex-copy",
+  "findings": [
+    {
+      "file": "internal/cache/cache.go",
+      "line": 16,
+      "severity": "HIGH",
+      "category": "Concurrency",
+      "title": "Mutex Copied by Value",
+      "body": "Replay finding for benchmark: Mutex Copied by Value"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

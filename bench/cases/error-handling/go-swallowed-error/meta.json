@@ -1,0 +1,8 @@
+{
+  "language": "go",
+  "difficulty": "easy",
+  "tags": [
+    "swallowed-error",
+    "cwe-391"
+  ]
+}

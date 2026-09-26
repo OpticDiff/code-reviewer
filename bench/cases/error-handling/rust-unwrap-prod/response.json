@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for rust-unwrap-prod",
+  "findings": [
+    {
+      "file": "src/config.rs",
+      "line": 17,
+      "severity": "HIGH",
+      "category": "Error Handling",
+      "title": "Unwrap in Production Code",
+      "body": "Replay finding for benchmark: Unwrap in Production Code"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

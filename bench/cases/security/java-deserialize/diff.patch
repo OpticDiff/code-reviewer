@@ -1,0 +1,7 @@
+--- a/src/main/java/com/example/Utils.java
++++ b/src/main/java/com/example/Utils.java
+@@ -40,2 +40,6 @@
++    public Object deserialize(InputStream input) throws Exception {
++        ObjectInputStream ois = new ObjectInputStream(input);
++        return ois.readObject();
++    }

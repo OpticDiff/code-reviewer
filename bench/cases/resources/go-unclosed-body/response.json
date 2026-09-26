@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for go-unclosed-body",
+  "findings": [
+    {
+      "file": "internal/health/check.go",
+      "line": 18,
+      "severity": "HIGH",
+      "category": "Resource Management",
+      "title": "Response Body Not Closed",
+      "body": "Replay finding for benchmark: Response Body Not Closed"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

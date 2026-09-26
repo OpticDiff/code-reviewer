@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "scripts/clean.sh",
+      "line": 4,
+      "severity": "HIGH",
+      "category": "Security",
+      "title": "Unquoted Variable",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}

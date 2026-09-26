@@ -1,0 +1,6 @@
+--- a/components/UserBio.tsx
++++ b/components/UserBio.tsx
+@@ -5,2 +5,5 @@
++function UserBio({ bio }: { bio: string }) {
++    return <div dangerouslySetInnerHTML={{ __html: bio }} />;
++}

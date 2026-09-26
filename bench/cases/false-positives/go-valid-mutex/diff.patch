@@ -1,0 +1,9 @@
+--- a/internal/cache/safe.go
++++ b/internal/cache/safe.go
+@@ -20,2 +20,8 @@
++func (c *Cache) Get(key string) (string, bool) {
++    c.mu.RLock()
++    defer c.mu.RUnlock()
++    val, ok := c.items[key]
++    return val, ok
++}

@@ -1,0 +1,12 @@
+--- a/internal/cache/cache.go
++++ b/internal/cache/cache.go
+@@ -10,2 +10,9 @@
++type Cache struct {
++    mu    sync.Mutex
++    items map[string]string
++}
++
++func process(c Cache) {
++    c.mu.Lock()
++    defer c.mu.Unlock()
++}

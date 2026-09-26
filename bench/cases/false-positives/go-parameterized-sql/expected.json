@@ -1,0 +1,13 @@
+{
+  "findings": [],
+  "false_positives": [
+    {
+      "file": "internal/db/users.go",
+      "line": 32,
+      "category": "Security",
+      "description": "Safe parameterized query should not be flagged"
+    }
+  ],
+  "min_findings": 0,
+  "max_findings": 0
+}

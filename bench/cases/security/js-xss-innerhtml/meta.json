@@ -1,0 +1,8 @@
+{
+  "language": "typescript",
+  "difficulty": "easy",
+  "tags": [
+    "xss",
+    "cwe-79"
+  ]
+}

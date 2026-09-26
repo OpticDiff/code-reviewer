@@ -1,0 +1,15 @@
+{
+  "findings": [
+    {
+      "file": "App/NetworkManager.swift",
+      "line": 16,
+      "severity": "HIGH",
+      "category": "Resource Management",
+      "title": "Retain Cycle",
+      "must_match": true
+    }
+  ],
+  "false_positives": [],
+  "min_findings": 1,
+  "max_findings": 3
+}
