@@ -52,20 +52,26 @@ func WriteJSON(w io.Writer, r *scorer.Report) error {
 	return enc.Encode(r)
 }
 
-//nolint:errcheck // fmt.Fprintf errors to display writer are not actionable
 func WriteMarkdown(w io.Writer, r *scorer.Report) error {
-	fmt.Fprintf(w, "# AACR-Bench Report\n\n")
-	
-	fmt.Fprintf(w, "## Overall Metrics\n\n")
-	fmt.Fprintf(w, "| Metric | Value |\n")
-	fmt.Fprintf(w, "|--------|-------|\n")
-	fmt.Fprintf(w, "| True Positives | %d |\n", r.Overall.TruePositives)
-	fmt.Fprintf(w, "| False Negatives | %d |\n", r.Overall.FalseNegatives)
-	fmt.Fprintf(w, "| False Positives | %d |\n", r.Overall.FalsePositives)
-	fmt.Fprintf(w, "| Noise | %d |\n", r.Overall.Noise)
-	fmt.Fprintf(w, "| **Precision** | **%.2f** |\n", r.Overall.Precision)
-	fmt.Fprintf(w, "| **Recall** | **%.2f** |\n", r.Overall.Recall)
-	fmt.Fprintf(w, "| **F1 Score** | **%.2f** |\n\n", r.Overall.F1)
+	var err error
+	write := func(format string, args ...any) {
+		if err != nil {
+			return
+		}
+		_, err = fmt.Fprintf(w, format, args...)
+	}
+
+	write("# AACR-Bench Report\n\n")
+	write("## Overall Metrics\n\n")
+	write("| Metric | Value |\n")
+	write("|--------|-------|\n")
+	write("| True Positives | %d |\n", r.Overall.TruePositives)
+	write("| False Negatives | %d |\n", r.Overall.FalseNegatives)
+	write("| False Positives | %d |\n", r.Overall.FalsePositives)
+	write("| Noise | %d |\n", r.Overall.Noise)
+	write("| **Precision** | **%.2f** |\n", r.Overall.Precision)
+	write("| **Recall** | **%.2f** |\n", r.Overall.Recall)
+	write("| **F1 Score** | **%.2f** |\n\n", r.Overall.F1)
 
 	var categories []string
 	for cat := range r.ByCategory {
@@ -74,17 +80,17 @@ func WriteMarkdown(w io.Writer, r *scorer.Report) error {
 	sort.Strings(categories)
 
 	if len(categories) > 0 {
-		fmt.Fprintf(w, "## By Category\n\n")
-		fmt.Fprintf(w, "| Category | Precision | Recall | F1 Score | TP | FN | FP | Noise |\n")
-		fmt.Fprintf(w, "|----------|-----------|--------|----------|---|---|---|---|\n")
+		write("## By Category\n\n")
+		write("| Category | Precision | Recall | F1 Score | TP | FN | FP | Noise |\n")
+		write("|----------|-----------|--------|----------|---|---|---|---|\n")
 		for _, cat := range categories {
 			score := r.ByCategory[cat]
-			fmt.Fprintf(w, "| %s | %.2f | %.2f | %.2f | %d | %d | %d | %d |\n",
+			write("| %s | %.2f | %.2f | %.2f | %d | %d | %d | %d |\n",
 				cat, score.Precision, score.Recall, score.F1,
 				score.TruePositives, score.FalseNegatives, score.FalsePositives, score.Noise)
 		}
-		fmt.Fprintf(w, "\n")
+		write("\n")
 	}
 
-	return nil
+	return err
 }

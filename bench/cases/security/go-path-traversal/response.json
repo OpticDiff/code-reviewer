@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for go-path-traversal",
+  "findings": [
+    {
+      "file": "internal/api/handlers.go",
+      "line": 23,
+      "severity": "CRITICAL",
+      "category": "Security",
+      "title": "Path Traversal",
+      "body": "Replay finding for benchmark: Path Traversal"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

@@ -87,17 +87,22 @@ func (r *Runner) RunCase(ctx context.Context, c dataset.Case) (*CaseResult, erro
 
 	if r.mode == ModeReplay {
 		result, err = loadReplayResponse(c.Dir)
+		if err != nil {
+			return nil, fmt.Errorf("replay %s: %w", c.Name, err)
+		}
 	} else {
+		if r.provider == nil {
+			return nil, fmt.Errorf("live mode requires a model provider (use WithProvider)")
+		}
 		sysPrompt := buildBenchSystemPrompt(c, r.config)
 		userPrompt := buildBenchUserPrompt(c)
 		result, err = r.provider.Review(ctx, sysPrompt, userPrompt)
+		if err != nil {
+			return &CaseResult{Case: c, Error: err, Duration: time.Since(start)}, nil
+		}
 	}
 
 	duration := time.Since(start)
-
-	if err != nil {
-		return &CaseResult{Case: c, Error: err, Duration: duration}, nil
-	}
 
 	return &CaseResult{
 		Case:           c,

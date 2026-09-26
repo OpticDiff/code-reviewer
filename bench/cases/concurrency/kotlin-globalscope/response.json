@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for kotlin-globalscope",
+  "findings": [
+    {
+      "file": "src/main/kotlin/com/app/Main.kt",
+      "line": 22,
+      "severity": "MEDIUM",
+      "category": "Concurrency",
+      "title": "Unstructured Concurrency",
+      "body": "Replay finding for benchmark: Unstructured Concurrency"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

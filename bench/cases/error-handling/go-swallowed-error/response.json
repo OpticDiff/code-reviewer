@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for go-swallowed-error",
+  "findings": [
+    {
+      "file": "internal/config/save.go",
+      "line": 12,
+      "severity": "MEDIUM",
+      "category": "Error Handling",
+      "title": "Swallowed Error",
+      "body": "Replay finding for benchmark: Swallowed Error"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

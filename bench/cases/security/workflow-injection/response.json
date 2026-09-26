@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for workflow-injection",
+  "findings": [
+    {
+      "file": ".github/workflows/greet.yml",
+      "line": 8,
+      "severity": "CRITICAL",
+      "category": "Security",
+      "title": "Expression Injection",
+      "body": "Replay finding for benchmark: Expression Injection"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

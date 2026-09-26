@@ -23,6 +23,12 @@ type Report struct {
 	ByLanguage map[string]Score
 	ByCategory map[string]Score
 	Cases      []CaseScore
+	Errored    []ErroredCase
+}
+
+type ErroredCase struct {
+	CaseName string
+	Error    string
 }
 
 type CaseScore struct {
@@ -118,6 +124,13 @@ func ScoreResults(results []runner.CaseResult) *Report {
 	}
 
 	for _, res := range results {
+		if res.Error != nil {
+			report.Errored = append(report.Errored, ErroredCase{
+				CaseName: res.Case.Name,
+				Error:    res.Error.Error(),
+			})
+			continue
+		}
 		cScore := ScoreCase(res)
 		report.Cases = append(report.Cases, cScore)
 		report.Overall = addScores(report.Overall, cScore.Score)

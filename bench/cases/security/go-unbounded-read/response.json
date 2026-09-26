@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for go-unbounded-read",
+  "findings": [
+    {
+      "file": "internal/client/fetch.go",
+      "line": 35,
+      "severity": "HIGH",
+      "category": "Security",
+      "title": "Unbounded Read",
+      "body": "Replay finding for benchmark: Unbounded Read"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

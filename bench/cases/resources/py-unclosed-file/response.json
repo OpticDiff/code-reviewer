@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for py-unclosed-file",
+  "findings": [
+    {
+      "file": "config/parser.py",
+      "line": 7,
+      "severity": "MEDIUM",
+      "category": "Resource Management",
+      "title": "File Not Closed",
+      "body": "Replay finding for benchmark: File Not Closed"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}

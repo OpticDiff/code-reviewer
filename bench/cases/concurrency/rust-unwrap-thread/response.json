@@ -1,0 +1,19 @@
+{
+  "summary": "Replay response for rust-unwrap-thread",
+  "findings": [
+    {
+      "file": "src/worker.rs",
+      "line": 14,
+      "severity": "HIGH",
+      "category": "Concurrency",
+      "title": "Unwrap in Spawned Thread",
+      "body": "Replay finding for benchmark: Unwrap in Spawned Thread"
+    }
+  ],
+  "usage": {
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150
+  },
+  "truncated": false
+}
