@@ -21,7 +21,7 @@ func TestLoadCases(t *testing.T) {
 		Tags:       []string{"sql-injection"},
 	}
 	metaBytes, _ := json.Marshal(meta)
-	os.WriteFile(filepath.Join(categoryDir, "meta.json"), metaBytes, 0644)
+	os.WriteFile(filepath.Join(categoryDir, "meta.json"), metaBytes, 0644) //nolint:errcheck
 
 	expected := ExpectedResult{
 		Findings: []ExpectedFinding{

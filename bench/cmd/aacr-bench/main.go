@@ -28,7 +28,10 @@ func main() {
 		output := runCmd.String("output", "table", "Output format: table, json, markdown")
 		// model, category, language args would be added here
 
-		runCmd.Parse(os.Args[2:])
+		if err := runCmd.Parse(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+			os.Exit(1)
+		}
 
 		rMode := runner.ModeReplay
 		if *mode == "live" {
@@ -54,9 +57,15 @@ func main() {
 
 		switch *output {
 		case "json":
-			report.WriteJSON(os.Stdout, reportData)
+			if err := report.WriteJSON(os.Stdout, reportData); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing JSON: %v\n", err)
+				os.Exit(1)
+			}
 		case "markdown":
-			report.WriteMarkdown(os.Stdout, reportData)
+			if err := report.WriteMarkdown(os.Stdout, reportData); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing markdown: %v\n", err)
+				os.Exit(1)
+			}
 		case "table", "":
 			report.PrintTable(os.Stdout, reportData)
 		default:
