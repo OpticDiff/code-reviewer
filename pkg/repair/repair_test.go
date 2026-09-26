@@ -1,4 +1,4 @@
-package model
+package repair
 
 import (
 	"testing"

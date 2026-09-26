@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/retry"
+	"github.com/OpticDiff/code-reviewer/pkg/repair"
 	"google.golang.org/genai"
 )
 
@@ -180,8 +181,8 @@ func extractText(result *genai.GenerateContentResponse) string {
 }
 
 func parseReviewJSON(text string) (*ReviewResult, error) {
-	repaired, _ := RepairJSON(text)
-	if !RepairedAcceptable(text, repaired) {
+	repaired, _ := repair.RepairJSON(text)
+	if !repair.RepairedAcceptable(text, repaired) {
 		repaired = text
 	}
 	cleaned := cleanJSONText(repaired)
