@@ -22,10 +22,13 @@ const (
 )
 
 type Runner struct {
-	casesDir string
-	provider reviewer.ModelReviewer
-	config   *config.Config
-	mode     Mode
+	casesDir  string
+	provider  reviewer.ModelReviewer
+	config    *config.Config
+	mode      Mode
+	recordDir string
+	language  string
+	category  string
 }
 
 type CaseResult struct {
@@ -51,6 +54,24 @@ func WithConfig(cfg *config.Config) Option {
 	}
 }
 
+func WithRecordDir(dir string) Option {
+	return func(r *Runner) {
+		r.recordDir = dir
+	}
+}
+
+func WithLanguage(lang string) Option {
+	return func(r *Runner) {
+		r.language = lang
+	}
+}
+
+func WithCategory(cat string) Option {
+	return func(r *Runner) {
+		r.category = cat
+	}
+}
+
 func New(casesDir string, mode Mode, opts ...Option) *Runner {
 	r := &Runner{
 		casesDir: casesDir,
@@ -67,6 +88,8 @@ func (r *Runner) RunAll(ctx context.Context) ([]CaseResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading cases: %w", err)
 	}
+
+	cases = dataset.FilterCases(cases, r.language, r.category)
 
 	var results []CaseResult
 	for _, c := range cases {
@@ -99,6 +122,11 @@ func (r *Runner) RunCase(ctx context.Context, c dataset.Case) (*CaseResult, erro
 		result, err = r.provider.Review(ctx, sysPrompt, userPrompt)
 		if err != nil {
 			return &CaseResult{Case: c, Error: err, Duration: time.Since(start)}, nil
+		}
+
+		if r.recordDir != "" && r.mode == ModeLive {
+			responseBytes, _ := json.MarshalIndent(result, "", "  ")
+			os.WriteFile(filepath.Join(c.Dir, "response.json"), responseBytes, 0644) //nolint:errcheck
 		}
 	}
 
