@@ -45,37 +45,45 @@ func NewMultiProviderFromReviewers(providers []ReviewProvider, threshold int) *M
 // as long as at least threshold providers succeeded.
 func (m *MultiProvider) Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error) {
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-
-	successfulResults := make([]*ReviewResult, 0, len(m.providers))
-	var errs []error
+	results := make([]*ReviewResult, len(m.providers))
+	errs := make([]error, len(m.providers))
 
 	for i, p := range m.providers {
 		wg.Add(1)
 		go func(idx int, prov ReviewProvider) {
 			defer wg.Done()
 			result, err := prov.Review(ctx, systemPrompt, userPrompt)
-			mu.Lock()
-			defer mu.Unlock()
 			if err != nil {
-				errs = append(errs, fmt.Errorf("model provider %d: %w", idx, err))
+				errs[idx] = fmt.Errorf("model provider %d: %w", idx, err)
 			} else {
-				successfulResults = append(successfulResults, result)
+				results[idx] = result
 			}
 		}(i, p)
 	}
 
 	wg.Wait()
 
-	if len(successfulResults) < m.threshold {
-		return nil, fmt.Errorf("consensus threshold not met (%d/%d successful, needed %d): %w",
-			len(successfulResults), len(m.providers), m.threshold, errors.Join(errs...))
+	// Collect successful results in provider order for deterministic merging.
+	successfulResults := make([]*ReviewResult, 0, len(m.providers))
+	var collectedErrs []error
+	for i := range m.providers {
+		if results[i] != nil {
+			successfulResults = append(successfulResults, results[i])
+		}
+		if errs[i] != nil {
+			collectedErrs = append(collectedErrs, errs[i])
+		}
 	}
 
-	if len(errs) > 0 {
+	if len(successfulResults) < m.threshold {
+		return nil, fmt.Errorf("consensus threshold not met (%d/%d successful, needed %d): %w",
+			len(successfulResults), len(m.providers), m.threshold, errors.Join(collectedErrs...))
+	}
+
+	if len(collectedErrs) > 0 {
 		slog.Warn("some consensus providers failed, proceeding with successful models",
 			"successful", len(successfulResults),
-			"failed", len(errs),
+			"failed", len(collectedErrs),
 			"threshold", m.threshold)
 	}
 

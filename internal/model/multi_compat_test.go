@@ -5,6 +5,7 @@ package model
 
 import (
 	"context"
+	"fmt"
 
 	pkgmodel "github.com/OpticDiff/code-reviewer/pkg/model"
 )
@@ -17,8 +18,6 @@ var findingsMatch = pkgmodel.FindingsMatch
 // threshold is not capped below the requested value.
 func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
 	// Build enough providers so the threshold won't be capped.
-	// Real providers return their result; padding providers return nil results
-	// (which mergeResults in pkg/model skips).
 	n := len(results)
 	if threshold > n {
 		n = threshold
@@ -33,7 +32,11 @@ func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
 		}
 	}
 	mp := pkgmodel.NewMultiProviderFromReviewers(providers, threshold)
-	result, _ := mp.Review(context.Background(), "", "") //nolint:errcheck
+	result, err := mp.Review(context.Background(), "", "")
+	if err != nil {
+		// Threshold not met — return empty result like the original mergeResults.
+		return &ReviewResult{}
+	}
 	return result
 }
 
@@ -42,6 +45,9 @@ type cannedProvider struct {
 }
 
 func (c *cannedProvider) Review(_ context.Context, _, _ string) (*ReviewResult, error) {
+	if c.result == nil {
+		return nil, fmt.Errorf("nil result provider")
+	}
 	return c.result, nil
 }
 
