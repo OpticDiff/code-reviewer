@@ -190,6 +190,11 @@ type Config struct {
 	// Budget.
 	MaxTokens int // Maximum total tokens per review (0 = unlimited).
 
+	// Agent refinement loop.
+	AgentLoop          bool          // Enable agent refinement loop.
+	AgentMaxIterations int           // Max refinement iterations (default 3).
+	AgentTimeout       time.Duration // Wall-clock timeout for agent loop (default 3m).
+
 	// Scope enforcement.
 	MaxFiles    int
 	ScopeAction string
@@ -261,6 +266,9 @@ type repoConfig struct {
 	Rules                    []Rule   `yaml:"rules"`
 	PlatformConfig           string   `yaml:"platform_config"`
 	PlatformReviewMD         string   `yaml:"platform_review_md"`
+	AgentLoop                *bool    `yaml:"agent_loop"`
+	AgentMaxIterations       int      `yaml:"agent_max_iterations"`
+	AgentTimeout             string   `yaml:"agent_timeout"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -286,11 +294,13 @@ func Load() (*Config, error) {
 		ChunkStrategy:    ChunkStrategyFail,
 		GitLabBaseURL:    "https://gitlab.com",
 		GitHubBaseURL:    "https://api.github.com",
-		SkipDraftMRs:     true,
-		ExcludedPatterns: DefaultExcludedPatterns,
-		ReReviewTriggers: []string{"[re-review]", "[full-review]"},
-		ScopeAction:      "warn",
-		CacheMaxAge:      7 * 24 * time.Hour,
+		SkipDraftMRs:       true,
+		ExcludedPatterns:   DefaultExcludedPatterns,
+		ReReviewTriggers:   []string{"[re-review]", "[full-review]"},
+		ScopeAction:        "warn",
+		CacheMaxAge:        7 * 24 * time.Hour,
+		AgentMaxIterations: 3,
+		AgentTimeout:       3 * time.Minute,
 	}
 
 	// Pre-detect profile from CLI args and env so we can gate config loading.
@@ -550,6 +560,19 @@ func (c *Config) applyRepoConfig(data []byte) error {
 		c.PlatformReviewMD = rc.PlatformReviewMD
 		c.PlatformAutoDiscovered = true
 	}
+	if rc.AgentLoop != nil {
+		c.AgentLoop = *rc.AgentLoop
+	}
+	if rc.AgentMaxIterations > 0 {
+		c.AgentMaxIterations = rc.AgentMaxIterations
+	}
+	if rc.AgentTimeout != "" {
+		d, err := time.ParseDuration(rc.AgentTimeout)
+		if err != nil {
+			return fmt.Errorf("invalid agent_timeout: %w", err)
+		}
+		c.AgentTimeout = d
+	}
 	return nil
 }
 
@@ -764,6 +787,10 @@ func (c *Config) loadFlags() error {
 	productModel := fs.String("product-model", "", "Model override when --profile=product")
 	platformVisibility := fs.String("platform-visibility", "", "Platform findings visibility: public (default) or security-team-only")
 
+	agent := fs.Bool("agent", false, "Enable agent refinement loop")
+	agentIterations := fs.Int("agent-iterations", 3, "Max agent refinement iterations")
+	agentTimeout := fs.Duration("agent-timeout", 3*time.Minute, "Agent loop timeout")
+
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
 	}
@@ -920,6 +947,24 @@ func (c *Config) loadFlags() error {
 	}
 	if *platformVisibility != "" {
 		c.PlatformVisibility = *platformVisibility
+	}
+	// Agent flags: apply only when explicitly set, so YAML defaults survive.
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "agent":
+			c.AgentLoop = *agent
+		case "agent-iterations":
+			c.AgentMaxIterations = *agentIterations
+		case "agent-timeout":
+			c.AgentTimeout = *agentTimeout
+		}
+	})
+	// Apply agent defaults if not set by either flag or YAML.
+	if c.AgentMaxIterations == 0 {
+		c.AgentMaxIterations = 3
+	}
+	if c.AgentTimeout == 0 {
+		c.AgentTimeout = 3 * time.Minute
 	}
 	return nil
 }

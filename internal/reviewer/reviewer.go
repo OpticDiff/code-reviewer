@@ -31,6 +31,7 @@ type DiffSource interface {
 type Reviewer struct {
 	cfg                  *config.Config
 	provider             ModelReviewer
+	chatter              Chatter // Optional: multi-turn chat for agent loop.
 	glClient             vcs.VCSProvider
 	diffSource           DiffSource
 	contextProvider      ctxpkg.Provider
@@ -70,6 +71,12 @@ func NewWithDiffSource(cfg *config.Config, provider ModelReviewer, glClient vcs.
 		diffSource: ds,
 		cache:      initCache(cfg),
 	}
+}
+
+// SetChatter sets the multi-turn chat provider for agent loop support.
+// If not set, the agent loop is skipped even when --agent is enabled.
+func (r *Reviewer) SetChatter(c Chatter) {
+	r.chatter = c
 }
 
 // Run executes the full review pipeline and returns the number of findings.
@@ -464,6 +471,47 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	preDedupCount := len(allFindings)
 	allFindings = DeduplicateFindings(allFindings)
 	dedupedCount = preDedupCount - len(allFindings)
+
+	// Step 5b½: Agent refinement loop (if enabled).
+	if r.cfg.AgentLoop && r.chatter != nil && len(allFindings) > 0 {
+		// Sub-allocate budget: remaining = global max - already used (from perf review).
+		remainingBudget := int64(50000) // default
+		if r.cfg.MaxTokens > 0 {
+			remainingBudget = int64(r.cfg.MaxTokens) - totalUsage.TotalTokens
+			if remainingBudget <= 0 {
+				slog.Info("agent loop: skipped, no budget remaining")
+				goto skipAgent
+			}
+		}
+		{
+			agentCfg := AgentConfig{
+				MaxIterations:   r.cfg.AgentMaxIterations,
+				RemainingBudget: remainingBudget,
+				Timeout:         r.cfg.AgentTimeout,
+				RepoRoot:        findRepoRoot(),
+			}
+			agentResult, err := RunAgentLoop(ctx, r.chatter, agentCfg, allFindings)
+			// Always aggregate usage, even on error (agent preserves accumulated tokens).
+			if agentResult != nil {
+				totalUsage.InputTokens += agentResult.Usage.InputTokens
+				totalUsage.OutputTokens += agentResult.Usage.OutputTokens
+				totalUsage.TotalTokens += agentResult.Usage.TotalTokens
+			}
+			if err != nil {
+				slog.Warn("agent loop failed, using initial findings", "error", err)
+			} else {
+				slog.Info("agent loop completed",
+					"iterations", agentResult.Iterations,
+					"stop_reason", agentResult.StopReason,
+					"tools_used", agentResult.ToolCalls,
+					"findings_before", len(allFindings),
+					"findings_after", len(agentResult.Findings),
+				)
+				allFindings = agentResult.Findings
+			}
+		}
+	}
+skipAgent:
 
 	// Step 5c: Store fresh findings in cache.
 	if r.cache != nil && cacheKeys != nil {
