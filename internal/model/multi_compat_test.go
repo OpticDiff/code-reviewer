@@ -5,7 +5,6 @@ package model
 
 import (
 	"context"
-	"fmt"
 
 	pkgmodel "github.com/OpticDiff/code-reviewer/pkg/model"
 )
@@ -46,7 +45,7 @@ type cannedProvider struct {
 
 func (c *cannedProvider) Review(_ context.Context, _, _ string) (*ReviewResult, error) {
 	if c.result == nil {
-		return nil, fmt.Errorf("nil result provider")
+		return &ReviewResult{}, nil
 	}
 	return c.result, nil
 }

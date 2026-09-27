@@ -64,25 +64,30 @@ func (m *MultiProvider) Review(ctx context.Context, systemPrompt, userPrompt str
 	wg.Wait()
 
 	// Collect successful results in provider order for deterministic merging.
+	// Count success by errs[i]==nil (not results[i]!=nil) to handle providers
+	// that return (nil, nil).
 	successfulResults := make([]*ReviewResult, 0, len(m.providers))
 	var collectedErrs []error
+	successCount := 0
 	for i := range m.providers {
-		if results[i] != nil {
-			successfulResults = append(successfulResults, results[i])
-		}
-		if errs[i] != nil {
+		if errs[i] == nil {
+			successCount++
+			if results[i] != nil {
+				successfulResults = append(successfulResults, results[i])
+			}
+		} else {
 			collectedErrs = append(collectedErrs, errs[i])
 		}
 	}
 
-	if len(successfulResults) < m.threshold {
+	if successCount < m.threshold {
 		return nil, fmt.Errorf("consensus threshold not met (%d/%d successful, needed %d): %w",
-			len(successfulResults), len(m.providers), m.threshold, errors.Join(collectedErrs...))
+			successCount, len(m.providers), m.threshold, errors.Join(collectedErrs...))
 	}
 
 	if len(collectedErrs) > 0 {
 		slog.Warn("some consensus providers failed, proceeding with successful models",
-			"successful", len(successfulResults),
+			"successful", successCount,
 			"failed", len(collectedErrs),
 			"threshold", m.threshold)
 	}
