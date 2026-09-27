@@ -1,0 +1,180 @@
+package model
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+)
+
+// ReviewProvider is a single model that can review code.
+type ReviewProvider interface {
+	Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error)
+	Close()
+}
+
+// MultiProvider runs multiple models in parallel and deduplicates findings
+// using a consensus threshold. Only findings that appear in >= threshold
+// model results are kept, reducing false positives.
+type MultiProvider struct {
+	providers []ReviewProvider
+	threshold int
+}
+
+// NewMultiProviderFromReviewers creates a MultiProvider from pre-built
+// ReviewProvider instances. Useful for testing and for consumers that
+// construct providers externally.
+func NewMultiProviderFromReviewers(providers []ReviewProvider, threshold int) *MultiProvider {
+	if threshold < 1 {
+		threshold = 1
+	}
+	if len(providers) > 0 && threshold > len(providers) {
+		threshold = len(providers)
+	}
+	return &MultiProvider{
+		providers: providers,
+		threshold: threshold,
+	}
+}
+
+// Review runs all models concurrently, collects findings, deduplicates them
+// by file+line proximity+category, and returns only findings that meet the
+// consensus threshold. If individual providers fail, the review succeeds
+// as long as at least threshold providers succeeded.
+func (m *MultiProvider) Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error) {
+	var wg sync.WaitGroup
+	results := make([]*ReviewResult, len(m.providers))
+	errs := make([]error, len(m.providers))
+
+	for i, p := range m.providers {
+		wg.Add(1)
+		go func(idx int, prov ReviewProvider) {
+			defer wg.Done()
+			result, err := prov.Review(ctx, systemPrompt, userPrompt)
+			if err != nil {
+				errs[idx] = fmt.Errorf("model provider %d: %w", idx, err)
+			} else {
+				results[idx] = result
+			}
+		}(i, p)
+	}
+
+	wg.Wait()
+
+	// Collect successful results in provider order for deterministic merging.
+	// Count success by errs[i]==nil (not results[i]!=nil) to handle providers
+	// that return (nil, nil).
+	successfulResults := make([]*ReviewResult, 0, len(m.providers))
+	var collectedErrs []error
+	successCount := 0
+	for i := range m.providers {
+		if errs[i] == nil {
+			successCount++
+			if results[i] != nil {
+				successfulResults = append(successfulResults, results[i])
+			}
+		} else {
+			collectedErrs = append(collectedErrs, errs[i])
+		}
+	}
+
+	if successCount < m.threshold {
+		return nil, fmt.Errorf("consensus threshold not met (%d/%d successful, needed %d): %w",
+			successCount, len(m.providers), m.threshold, errors.Join(collectedErrs...))
+	}
+
+	if len(collectedErrs) > 0 {
+		slog.Warn("some consensus providers failed, proceeding with successful models",
+			"successful", successCount,
+			"failed", len(collectedErrs),
+			"threshold", m.threshold)
+	}
+
+	return mergeResults(successfulResults, m.threshold), nil
+}
+
+// Close releases resources for all providers.
+func (m *MultiProvider) Close() {
+	for _, p := range m.providers {
+		p.Close()
+	}
+}
+
+// mergeResults deduplicates findings across model results and applies the
+// consensus threshold.
+func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
+	type findingGroup struct {
+		anchor    Finding // Fixed comparison point — never changes after group creation.
+		canonical Finding // Best finding to display (longest body).
+		count     int
+	}
+
+	var groups []*findingGroup
+
+	for _, r := range results {
+		if r == nil {
+			continue
+		}
+		for _, f := range r.Findings {
+			// Check if we have an existing group this finding matches.
+			matched := false
+			for _, g := range groups {
+				if FindingsMatch(f, g.anchor) {
+					g.count++
+					// Keep the finding with the longest body as canonical.
+					if len(f.Body) > len(g.canonical.Body) {
+						g.canonical = f
+					}
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				groups = append(groups, &findingGroup{
+					anchor:    f,
+					canonical: f,
+					count:     1,
+				})
+			}
+		}
+	}
+
+	// Apply threshold filter.
+	var findings []Finding
+	for _, g := range groups {
+		if g.count >= threshold {
+			findings = append(findings, g.canonical)
+		}
+	}
+
+	// Merge summaries (deduplicated).
+	var summaries []string
+	seen := make(map[string]bool)
+	for _, r := range results {
+		if r != nil && r.Summary != "" && !seen[r.Summary] {
+			summaries = append(summaries, r.Summary)
+			seen[r.Summary] = true
+		}
+	}
+
+	// Aggregate token usage across all models.
+	var totalUsage TokenUsage
+	for _, r := range results {
+		if r != nil && r.Usage != nil {
+			totalUsage.InputTokens += r.Usage.InputTokens
+			totalUsage.OutputTokens += r.Usage.OutputTokens
+			totalUsage.TotalTokens += r.Usage.TotalTokens
+		}
+	}
+
+	merged := &ReviewResult{
+		Summary:  strings.Join(summaries, " "),
+		Findings: findings,
+	}
+	if totalUsage.TotalTokens > 0 {
+		merged.Usage = &totalUsage
+	}
+	return merged
+}
