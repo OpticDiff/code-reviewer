@@ -296,11 +296,17 @@ func TestMultiProviderReview_ResilientToNonFatalFailure(t *testing.T) {
 }
 
 func TestNewMultiProviderFromReviewers_CappedThreshold(t *testing.T) {
-	m1 := &mockReviewer{}
-	m2 := &mockReviewer{}
+	m1 := &mockReviewer{result: &ReviewResult{Summary: "a"}}
+	m2 := &mockReviewer{result: &ReviewResult{Summary: "b"}}
 	mp := NewMultiProviderFromReviewers([]ReviewProvider{m1, m2}, 5)
-	if mp.threshold != 2 {
-		t.Errorf("expected threshold to be capped at 2, got %d", mp.threshold)
+	// threshold should be capped at len(providers) = 2, so review succeeds
+	// when both providers succeed (if threshold were 5, it would fail).
+	result, err := mp.Review(context.Background(), "", "")
+	if err != nil {
+		t.Errorf("expected success with capped threshold, got error: %v", err)
+	}
+	if result == nil {
+		t.Error("expected non-nil result")
 	}
 }
 
