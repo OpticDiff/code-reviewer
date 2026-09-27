@@ -71,8 +71,12 @@ func TestReadFile_BoundedRead(t *testing.T) {
 	if res.Error != "" {
 		t.Fatal(res.Error)
 	}
-	if len(res.Output) > 32768 {
-		t.Errorf("output length %d exceeds max 32768", len(res.Output))
+	// 32768 content + truncation marker (~30 chars)
+	if len(res.Output) > 32768+100 {
+		t.Errorf("output length %d exceeds expected max", len(res.Output))
+	}
+	if !strings.Contains(res.Output, "[... truncated at 32 KiB ...]") {
+		t.Error("expected truncation marker in output")
 	}
 }
 

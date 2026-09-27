@@ -491,6 +491,12 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				RepoRoot:        findRepoRoot(),
 			}
 			agentResult, err := RunAgentLoop(ctx, r.chatter, agentCfg, allFindings)
+			// Always aggregate usage, even on error (agent preserves accumulated tokens).
+			if agentResult != nil {
+				totalUsage.InputTokens += agentResult.Usage.InputTokens
+				totalUsage.OutputTokens += agentResult.Usage.OutputTokens
+				totalUsage.TotalTokens += agentResult.Usage.TotalTokens
+			}
 			if err != nil {
 				slog.Warn("agent loop failed, using initial findings", "error", err)
 			} else {
@@ -502,9 +508,6 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 					"findings_after", len(agentResult.Findings),
 				)
 				allFindings = agentResult.Findings
-				totalUsage.InputTokens += agentResult.Usage.InputTokens
-				totalUsage.OutputTokens += agentResult.Usage.OutputTokens
-				totalUsage.TotalTokens += agentResult.Usage.TotalTokens
 			}
 		}
 	}

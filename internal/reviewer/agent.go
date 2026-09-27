@@ -149,6 +149,7 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 		resp, err := chatter.Chat(ctx, history, genConfig)
 		if err != nil {
 			result.StopReason = "error"
+			result.Usage = totalUsage // Preserve usage accumulated so far.
 			return result, fmt.Errorf("agent iteration %d: %w", i+1, err)
 		}
 		result.Iterations = i + 1
@@ -184,6 +185,10 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 			if action.Tool == "" {
 				slog.Warn("agent loop: tool action with empty tool name", "iteration", i+1)
 				consecutiveToolErrors++
+				history = append(history, genai.NewContentFromText(
+					"Tool call error: the tool name is empty. Choose a valid tool or return findings.",
+					genai.RoleUser,
+				))
 				if consecutiveToolErrors >= 2 {
 					slog.Warn("agent loop: too many consecutive tool errors, stopping")
 					result.StopReason = "error"
@@ -220,7 +225,7 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 			if err := json.Unmarshal(action.Findings, &refined); err != nil {
 				slog.Warn("agent loop: invalid findings JSON, keeping initial", "error", err)
 				result.StopReason = "error"
-				break
+				goto done
 			}
 			// Validate: refined findings must be a subset of initial (can't add new ones).
 			validated := validateRefinedFindings(initialFindings, refined)
@@ -271,21 +276,25 @@ func buildRefinementSystemPrompt(findingsJSON string) string {
 }
 
 // validateRefinedFindings ensures refined findings are a subset of initial findings.
-// Any finding in refined that doesn't match an initial finding (by file+line+body) is dropped.
+// Uses count-based matching to handle duplicate findings at the same file+line.
+// Any finding in refined that doesn't match an initial finding is dropped.
 func validateRefinedFindings(initial, refined []model.Finding) []model.Finding {
-	// Build lookup of initial findings.
+	// Build count of initial findings per location.
 	type key struct {
 		File string
 		Line int
 	}
-	initialSet := make(map[key]bool, len(initial))
+	initialCounts := make(map[key]int, len(initial))
 	for _, f := range initial {
-		initialSet[key{File: f.File, Line: f.Line}] = true
+		initialCounts[key{File: f.File, Line: f.Line}]++
 	}
 
+	// Accept refined findings only while their location has remaining matches.
 	validated := make([]model.Finding, 0, len(refined))
 	for _, f := range refined {
-		if initialSet[key{File: f.File, Line: f.Line}] {
+		k := key{File: f.File, Line: f.Line}
+		if initialCounts[k] > 0 {
+			initialCounts[k]--
 			validated = append(validated, f)
 		} else {
 			slog.Debug("agent loop: dropping non-initial finding",

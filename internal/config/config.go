@@ -787,9 +787,9 @@ func (c *Config) loadFlags() error {
 	productModel := fs.String("product-model", "", "Model override when --profile=product")
 	platformVisibility := fs.String("platform-visibility", "", "Platform findings visibility: public (default) or security-team-only")
 
-	fs.BoolVar(&c.AgentLoop, "agent", false, "Enable agent refinement loop")
-	fs.IntVar(&c.AgentMaxIterations, "agent-iterations", 3, "Max agent refinement iterations")
-	fs.DurationVar(&c.AgentTimeout, "agent-timeout", 3*time.Minute, "Agent loop timeout")
+	agent := fs.Bool("agent", false, "Enable agent refinement loop")
+	agentIterations := fs.Int("agent-iterations", 3, "Max agent refinement iterations")
+	agentTimeout := fs.Duration("agent-timeout", 3*time.Minute, "Agent loop timeout")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -947,6 +947,24 @@ func (c *Config) loadFlags() error {
 	}
 	if *platformVisibility != "" {
 		c.PlatformVisibility = *platformVisibility
+	}
+	// Agent flags: apply only when explicitly set, so YAML defaults survive.
+	fs.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "agent":
+			c.AgentLoop = *agent
+		case "agent-iterations":
+			c.AgentMaxIterations = *agentIterations
+		case "agent-timeout":
+			c.AgentTimeout = *agentTimeout
+		}
+	})
+	// Apply agent defaults if not set by either flag or YAML.
+	if c.AgentMaxIterations == 0 {
+		c.AgentMaxIterations = 3
+	}
+	if c.AgentTimeout == 0 {
+		c.AgentTimeout = 3 * time.Minute
 	}
 	return nil
 }

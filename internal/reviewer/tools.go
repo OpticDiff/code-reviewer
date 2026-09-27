@@ -3,6 +3,7 @@ package reviewer
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -100,13 +101,26 @@ func (r *ToolRegistry) readFile(ctx context.Context, args map[string]any) ToolRe
 		return ToolResult{Tool: "read_file", Error: err.Error()}
 	}
 
-	content, err := os.ReadFile(resolved)
+	f, err := os.Open(resolved)
 	if err != nil {
 		return ToolResult{Tool: "read_file", Error: fmt.Sprintf("failed to read file: %v", err)}
 	}
+	defer f.Close() //nolint:errcheck
 
-	if len(content) > 32768 {
-		content = content[:32768]
+	const maxRead = 32768 + 64 // extra margin for UTF-8 boundary
+	buf := make([]byte, maxRead)
+	n, _ := io.ReadFull(f, buf) //nolint:errcheck
+	content := buf[:n]
+
+	// Ensure we end on a UTF-8 boundary.
+	truncated := n >= maxRead
+	if truncated {
+		for len(content) > 0 && !utf8.Valid(content) {
+			content = content[:len(content)-1]
+		}
+		if len(content) > 32768 {
+			content = content[:32768]
+		}
 	}
 
 	lines := strings.Split(string(content), "\n")
@@ -136,7 +150,11 @@ func (r *ToolRegistry) readFile(ctx context.Context, args map[string]any) ToolRe
 	}
 
 	selected := lines[startLine-1 : endLine]
-	return ToolResult{Tool: "read_file", Output: strings.Join(selected, "\n")}
+	output := strings.Join(selected, "\n")
+	if truncated {
+		output += "\n[... truncated at 32 KiB ...]"
+	}
+	return ToolResult{Tool: "read_file", Output: output}
 }
 
 func isDefinition(line string, symbol string) bool {
@@ -182,6 +200,11 @@ func (r *ToolRegistry) findDefinition(ctx context.Context, args map[string]any) 
 	err = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
+		}
+
+		// Stop promptly on context cancellation.
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 
 		if filesScanned >= 5000 {
