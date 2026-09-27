@@ -47,9 +47,15 @@ func main() {
 			os.Exit(1)
 		}
 
-		rMode := runner.ModeReplay
-		if mode == "live" {
+		var rMode runner.Mode
+		switch mode {
+		case "replay":
+			rMode = runner.ModeReplay
+		case "live":
 			rMode = runner.ModeLive
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown mode %q: must be 'live' or 'replay'\n", mode)
+			os.Exit(1)
 		}
 
 		ctx := context.Background()

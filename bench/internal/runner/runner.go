@@ -125,8 +125,13 @@ func (r *Runner) RunCase(ctx context.Context, c dataset.Case) (*CaseResult, erro
 		}
 
 		if r.recordDir != "" && r.mode == ModeLive {
-			responseBytes, _ := json.MarshalIndent(result, "", "  ")
-			os.WriteFile(filepath.Join(c.Dir, "response.json"), responseBytes, 0644) //nolint:errcheck
+			responseBytes, marshalErr := json.MarshalIndent(result, "", "  ")
+			if marshalErr != nil {
+				return nil, fmt.Errorf("marshaling response for %s: %w", c.Name, marshalErr)
+			}
+			if writeErr := os.WriteFile(filepath.Join(c.Dir, "response.json"), responseBytes, 0644); writeErr != nil {
+				return nil, fmt.Errorf("writing response.json for %s: %w", c.Name, writeErr)
+			}
 		}
 	}
 
