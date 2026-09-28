@@ -192,6 +192,20 @@ func run(ctx, initCtx context.Context) (int, error) {
 
 	rev := reviewer.NewWithContext(cfg, modelProvider, vcsClient, ctxProvider)
 
+	// Wire agent loop chatter when --agent is enabled.
+	if cfg.AgentLoop {
+		if p, ok := modelProvider.(*model.Provider); ok {
+			chatter := &reviewer.GenaiChatter{
+				Client:    p.GenaiClient(),
+				ModelName: p.ModelName(),
+			}
+			rev.SetChatter(chatter)
+			slog.Info("agent refinement loop enabled", "model", p.ModelName())
+		} else {
+			slog.Warn("--agent requires Vertex AI provider; agent loop disabled for HTTP/multi-model providers")
+		}
+	}
+
 	var exitCode int
 	if cfg.Explain {
 		exitCode, err = rev.RunExplain(ctx)
