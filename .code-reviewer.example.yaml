@@ -3,13 +3,13 @@
 # All settings can be overridden by environment variables or CLI flags.
 
 # Vertex AI model to use for reviews.
-# Options: gemini-2.5-flash (default), gemini-2.5-pro, claude-sonnet-4, etc.
-model: gemini-2.5-flash
+# Options: gemini-3.8-flash (default), gemini-3.1-pro-preview, claude-sonnet-5, etc.
+model: gemini-3.8-flash
 
 # Multiple models for consensus review (CLI-only: --models flag).
 # Runs all models in parallel and deduplicates findings.
 # Consensus activates only with 2+ models; single model uses the normal path.
-# Example: code-reviewer --models gemini-2.5-flash,gemini-2.5-pro
+# Example: code-reviewer --models gemini-3.8-flash,gemini-3.1-pro-preview
 #
 # Consensus threshold (CLI-only: --consensus-threshold flag, default: 2).
 # Minimum number of models that must agree on a finding.

@@ -345,10 +345,14 @@ Known model limits:
 
 | Model | Token Limit |
 |---|---|
-| `gemini-2.5-flash` / `gemini-2.5-pro` / `gemini-2.0-flash` | 1,000,000 |
-| `claude-sonnet-4` / `claude-sonnet-4.5` / `claude-opus-4` / `claude-haiku-4.5` | 200,000 |
+| `gemini-3.8-flash` / `gemini-3.7-flash` / `gemini-3.6-flash` / `gemini-3.5-flash` / `gemini-3.5-flash-lite` / `gemini-3.1-flash-lite` / `gemini-3.1-pro-preview` / `gemini-3-flash-preview` | 1,000,000 |
+| `gemini-2.5-flash` / `gemini-2.5-pro` | 1,000,000 |
+| `claude-fable-5-1` / `claude-fable-5` / `claude-opus-5` / `claude-opus-4-8` / `claude-opus-4-7` / `claude-opus-4-6` / `claude-sonnet-5` / `claude-sonnet-4-6` | 1,000,000 |
+| `claude-haiku-4-5` / `claude-sonnet-4` / `claude-sonnet-4.5` / `claude-opus-4` / `claude-haiku-4.5` | 200,000 |
 | `mistral-medium-3` | 128,000 |
 | Unknown models | 128,000 (default) |
+
+A Vertex AI snapshot suffix resolves to its base model: `claude-haiku-4-5@20251001` uses the `claude-haiku-4-5` limit.
 
 ### Numbered Diff Format
 
@@ -387,8 +391,8 @@ CLI flags  >  Environment variables  >  .code-reviewer.yaml  >  Defaults
 ### Defaults
 
 ```go
-Model:            "gemini-2.5-flash"
-GCPLocation:      "us-central1"
+Model:            "gemini-3.8-flash"
+GCPLocation:      "global"
 Focus:            ["all"]
 MinSeverity:      SeverityLow
 CommentMode:      "notes"
@@ -403,7 +407,7 @@ ExcludedPatterns: ["go.sum", "*.lock", "package-lock.json", "yarn.lock", "vendor
 Searched by walking up from `cwd` to filesystem root. Supported fields:
 
 ```yaml
-model: gemini-2.5-pro
+model: gemini-3.1-pro-preview
 focus: [security, bugs]
 min_severity: medium
 comment_mode: discussions

@@ -141,7 +141,7 @@ export GOOGLE_CLOUD_PROJECT=my-gcp-project
 gcloud auth application-default login
 
 # Multi-model consensus: only keep findings that Gemini + Claude agree on
-code-reviewer --diff --models gemini-2.5-flash,claude-sonnet-4
+code-reviewer --diff --models gemini-3.8-flash,claude-sonnet-5
 ```
 
 ### 🛡️ Shift-Left: Block Bad Pushes with Git Pre-Push Hook
@@ -328,7 +328,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--ci` | Run in CI mode (auto-detects GitHub/GitLab) | — |
 | `--diff [ref]` | Review local git diff | `origin/HEAD` |
 | `--files f1,f2` | Review specific files | — |
-| `--model` | Vertex AI model ID | `gemini-2.5-flash` |
+| `--model` | Vertex AI model ID | `gemini-3.8-flash` |
 | `--models` | Comma-separated models for multi-model consensus | — |
 | `--consensus-threshold` | Min models that must agree on a finding | `2` (when `--models` is set) |
 | `--focus` | Review focus (comma-separated) | `all` |
@@ -364,8 +364,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--update-description` | Inject review summary into MR/PR description | `false` |
 | `--cleanup-mode` | How to handle previous reviews: `delete` or `resolve` | `delete` |
 | `--profile` | Review profile: `platform`, `product`, or `all` (default: `all`). See [Dual-Review Architecture](docs/PLATFORM-GOVERNANCE.md#dual-review-ci-architecture-platform-gate-vs-product-quality-review). |
-| `--platform-model` | Model override for `--profile=platform` (e.g. `gemini-2.5-pro`) | — |
-| `--product-model` | Model override for `--profile=product` (e.g. `gemini-2.5-flash`) | — |
+| `--platform-model` | Model override for `--profile=platform` (e.g. `gemini-3.1-pro-preview`) | — |
+| `--product-model` | Model override for `--profile=product` (e.g. `gemini-3.8-flash`) | — |
 | `--platform-visibility` | Platform findings visibility: `public` (default) or `security-team-only` | `public` |
 | `--platform-config` | Platform rule config file, comma-separated paths, or glob | — |
 | `--platform-review-md` | Platform review guidelines markdown file or glob | — |
@@ -381,10 +381,10 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | Variable | Description | Default |
 |---|---|---|
 | `GOOGLE_CLOUD_PROJECT` | GCP project for Vertex AI | **Required** |
-| `GOOGLE_CLOUD_LOCATION` | GCP region | `us-central1` |
+| `GOOGLE_CLOUD_LOCATION` | Vertex AI location (`global`, `us`, or a region) | `global` |
 | `GITLAB_TOKEN` | GitLab API token | Required in CI |
 | `GITLAB_BASE_URL` | GitLab API base URL | `https://gitlab.com` |
-| `REVIEW_MODEL` | Model ID | `gemini-2.5-flash` |
+| `REVIEW_MODEL` | Model ID | `gemini-3.8-flash` |
 | `REVIEW_MODELS` | Comma-separated models for consensus | — |
 | `REVIEW_FOCUS` | Focus areas | `all` |
 | `REVIEW_MIN_SEVERITY` | Min severity | `low` |
@@ -422,7 +422,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 Create `.code-reviewer.yaml` in your repo root:
 
 ```yaml
-model: gemini-2.5-flash
+model: gemini-3.8-flash
 focus: [bugs, security]
 min_severity: low
 comment_mode: discussions
@@ -466,7 +466,7 @@ code-reviewer --diff --api-url https://gemma-review-xyz.run.app/v1 --model gemma
 code-reviewer --diff --api-url http://gpu-server:8000/v1 --model meta-llama/Llama-4-Scout-17B-16E
 
 # With Candela proxy (observability + routing)
-code-reviewer --diff --api-url http://candela:8080/v1 --model gemini-2.5-flash
+code-reviewer --diff --api-url http://candela:8080/v1 --model gemini-3.8-flash
 ```
 
 ### Auto-Approve
@@ -605,13 +605,15 @@ See [`examples/hooks/`](examples/hooks/) for lefthook, Husky, and mise configura
 
 | Model | Tier | Context | Provider | Best For |
 |---|---|---|---|---|
-| `gemini-2.5-flash` | ⭐ Recommended | 1M | Vertex AI | Fast CI reviews (default) |
-| `gemini-2.5-pro` | ⭐⭐ Best | 1M | Vertex AI | Deep analysis |
-| `claude-sonnet-4` | ⭐⭐ Best | 200k | Vertex AI | Code-focused reviews |
+| `gemini-3.8-flash` | ⭐ Recommended | 1M | Vertex AI | Fast CI reviews (default) |
+| `gemini-3.1-pro-preview` | ⭐⭐ Best | 1M | Vertex AI | Deep analysis |
+| `claude-sonnet-5` | ⭐⭐ Best | 1M | Vertex AI | Code-focused reviews |
 | `mistral-medium-3` | ⭐ Good | 128k | Vertex AI | Alternative perspective |
 | `qwen3:32b` | ⭐ Good | 32k | Ollama / self-hosted | Local, no cloud needed (32GB RAM) |
 | `qwen3:8b` | Demo | 32k | Ollama / self-hosted | Quick local demo (8GB RAM) |
 | Any model | Varies | Varies | `--api-url` | Any OpenAI-compatible endpoint |
+
+Gemini 3.x models are served from the `global` location (the default) and multi-regions, not from single regions such as `us-central1`.
 
 Vertex AI models use [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials). Self-hosted models use `--api-url` pointed at any OpenAI-compatible endpoint (Ollama, vLLM, Cloud Run, LiteLLM for Bedrock).
 
@@ -621,10 +623,10 @@ Run multiple models in parallel and only keep findings that multiple models agre
 
 ```bash
 # Run Gemini + Claude, keep findings both agree on
-code-reviewer --diff --models gemini-2.5-flash,claude-sonnet-4
+code-reviewer --diff --models gemini-3.8-flash,claude-sonnet-5
 
 # Require all 3 models to agree
-code-reviewer --diff --models gemini-2.5-flash,gemini-2.5-pro,claude-sonnet-4 --consensus-threshold 3
+code-reviewer --diff --models gemini-3.8-flash,gemini-3.1-pro-preview,claude-sonnet-5 --consensus-threshold 3
 ```
 
 Findings are deduplicated by file + category + line proximity (±3 lines). The finding with the most detailed explanation is kept as the canonical result.

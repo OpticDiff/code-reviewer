@@ -22,7 +22,7 @@ code-review:
   variables:
     # Google Cloud configuration for Vertex AI
     GOOGLE_CLOUD_PROJECT: "my-gcp-project"
-    GOOGLE_CLOUD_LOCATION: "us-central1"
+    GOOGLE_CLOUD_LOCATION: "global"
 
     # Built-in GitLab token (CI_JOB_TOKEN has sufficient permissions for the Notes API)
     GITLAB_TOKEN: $CI_JOB_TOKEN
@@ -31,7 +31,7 @@ code-review:
     REVIEW_COMMENT_MODE: "notes"
 
     # Default model
-    REVIEW_MODEL: "gemini-2.5-flash"
+    REVIEW_MODEL: "gemini-3.8-flash"
 
   script:
     # --ci auto-detects MR context (CI_PROJECT_ID, CI_MERGE_REQUEST_IID)

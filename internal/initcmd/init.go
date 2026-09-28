@@ -35,7 +35,7 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Model:         "gemini-2.5-flash",
+		Model:         "gemini-3.8-flash",
 		Focus:         []string{"all"},
 		MinSeverity:   "low",
 		ChunkStrategy: "split",
@@ -154,7 +154,7 @@ var configTemplate = template.Must(template.New("config").Parse(`# .code-reviewe
 # Docs: https://github.com/OpticDiff/code-reviewer
 
 # Model for review.
-# Options: gemini-2.5-flash (recommended), gemini-2.5-pro, claude-sonnet-4,
+# Options: gemini-3.8-flash (recommended), gemini-3.1-pro-preview, claude-sonnet-5,
 #          or any OpenAI-compatible model via api_url.
 model: {{ .Model }}
 

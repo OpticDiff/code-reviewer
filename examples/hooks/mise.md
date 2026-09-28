@@ -43,7 +43,7 @@ Define standardized review commands under the `[tasks]` table in `.mise.toml` so
 
 [env]
 GOOGLE_CLOUD_PROJECT = "my-gcp-project"
-GOOGLE_CLOUD_LOCATION = "us-central1"
+GOOGLE_CLOUD_LOCATION = "global"
 
 # Standard branch review against origin/main
 [tasks.review]

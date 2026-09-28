@@ -20,12 +20,12 @@ security-review-sarif:
 
   variables:
     GOOGLE_CLOUD_PROJECT: "my-gcp-project"
-    GOOGLE_CLOUD_LOCATION: "us-central1"
+    GOOGLE_CLOUD_LOCATION: "global"
     GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
     REVIEW_COMMENT_MODE: "discussions"
 
     # Targeted security review configuration
-    REVIEW_MODEL: "gemini-2.5-pro"
+    REVIEW_MODEL: "gemini-3.1-pro-preview"
     REVIEW_FOCUS: "security"
     REVIEW_MIN_SEVERITY: "high"
 

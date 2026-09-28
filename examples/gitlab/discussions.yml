@@ -24,7 +24,7 @@ code-review-discussions:
 
   variables:
     GOOGLE_CLOUD_PROJECT: "my-gcp-project"
-    GOOGLE_CLOUD_LOCATION: "us-central1"
+    GOOGLE_CLOUD_LOCATION: "global"
 
     # Project Access Token with 'api' scope allows creating inline line-anchored discussions
     GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
@@ -35,7 +35,7 @@ code-review-discussions:
     # Minimum severity threshold (low, medium, high, critical)
     REVIEW_MIN_SEVERITY: "low"
 
-    REVIEW_MODEL: "gemini-2.5-flash"
+    REVIEW_MODEL: "gemini-3.8-flash"
 
   script:
     - code-reviewer --ci --incremental

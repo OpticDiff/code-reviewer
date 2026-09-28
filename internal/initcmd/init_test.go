@@ -48,7 +48,7 @@ func TestRun_Defaults(t *testing.T) {
 	}
 
 	// Verify key fields are present.
-	if !strings.Contains(content, "model: gemini-2.5-flash") {
+	if !strings.Contains(content, "model: gemini-3.8-flash") {
 		t.Error("expected default model in output")
 	}
 	if !strings.Contains(content, "min_severity: low") {
@@ -199,8 +199,8 @@ func TestDetectPlatform_None(t *testing.T) {
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Model != "gemini-2.5-flash" {
-		t.Errorf("expected gemini-2.5-flash, got %s", cfg.Model)
+	if cfg.Model != "gemini-3.8-flash" {
+		t.Errorf("expected gemini-3.8-flash, got %s", cfg.Model)
 	}
 	if len(cfg.Focus) != 1 || cfg.Focus[0] != "all" {
 		t.Errorf("expected [all], got %v", cfg.Focus)
