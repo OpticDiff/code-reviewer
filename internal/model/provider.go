@@ -24,6 +24,12 @@ type Provider struct {
 	modelName string
 }
 
+// GenaiClient returns the underlying genai.Client for multi-turn use (e.g., agent loop).
+func (p *Provider) GenaiClient() *genai.Client { return p.client }
+
+// ModelName returns the configured model name.
+func (p *Provider) ModelName() string { return p.modelName }
+
 // NewProvider creates a new model provider using Vertex AI with ADC.
 // If proxyURL is non-empty, model calls are routed through that URL
 // (e.g., a Candela observability proxy).
