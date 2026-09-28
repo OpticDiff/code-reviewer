@@ -120,9 +120,14 @@ func TestTokenLimitForModel(t *testing.T) {
 		model string
 		want  int
 	}{
+		{"gemini-3.8-flash", 1000000},
 		{"gemini-2.5-flash", 1000000},
+		{"claude-sonnet-5", 1000000},
+		{"claude-haiku-4-5", 200000},
+		{"claude-haiku-4-5@20251001", 200000}, // Vertex AI snapshot suffix.
 		{"claude-sonnet-4", 200000},
-		{"unknown-model", 128000}, // Default.
+		{"unknown-model", 128000},          // Default.
+		{"unknown-model@20251001", 128000}, // Default, suffix or not.
 	}
 	for _, tt := range tests {
 		got := TokenLimitForModel(tt.model)
