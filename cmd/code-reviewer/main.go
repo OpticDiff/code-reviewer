@@ -194,15 +194,19 @@ func run(ctx, initCtx context.Context) (int, error) {
 
 	// Wire agent loop chatter when --agent is enabled.
 	if cfg.AgentLoop {
-		if p, ok := modelProvider.(*model.Provider); ok {
+		switch p := modelProvider.(type) {
+		case *model.Provider:
 			chatter := &reviewer.GenaiChatter{
 				Client:    p.GenaiClient(),
 				ModelName: p.ModelName(),
 			}
 			rev.SetChatter(chatter)
-			slog.Info("agent refinement loop enabled", "model", p.ModelName())
-		} else {
-			slog.Warn("--agent requires Vertex AI provider; agent loop disabled for HTTP/multi-model providers")
+			slog.Info("agent refinement loop enabled", "model", p.ModelName(), "provider", "vertex-ai")
+		case *model.HTTPProvider:
+			rev.SetChatter(model.NewHTTPChatter(p))
+			slog.Info("agent refinement loop enabled", "provider", "http")
+		default:
+			slog.Warn("--agent not supported for multi-model consensus; agent loop disabled")
 		}
 	}
 
