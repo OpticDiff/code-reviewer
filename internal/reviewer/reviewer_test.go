@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -1957,3 +1958,39 @@ func TestRun_CIModeIgnoresUntrustedCheckoutReviewMD(t *testing.T) {
 		t.Errorf("expected 1 model call, got %d", mm.calls)
 	}
 }
+
+func TestReviewer_TokenLimitOverride(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go", "file2.go")
+
+	// Default for unknown model is 128,000 tokens.
+	// But if TokenLimit is explicitly set to 1 (smaller than diff),
+	// FailStrategy must abort with DiffTooLargeError.
+	cfg := &config.Config{
+		NoCache:       true,
+		Model:         "unknown-model-default",
+		TokenLimit:    1,
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{Summary: "done"},
+	}
+	mockClient := &mockVCS{}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err := r.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error due to TokenLimit override, got nil")
+	}
+
+	var dte *diff.DiffTooLargeError
+	if !errors.As(err, &dte) {
+		t.Fatalf("expected DiffTooLargeError, got %T: %v", err, err)
+	}
+	if dte.TokenLimit != 1 {
+		t.Errorf("dte.TokenLimit = %d, want 1", dte.TokenLimit)
+	}
+}
+

@@ -6,6 +6,10 @@
 # Options: gemini-3.8-flash (default), gemini-3.1-pro-preview, claude-sonnet-5, etc.
 model: gemini-3.8-flash
 
+# Explicit context window limit in tokens (overrides built-in model context window table).
+# Useful for custom/self-hosted models or proxies (e.g. Candela) with custom context windows.
+# token_limit: 1000000
+
 # Multiple models for consensus review (CLI-only: --models flag).
 # Runs all models in parallel and deduplicates findings.
 # Consensus activates only with 2+ models; single model uses the normal path.

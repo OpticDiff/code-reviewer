@@ -321,7 +321,10 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 
 	// Step 3: Check context window / chunk.
-	tokenLimit := diff.TokenLimitForModel(r.cfg.Model)
+	tokenLimit := r.cfg.TokenLimit
+	if tokenLimit <= 0 {
+		tokenLimit = diff.TokenLimitForModel(r.cfg.Model)
+	}
 	chunker, err := diff.NewChunkStrategy(string(r.cfg.ChunkStrategy))
 	if err != nil {
 		return 0, err

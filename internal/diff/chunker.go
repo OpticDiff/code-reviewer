@@ -100,6 +100,7 @@ func (e *DiffTooLargeError) Error() string {
 			"  Files: %d\n\n"+
 			"Options:\n"+
 			"  --chunk-strategy split     Auto-split into review chunks\n"+
+			"  --token-limit <tokens>     Override the context window limit\n"+
 			"  --model gemini-3.8-flash   Use a model with larger context (1M tokens)\n"+
 			"  --excluded-patterns \"...\"  Exclude generated/vendored files",
 		e.EstimatedTokens, e.TokenLimit, e.FileCount,
