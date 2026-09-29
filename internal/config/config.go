@@ -117,6 +117,7 @@ type Config struct {
 	Model              string
 	Models             []string // Multiple models for consensus mode.
 	ConsensusThreshold int      // Min models that must agree on a finding (default: 2).
+	TokenLimit         int      // Context window limit override in tokens (0 = use model default).
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
@@ -238,6 +239,7 @@ func (c *Config) EffectiveModel() string {
 // repoConfig represents the .code-reviewer.yaml file.
 type repoConfig struct {
 	Model            string   `yaml:"model"`
+	TokenLimit       int      `yaml:"token_limit"`
 	Focus            []string `yaml:"focus"`
 	MinSeverity      string   `yaml:"min_severity"`
 	CommentMode      string   `yaml:"comment_mode"`
@@ -460,6 +462,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.Model != "" {
 		c.Model = rc.Model
 	}
+	if rc.TokenLimit > 0 {
+		c.TokenLimit = rc.TokenLimit
+	}
 	if len(rc.Focus) > 0 {
 		c.Focus = rc.Focus
 	}
@@ -579,6 +584,16 @@ func (c *Config) applyRepoConfig(data []byte) error {
 func (c *Config) loadEnv() {
 	if v := os.Getenv("REVIEW_MODEL"); v != "" {
 		c.Model = v
+	}
+	if v := os.Getenv("REVIEW_TOKEN_LIMIT"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_TOKEN_LIMIT", "value", v, "error", err)
+		} else if n <= 0 {
+			slog.Warn("ignoring non-positive REVIEW_TOKEN_LIMIT", "value", n)
+		} else {
+			c.TokenLimit = n
+		}
 	}
 	if v := os.Getenv("REVIEW_FOCUS"); v != "" {
 		c.Focus = strings.Split(v, ",")
@@ -747,6 +762,7 @@ func (c *Config) loadFlags() error {
 	noCache := fs.Bool("no-cache", false, "Disable caching")
 
 	model := fs.String("model", "", "Vertex AI model ID (e.g., gemini-3.8-flash, claude-sonnet-5)")
+	tokenLimit := fs.Int("token-limit", 0, "Explicit context window token limit (overrides model default)")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")
@@ -883,8 +899,15 @@ func (c *Config) loadFlags() error {
 	if *noContext {
 		c.DisableContext = true
 	}
-	// Detect if --max-tokens was explicitly set (including to 0 for unlimited).
+	// Detect if flags with special 0-value semantics were explicitly set.
 	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "token-limit" {
+			if *tokenLimit < 0 {
+				slog.Warn("ignoring negative --token-limit", "value", *tokenLimit)
+				return
+			}
+			c.TokenLimit = *tokenLimit
+		}
 		if f.Name == "max-tokens" {
 			if *maxTokens < 0 {
 				slog.Warn("ignoring negative --max-tokens", "value", *maxTokens)

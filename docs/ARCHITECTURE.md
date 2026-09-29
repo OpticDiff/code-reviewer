@@ -417,6 +417,7 @@ extra_rules: "Always flag SQL string concatenation"
 output_json: true
 custom_prompt: ./prompts/team-review.md
 proxy_url: http://localhost:8181/proxy/google/
+token_limit: 1000000
 max_tokens: 500000
 api_url: http://localhost:11434/v1
 ```
@@ -426,6 +427,7 @@ api_url: http://localhost:11434/v1
 | Variable | Maps To |
 |---|---|
 | `REVIEW_MODEL` | `Model` |
+| `REVIEW_TOKEN_LIMIT` | `TokenLimit` |
 | `REVIEW_FOCUS` | `Focus` (comma-separated) |
 | `REVIEW_MIN_SEVERITY` | `MinSeverity` |
 | `REVIEW_COMMENT_MODE` | `CommentMode` |

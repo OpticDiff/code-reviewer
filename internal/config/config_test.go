@@ -96,6 +96,7 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("REVIEW_EXTRA_RULES", "")
 	t.Setenv("RE_REVIEW_TRIGGER", "")
 	t.Setenv("REVIEW_RE_REVIEW_TRIGGER", "")
+	t.Setenv("REVIEW_TOKEN_LIMIT", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -132,6 +133,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.GCPProject != "test-project" {
 		t.Errorf("GCPProject = %q, want %q", cfg.GCPProject, "test-project")
 	}
+	if cfg.TokenLimit != 0 {
+		t.Errorf("TokenLimit = %d, want 0", cfg.TokenLimit)
+	}
 	wantTriggers := []string{"[re-review]", "[full-review]"}
 	if len(cfg.ReReviewTriggers) != len(wantTriggers) {
 		t.Errorf("ReReviewTriggers = %v, want %v", cfg.ReReviewTriggers, wantTriggers)
@@ -156,6 +160,7 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	t.Setenv("REVIEW_FOCUS", "bugs,security")
 	t.Setenv("REVIEW_MIN_SEVERITY", "high")
 	t.Setenv("REVIEW_OUTPUT_JSON", "true")
+	t.Setenv("REVIEW_TOKEN_LIMIT", "500000")
 	t.Setenv("RE_REVIEW_TRIGGER", "[custom-trigger],[another-trigger]")
 
 	cfg, err := Load()
@@ -165,6 +170,9 @@ func TestLoad_EnvOverrides(t *testing.T) {
 
 	if cfg.Model != "claude-sonnet-4" {
 		t.Errorf("Model = %q, want %q", cfg.Model, "claude-sonnet-4")
+	}
+	if cfg.TokenLimit != 500000 {
+		t.Errorf("TokenLimit = %d, want 500000", cfg.TokenLimit)
 	}
 	if len(cfg.Focus) != 2 || cfg.Focus[0] != "bugs" || cfg.Focus[1] != "security" {
 		t.Errorf("Focus = %v, want [bugs security]", cfg.Focus)
@@ -198,6 +206,7 @@ func TestLoad_FlagOverrides(t *testing.T) {
 		"--model", "gemini-2.5-pro",
 		"--focus", "performance,docs",
 		"--min-severity", "critical",
+		"--token-limit", "750000",
 		"--json",
 		"--re-review-trigger", "[flag-trigger],[flag-trigger-2]",
 	}
@@ -205,6 +214,7 @@ func TestLoad_FlagOverrides(t *testing.T) {
 	// Set env vars that should be overridden by flags.
 	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
 	t.Setenv("REVIEW_MODEL", "env-model-should-be-overridden")
+	t.Setenv("REVIEW_TOKEN_LIMIT", "500000") // Should be overridden by flag.
 	t.Setenv("REVIEW_FOCUS", "env-focus-should-be-overridden")
 	t.Setenv("REVIEW_MIN_SEVERITY", "low")
 	t.Setenv("RE_REVIEW_TRIGGER", "env-trigger-should-be-overridden")
@@ -216,6 +226,9 @@ func TestLoad_FlagOverrides(t *testing.T) {
 
 	if cfg.Model != "gemini-2.5-pro" {
 		t.Errorf("Model = %q, want %q (flag should override env)", cfg.Model, "gemini-2.5-pro")
+	}
+	if cfg.TokenLimit != 750000 {
+		t.Errorf("TokenLimit = %d, want 750000 (flag should override env)", cfg.TokenLimit)
 	}
 	if len(cfg.Focus) != 2 || cfg.Focus[0] != "performance" || cfg.Focus[1] != "docs" {
 		t.Errorf("Focus = %v, want [performance docs]", cfg.Focus)
@@ -372,11 +385,13 @@ func TestLoad_YAMLConfig(t *testing.T) {
 	t.Setenv("REVIEW_MIN_SEVERITY", "")
 	t.Setenv("REVIEW_EXTRA_RULES", "")
 	t.Setenv("REVIEW_PROXY_URL", "")
+	t.Setenv("REVIEW_TOKEN_LIMIT", "")
 	t.Setenv("RE_REVIEW_TRIGGER", "")
 	t.Setenv("REVIEW_RE_REVIEW_TRIGGER", "")
 
 	tmpDir := t.TempDir()
 	yamlContent := []byte(`model: yaml-model
+token_limit: 450000
 focus:
   - security
   - bugs
@@ -408,6 +423,9 @@ re_review_triggers:
 
 	if cfg.Model != "yaml-model" {
 		t.Errorf("Model = %q, want %q", cfg.Model, "yaml-model")
+	}
+	if cfg.TokenLimit != 450000 {
+		t.Errorf("TokenLimit = %d, want 450000", cfg.TokenLimit)
 	}
 	if len(cfg.Focus) != 2 || cfg.Focus[0] != "security" || cfg.Focus[1] != "bugs" {
 		t.Errorf("Focus = %v, want [security bugs]", cfg.Focus)
@@ -1179,3 +1197,97 @@ func TestProperty_SplitAndTrim(t *testing.T) {
 		t.Fatalf("Property TestProperty_SplitAndTrim failed: %v", err)
 	}
 }
+
+func TestLoad_TokenLimitPrecedence(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	tmpDir := t.TempDir()
+	yamlContent := []byte("token_limit: 100000\n")
+	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), yamlContent, 0o644); err != nil {
+		t.Fatalf("writing yaml: %v", err)
+	}
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	defer os.Chdir(oldDir) //nolint:errcheck
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	// 1. YAML value applies when no env or flag set.
+	os.Args = []string{"code-reviewer", "--diff"}
+	t.Setenv("REVIEW_TOKEN_LIMIT", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 100000 {
+		t.Errorf("TokenLimit = %d, want 100000 (from YAML)", cfg.TokenLimit)
+	}
+
+	// 2. Env overrides YAML.
+	t.Setenv("REVIEW_TOKEN_LIMIT", "200000")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 200000 {
+		t.Errorf("TokenLimit = %d, want 200000 (from Env)", cfg.TokenLimit)
+	}
+
+	// 3. Flag overrides Env and YAML.
+	os.Args = []string{"code-reviewer", "--diff", "--token-limit", "300000"}
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 300000 {
+		t.Errorf("TokenLimit = %d, want 300000 (from Flag)", cfg.TokenLimit)
+	}
+
+	// 3b. Explicit flag --token-limit 0 resets to 0 (model defaults), overriding Env and YAML.
+	os.Args = []string{"code-reviewer", "--diff", "--token-limit", "0"}
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 0 {
+		t.Errorf("TokenLimit = %d, want 0 (explicit --token-limit 0 resets to model defaults)", cfg.TokenLimit)
+	}
+
+	// 4. Invalid env values are ignored and fall back to YAML.
+	os.Args = []string{"code-reviewer", "--diff"}
+	t.Setenv("REVIEW_TOKEN_LIMIT", "not-a-number")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 100000 {
+		t.Errorf("TokenLimit = %d, want 100000 (invalid env ignored)", cfg.TokenLimit)
+	}
+
+	t.Setenv("REVIEW_TOKEN_LIMIT", "-50")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 100000 {
+		t.Errorf("TokenLimit = %d, want 100000 (negative env ignored)", cfg.TokenLimit)
+	}
+
+	// 5. Negative flag value is ignored, keeping Env/YAML.
+	t.Setenv("REVIEW_TOKEN_LIMIT", "200000")
+	os.Args = []string{"code-reviewer", "--diff", "--token-limit", "-100"}
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 200000 {
+		t.Errorf("TokenLimit = %d, want 200000 (negative flag ignored, retaining Env)", cfg.TokenLimit)
+	}
+}
+
