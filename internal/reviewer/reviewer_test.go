@@ -1994,3 +1994,64 @@ func TestReviewer_TokenLimitOverride(t *testing.T) {
 	}
 }
 
+func TestReviewer_TokenLimitOverride_SplitStrategy(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go", "file2.go")
+
+	// 2 files with ~11 tokens each (total ~22 tokens).
+	// With TokenLimit: 20 and ChunkStrategySplit, effective limit is 20 * 0.8 = 16 tokens.
+	// Each file fits individually (11 <= 16), but together they exceed 16 tokens,
+	// so it should split into 2 chunks, resulting in 2 model calls.
+	cfg := &config.Config{
+		NoCache:       true,
+		Model:         "unknown-model-default",
+		TokenLimit:    20,
+		ChunkStrategy: config.ChunkStrategySplit,
+		MinSeverity:   config.SeverityLow,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{Summary: "done"},
+	}
+	mockClient := &mockVCS{}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mm.calls != 2 {
+		t.Errorf("expected 2 model calls for split chunks with TokenLimit override, got %d", mm.calls)
+	}
+}
+
+func TestReviewer_TokenLimit_ZeroUsesModelDefault(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go", "file2.go")
+
+	// TokenLimit = 0 means "use model default".
+	// For "gemini-3.8-flash", the default is 1,000,000 tokens, which easily fits both files in 1 chunk.
+	cfg := &config.Config{
+		NoCache:       true,
+		Model:         "gemini-3.8-flash",
+		TokenLimit:    0,
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+	}
+
+	mm := &mockModel{
+		result: &model.ReviewResult{Summary: "done"},
+	}
+	mockClient := &mockVCS{}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r := NewWithDiffSource(cfg, mm, mockClient, ds)
+
+	_, err := r.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mm.calls != 1 {
+		t.Errorf("expected 1 model call when TokenLimit=0 uses model default, got %d", mm.calls)
+	}
+}
+
+

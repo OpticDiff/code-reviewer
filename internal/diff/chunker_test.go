@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -56,6 +57,13 @@ func TestFailStrategy_ExceedsLimit(t *testing.T) {
 	}
 	if dte.FileCount != 5 {
 		t.Errorf("FileCount = %d, want 5", dte.FileCount)
+	}
+	if dte.TokenLimit != 10 {
+		t.Errorf("TokenLimit = %d, want 10", dte.TokenLimit)
+	}
+	msg := dte.Error()
+	if !strings.Contains(msg, "--token-limit <tokens>") {
+		t.Errorf("expected error message to contain '--token-limit <tokens>', got:\n%s", msg)
 	}
 }
 
