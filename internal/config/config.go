@@ -835,13 +835,6 @@ func (c *Config) loadFlags() error {
 	if *model != "" {
 		c.Model = *model
 	}
-	if *tokenLimit != 0 {
-		if *tokenLimit < 0 {
-			slog.Warn("ignoring negative --token-limit", "value", *tokenLimit)
-		} else {
-			c.TokenLimit = *tokenLimit
-		}
-	}
 	if *focus != "" {
 		c.Focus = strings.Split(*focus, ",")
 	}
@@ -906,8 +899,15 @@ func (c *Config) loadFlags() error {
 	if *noContext {
 		c.DisableContext = true
 	}
-	// Detect if --max-tokens was explicitly set (including to 0 for unlimited).
+	// Detect if flags with special 0-value semantics were explicitly set.
 	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "token-limit" {
+			if *tokenLimit < 0 {
+				slog.Warn("ignoring negative --token-limit", "value", *tokenLimit)
+				return
+			}
+			c.TokenLimit = *tokenLimit
+		}
 		if f.Name == "max-tokens" {
 			if *maxTokens < 0 {
 				slog.Warn("ignoring negative --max-tokens", "value", *maxTokens)

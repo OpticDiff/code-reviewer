@@ -96,6 +96,7 @@ func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("REVIEW_EXTRA_RULES", "")
 	t.Setenv("RE_REVIEW_TRIGGER", "")
 	t.Setenv("REVIEW_RE_REVIEW_TRIGGER", "")
+	t.Setenv("REVIEW_TOKEN_LIMIT", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -1248,6 +1249,16 @@ func TestLoad_TokenLimitPrecedence(t *testing.T) {
 		t.Errorf("TokenLimit = %d, want 300000 (from Flag)", cfg.TokenLimit)
 	}
 
+	// 3b. Explicit flag --token-limit 0 resets to 0 (model defaults), overriding Env and YAML.
+	os.Args = []string{"code-reviewer", "--diff", "--token-limit", "0"}
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 0 {
+		t.Errorf("TokenLimit = %d, want 0 (explicit --token-limit 0 resets to model defaults)", cfg.TokenLimit)
+	}
+
 	// 4. Invalid env values are ignored and fall back to YAML.
 	os.Args = []string{"code-reviewer", "--diff"}
 	t.Setenv("REVIEW_TOKEN_LIMIT", "not-a-number")
@@ -1266,6 +1277,17 @@ func TestLoad_TokenLimitPrecedence(t *testing.T) {
 	}
 	if cfg.TokenLimit != 100000 {
 		t.Errorf("TokenLimit = %d, want 100000 (negative env ignored)", cfg.TokenLimit)
+	}
+
+	// 5. Negative flag value is ignored, keeping Env/YAML.
+	t.Setenv("REVIEW_TOKEN_LIMIT", "200000")
+	os.Args = []string{"code-reviewer", "--diff", "--token-limit", "-100"}
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.TokenLimit != 200000 {
+		t.Errorf("TokenLimit = %d, want 200000 (negative flag ignored, retaining Env)", cfg.TokenLimit)
 	}
 }
 
