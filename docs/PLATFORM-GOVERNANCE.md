@@ -92,13 +92,13 @@ Use `--platform-model` and `--product-model` to assign different models to each 
 - uses: OpticDiff/code-reviewer-action@v1
   with:
     profile: platform
-    platform-model: gemini-2.5-pro
+    platform-model: gemini-3.1-pro-preview
 
 # Product uses a faster model for code quality
 - uses: OpticDiff/code-reviewer-action@v1
   with:
     profile: product
-    product-model: gemini-2.5-flash
+    product-model: gemini-3.8-flash
 ```
 
 Environment variables: `CODE_REVIEW_PLATFORM_MODEL`, `CODE_REVIEW_PRODUCT_MODEL`.

@@ -45,4 +45,4 @@ jobs:
           project-id: ${{ secrets.GCP_PROJECT }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          extra-args: "--models gemini-2.5-flash,claude-sonnet-4 --consensus-threshold 2"
+          extra-args: "--models gemini-3.8-flash,claude-sonnet-5 --consensus-threshold 2"

@@ -285,8 +285,8 @@ var DefaultExcludedPatterns = []string{
 // Priority: flags > env > yaml > defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		Model:            "gemini-2.5-flash",
-		GCPLocation:      "us-central1",
+		Model:            "gemini-3.8-flash",
+		GCPLocation:      "global",
 		Focus:            []string{"all"},
 		MinSeverity:      SeverityLow,
 		CommentMode:      CommentModeNotes,
@@ -746,7 +746,7 @@ func (c *Config) loadFlags() error {
 	cacheDir := fs.String("cache-dir", "", "Cache directory")
 	noCache := fs.Bool("no-cache", false, "Disable caching")
 
-	model := fs.String("model", "", "Vertex AI model ID (e.g., gemini-2.5-flash, claude-sonnet-4)")
+	model := fs.String("model", "", "Vertex AI model ID (e.g., gemini-3.8-flash, claude-sonnet-5)")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")

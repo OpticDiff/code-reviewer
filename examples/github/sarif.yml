@@ -50,7 +50,7 @@ jobs:
         id: review
         uses: OpticDiff/code-reviewer-action@v1
         with:
-          model: gemini-2.5-flash
+          model: gemini-3.8-flash
           extra-args: "--focus security --sarif results.sarif"
         env:
           GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}

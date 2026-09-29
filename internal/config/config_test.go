@@ -102,11 +102,11 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("Load() unexpected error: %v", err)
 	}
 
-	if cfg.Model != "gemini-2.5-flash" {
-		t.Errorf("Model = %q, want %q", cfg.Model, "gemini-2.5-flash")
+	if cfg.Model != "gemini-3.8-flash" {
+		t.Errorf("Model = %q, want %q", cfg.Model, "gemini-3.8-flash")
 	}
-	if cfg.GCPLocation != "us-central1" {
-		t.Errorf("GCPLocation = %q, want %q", cfg.GCPLocation, "us-central1")
+	if cfg.GCPLocation != "global" {
+		t.Errorf("GCPLocation = %q, want %q", cfg.GCPLocation, "global")
 	}
 	if len(cfg.Focus) != 1 || cfg.Focus[0] != "all" {
 		t.Errorf("Focus = %v, want [all]", cfg.Focus)

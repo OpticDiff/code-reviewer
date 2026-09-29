@@ -57,9 +57,9 @@ Quick-start examples for integrating code-reviewer into your CI/CD pipeline and 
 
 | Tier | Model | Provider / Engine | Recommended For | Strengths & Trade-offs |
 |---|---|---|---|---|
-| **Tier 1: Recommended** | `gemini-2.5-flash` | Google Vertex AI | Default choice for CI/CD PR/MR reviews | **Fastest, highly cost-effective, 1M+ context window**. Exceptional balance of speed and code reasoning. |
-| **Tier 1: Deep Analysis** | `gemini-2.5-pro` | Google Vertex AI | Deep security audits, complex refactoring | **Highest reasoning depth**, unmatched context comprehension across complex multi-file changes. |
-| **Tier 1: Code Specialist** | `claude-sonnet-4` | Vertex AI / Bedrock | Code quality, subtle bug detection, consensus pairs | **Premier code analysis quality**, highly accurate suggestion blocks; great pairing with Gemini in consensus mode. |
+| **Tier 1: Recommended** | `gemini-3.8-flash` | Google Vertex AI | Default choice for CI/CD PR/MR reviews | **Fastest, highly cost-effective, 1M+ context window**. Exceptional balance of speed and code reasoning. |
+| **Tier 1: Deep Analysis** | `gemini-3.1-pro-preview` | Google Vertex AI | Deep security audits, complex refactoring | **Highest reasoning depth**, unmatched context comprehension across complex multi-file changes. |
+| **Tier 1: Code Specialist** | `claude-sonnet-5` | Vertex AI / Bedrock | Code quality, subtle bug detection, consensus pairs | **Premier code analysis quality**, highly accurate suggestion blocks; great pairing with Gemini in consensus mode. |
 | **Tier 2: Self-Hosted (Large)** | `qwen3:32b` / `qwen2.5-coder:32b` | Ollama / vLLM (On-Prem) | Air-gapped / Private deployments | **Strong code intelligence without cloud egress**. Requires dedicated GPU host (24GB+ VRAM). |
 | **Tier 2: Self-Hosted (Cloud)** | `gemma-3-27b` | Cloud Run / vLLM | Self-hosted cloud instances | Good balance of latency and inference cost for private VPC inference. |
 | **Tier 3: Demo & Local Triage** | `qwen3:8b` / `qwen2.5-coder:7b` | Ollama / Local CPU/GPU | Local developer testing, quick CI smoke tests | **Lightweight, runs on laptops / standard CI runners**. Lower reasoning depth; may yield more false positives than 32B+ models. |

@@ -3,6 +3,7 @@ package diff
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // ChunkStrategy defines how large diffs are split to fit within model context windows.
@@ -99,7 +100,7 @@ func (e *DiffTooLargeError) Error() string {
 			"  Files: %d\n\n"+
 			"Options:\n"+
 			"  --chunk-strategy split     Auto-split into review chunks\n"+
-			"  --model gemini-2.5-flash   Use a model with larger context (1M tokens)\n"+
+			"  --model gemini-3.8-flash   Use a model with larger context (1M tokens)\n"+
 			"  --excluded-patterns \"...\"  Exclude generated/vendored files",
 		e.EstimatedTokens, e.TokenLimit, e.FileCount,
 	)
@@ -129,20 +130,50 @@ func estimateFileDiffTokens(d *FileDiff) int {
 // ModelTokenLimits maps known model names to their approximate context window sizes.
 // These are conservative estimates leaving room for the system prompt and response.
 var ModelTokenLimits = map[string]int{
-	"gemini-2.5-flash":  1000000,
-	"gemini-2.5-pro":    1000000,
-	"gemini-2.0-flash":  1000000,
+	// Gemini 3.x (1,048,576-token context window).
+	"gemini-3.8-flash":       1000000,
+	"gemini-3.7-flash":       1000000,
+	"gemini-3.6-flash":       1000000,
+	"gemini-3.5-flash":       1000000,
+	"gemini-3.5-flash-lite":  1000000,
+	"gemini-3.1-flash-lite":  1000000,
+	"gemini-3.1-pro-preview": 1000000,
+	"gemini-3-flash-preview": 1000000,
+
+	// Gemini 2.5.
+	"gemini-2.5-flash": 1000000,
+	"gemini-2.5-pro":   1000000,
+
+	// Claude. Vertex AI uses the same IDs; dated snapshots add an "@<date>" suffix.
+	"claude-fable-5-1":  1000000,
+	"claude-fable-5":    1000000,
+	"claude-opus-5":     1000000,
+	"claude-opus-4-8":   1000000,
+	"claude-opus-4-7":   1000000,
+	"claude-opus-4-6":   1000000,
+	"claude-sonnet-5":   1000000,
+	"claude-sonnet-4-6": 1000000,
+	"claude-haiku-4-5":  200000,
+
+	// Earlier names, kept so existing configs resolve the same limit.
 	"claude-sonnet-4":   200000,
 	"claude-sonnet-4.5": 200000,
 	"claude-opus-4":     200000,
 	"claude-haiku-4.5":  200000,
-	"mistral-medium-3":  128000,
+
+	"mistral-medium-3": 128000,
 }
 
 // TokenLimitForModel returns the token limit for a model, or a conservative default.
+// A Vertex AI snapshot suffix such as "claude-haiku-4-5@20251001" resolves to its base model.
 func TokenLimitForModel(model string) int {
 	if limit, ok := ModelTokenLimits[model]; ok {
 		return limit
+	}
+	if base, _, found := strings.Cut(model, "@"); found {
+		if limit, ok := ModelTokenLimits[base]; ok {
+			return limit
+		}
 	}
 	// Conservative default for unknown models.
 	return 128000

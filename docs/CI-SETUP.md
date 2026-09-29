@@ -63,7 +63,7 @@ security-review:
   variables:
     GOOGLE_CLOUD_PROJECT: "my-gcp-project"
     GITLAB_TOKEN: $CODE_REVIEWER_TOKEN   # PAT with api scope
-    REVIEW_MODEL: "gemini-2.5-pro"
+    REVIEW_MODEL: "gemini-3.1-pro-preview"
     REVIEW_FOCUS: "security"
     REVIEW_MIN_SEVERITY: "high"
     REVIEW_COMMENT_MODE: "discussions"
@@ -88,7 +88,7 @@ security-review:
   variables:
     GOOGLE_CLOUD_PROJECT: "my-gcp-project"
     GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
-    REVIEW_MODEL: "gemini-2.5-pro"
+    REVIEW_MODEL: "gemini-3.1-pro-preview"
     REVIEW_FOCUS: "security"
     REVIEW_MIN_SEVERITY: "high"
     REVIEW_COMMENT_MODE: "discussions"
@@ -115,7 +115,7 @@ consensus-review:
   variables:
     GOOGLE_CLOUD_PROJECT: "my-gcp-project"
     GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
-    REVIEW_MODELS: "gemini-2.5-flash,claude-sonnet-4"
+    REVIEW_MODELS: "gemini-3.8-flash,claude-sonnet-5"
     REVIEW_COMMENT_MODE: "discussions"
   script:
     - code-reviewer --ci --incremental
@@ -333,7 +333,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | — | `--ci` | — | `false` | Run in GitLab CI mode (auto-detect MR from env) |
 | — | `--diff [ref]` | — | — | Review local git diff (default ref: `origin/HEAD`) |
 | — | `--files f1,f2` | — | — | Review specific files |
-| `model` | `--model` | `REVIEW_MODEL` | `gemini-2.5-flash` | Vertex AI model ID |
+| `model` | `--model` | `REVIEW_MODEL` | `gemini-3.8-flash` | Vertex AI model ID |
 | — | `--models` | `REVIEW_MODELS` | — | Comma-separated models for multi-model consensus |
 | — | `--consensus-threshold` | — | `2` | Min models that must agree on a finding |
 | `focus` | `--focus` | `REVIEW_FOCUS` | `all` | Review focus areas (comma-separated) |
@@ -355,7 +355,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `proxy_url` | `--proxy-url` | `REVIEW_PROXY_URL` | — | LLM proxy URL (e.g., Candela) |
 | `excluded_patterns` | — | `EXCLUDED_PATTERNS` | `go.sum,*.lock,vendor/*` | Glob patterns to exclude from review |
 | — | — | `GOOGLE_CLOUD_PROJECT` | **Required**† | GCP project for Vertex AI |
-| — | — | `GOOGLE_CLOUD_LOCATION` | `us-central1` | GCP region |
+| — | — | `GOOGLE_CLOUD_LOCATION` | `global` | GCP region |
 | — | — | `GITLAB_TOKEN` | Required in CI | GitLab API token |
 | — | — | `GITLAB_BASE_URL` | `https://gitlab.com` | GitLab API base URL |
 
@@ -366,7 +366,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 Create `.code-reviewer.yaml` (or `.code-reviewer.yml`) in your repo root:
 
 ```yaml
-model: gemini-2.5-flash
+model: gemini-3.8-flash
 focus: [bugs, security]
 min_severity: low
 comment_mode: discussions
@@ -481,7 +481,7 @@ This typically means the model returned no text content. Possible causes:
 **Fix:** Try with a different model or reduce the diff size:
 
 ```bash
-code-reviewer --diff --model gemini-2.5-pro --chunk-strategy split
+code-reviewer --diff --model gemini-3.1-pro-preview --chunk-strategy split
 ```
 
 ### HTTPS Required for GitLab

@@ -38,7 +38,7 @@
   variables:
     # Google Cloud defaults (can be overridden in child job)
     GOOGLE_CLOUD_PROJECT: "my-gcp-project"
-    GOOGLE_CLOUD_LOCATION: "us-central1"
+    GOOGLE_CLOUD_LOCATION: "global"
 
     # Default authentication uses CI_JOB_TOKEN for notes mode
     # Override with $CODE_REVIEWER_TOKEN for inline discussions mode
@@ -46,7 +46,7 @@
     REVIEW_COMMENT_MODE: "notes"
 
     # Review tuning
-    REVIEW_MODEL: "gemini-2.5-flash"
+    REVIEW_MODEL: "gemini-3.8-flash"
     REVIEW_FOCUS: "all"
     REVIEW_MIN_SEVERITY: "low"
     REVIEW_CHUNK_STRATEGY: "split"
