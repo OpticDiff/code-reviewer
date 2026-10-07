@@ -287,7 +287,7 @@ func TestPostReview_PassesSuggestionAndCleanupMode(t *testing.T) {
 			}
 			version := &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"}
 
-			if err := PostReview(context.Background(), cfg, mockClient, result, version, nil, ""); err != nil {
+			if err := PostReview(context.Background(), cfg, mockClient, result, nil, version, nil, ""); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
@@ -513,7 +513,7 @@ func TestPostReview_BuildsSubmitRequest(t *testing.T) {
 		ID: 1, HeadSHA: "head", BaseSHA: "base", StartSHA: "start",
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, version, nil, "")
+	err := PostReview(context.Background(), cfg, mockClient, result, nil, version, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -553,7 +553,7 @@ func TestPostReview_NotesMode_NoComments(t *testing.T) {
 		},
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil, "")
+	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestPostReview_UpdateDescription(t *testing.T) {
 		Summary: "Summary update",
 	}
 
-	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil, "")
+	err := PostReview(context.Background(), cfg, mockClient, result, nil, nil, nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -593,5 +593,39 @@ func TestPostReview_UpdateDescription(t *testing.T) {
 	}
 	if !strings.Contains(mockClient.setDescriptionVal, "Summary update") {
 		t.Errorf("expected description to contain summary, got %q", mockClient.setDescriptionVal)
+	}
+}
+
+func TestPostReview_SetsOldLineForUnchangedLines(t *testing.T) {
+	diffs := mustParseDiff(t, contextFirstDiff)
+	mockClient := &outputMockVCS{}
+	cfg := &config.Config{
+		CIProjectID:      "proj",
+		CIMergeRequestID: "1",
+		CommentMode:      config.CommentModeDiscussions,
+	}
+	result := &model.ReviewResult{
+		Summary: "Review",
+		Findings: []model.Finding{
+			{File: "conf.yaml", Line: 27, Severity: "HIGH", Title: "on context", Body: "b"},
+			{File: "conf.yaml", Line: 28, Severity: "HIGH", Title: "on added", Body: "b"},
+			{File: "conf.yaml", Line: 30, Severity: "HIGH", Title: "on shifted context", Body: "b"},
+		},
+	}
+	version := &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"}
+
+	if err := PostReview(context.Background(), cfg, mockClient, result, diffs, version, nil, ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	comments := mockClient.submitReviewReq.Comments
+	if len(comments) != 3 {
+		t.Fatalf("expected 3 comments, got %d", len(comments))
+	}
+	wantOld := []int{27, 0, 29}
+	for i, c := range comments {
+		if c.OldLine != wantOld[i] {
+			t.Errorf("comment[%d] (line %d) OldLine = %d, want %d", i, c.Line, c.OldLine, wantOld[i])
+		}
 	}
 }

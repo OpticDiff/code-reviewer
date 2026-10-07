@@ -18,12 +18,12 @@ func mustParseDiff(t *testing.T, raw string) []diff.FileDiff {
 }
 
 // A hunk whose first line is unchanged context, followed by additions and a
-// removal. Old lines 27-32 map to new lines 27-29 and 32-34 around the edits.
+// removal, so old line 29 is new line 30.
 const contextFirstDiff = `diff --git a/conf.yaml b/conf.yaml
 index 1111111..2222222 100644
 --- a/conf.yaml
 +++ b/conf.yaml
-@@ -27,4 +27,6 @@ section
+@@ -27,4 +27,5 @@ section
  unchanged-a
 +added-b
 +added-c
@@ -112,5 +112,28 @@ func TestConfigAnchorLine_IsValidatedFindingLine(t *testing.T) {
 	got := ValidateFindings([]model.Finding{f}, diffs)
 	if len(got) != 1 || got[0].Line != 28 {
 		t.Fatalf("expected the finding to survive validation on line 28, got %+v", got)
+	}
+}
+
+func TestOldLineFor(t *testing.T) {
+	diffs := mustParseDiff(t, contextFirstDiff)
+	tests := []struct {
+		name string
+		path string
+		line int
+		want int
+	}{
+		{"unchanged line before the edits maps to itself", "conf.yaml", 27, 27},
+		{"added line has no old counterpart", "conf.yaml", 28, 0},
+		{"unchanged line after an addition and a removal is offset", "conf.yaml", 30, 29},
+		{"line outside every hunk", "conf.yaml", 99, 0},
+		{"file not in diff", "other.yaml", 27, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := oldLineFor(diffs, tt.path, tt.line); got != tt.want {
+				t.Errorf("oldLineFor(%q, %d) = %d, want %d", tt.path, tt.line, got, tt.want)
+			}
+		})
 	}
 }

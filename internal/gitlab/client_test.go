@@ -1550,3 +1550,99 @@ func TestSubmitReview_SingleLineSuggestion(t *testing.T) {
 		t.Errorf("draft missing single line suggestion format: %s", gotDraft)
 	}
 }
+
+// positionOf decodes the "position" object of a draft note or discussion body.
+func positionOf(t *testing.T, body []byte) map[string]any {
+	t.Helper()
+	var payload struct {
+		Position map[string]any `json:"position"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("decoding request body %s: %v", body, err)
+	}
+	return payload.Position
+}
+
+func TestSubmitReview_InlinePositionLineNumbers(t *testing.T) {
+	// GitLab requires both old_line and new_line for an unchanged line,
+	// new_line only for an added line.
+	tests := []struct {
+		name        string
+		comment     vcs.ReviewComment
+		wantNewLine float64
+		wantOldLine float64 // 0 means the key must be absent.
+	}{
+		{
+			name:        "added line sends new_line only",
+			comment:     vcs.ReviewComment{Path: "a.go", Line: 28, Body: "x"},
+			wantNewLine: 28,
+		},
+		{
+			name:        "unchanged line sends old_line and new_line",
+			comment:     vcs.ReviewComment{Path: "a.go", Line: 27, OldLine: 24, Body: "x"},
+			wantNewLine: 27,
+			wantOldLine: 24,
+		},
+	}
+
+	for _, tt := range tests {
+		for _, path := range []string{"draft_notes", "individual_comments"} {
+			t.Run(tt.name+"/"+path, func(t *testing.T) {
+				var got map[string]any
+				var mu sync.Mutex
+
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					defer mu.Unlock()
+					w.Header().Set("Content-Type", "application/json")
+					body, _ := io.ReadAll(r.Body)
+					switch {
+					case r.Method == http.MethodGet:
+						_, _ = w.Write([]byte(`[]`))
+					case strings.Contains(r.URL.Path, "/draft_notes") && !strings.Contains(r.URL.Path, "bulk_publish"):
+						if path == "individual_comments" {
+							w.WriteHeader(http.StatusNotFound)
+							return
+						}
+						if pos := positionOf(t, body); pos != nil {
+							got = pos
+						}
+						_, _ = w.Write([]byte(`{"id":1}`))
+					case strings.Contains(r.URL.Path, "/discussions"):
+						got = positionOf(t, body)
+						_, _ = w.Write([]byte(`{}`))
+					default:
+						_, _ = w.Write([]byte(`{"id":1}`))
+					}
+				}))
+				defer srv.Close()
+
+				client := NewClient(srv.URL, "token")
+				req := vcs.SubmitReviewRequest{
+					Summary:  "Review",
+					Version:  &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"},
+					Comments: []vcs.ReviewComment{tt.comment},
+				}
+				if err := client.SubmitReview(context.Background(), "proj", "1", req); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				mu.Lock()
+				defer mu.Unlock()
+				if got == nil {
+					t.Fatal("no inline position was sent")
+				}
+				if got["new_line"] != tt.wantNewLine {
+					t.Errorf("new_line = %v, want %v", got["new_line"], tt.wantNewLine)
+				}
+				oldLine, hasOld := got["old_line"]
+				if tt.wantOldLine == 0 && hasOld {
+					t.Errorf("old_line = %v, want it omitted", oldLine)
+				}
+				if tt.wantOldLine != 0 && oldLine != tt.wantOldLine {
+					t.Errorf("old_line = %v, want %v", oldLine, tt.wantOldLine)
+				}
+			})
+		}
+	}
+}

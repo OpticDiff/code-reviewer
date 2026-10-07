@@ -34,3 +34,22 @@ func configAnchorLine(diffs []diff.FileDiff, path string) int {
 	}
 	return 1
 }
+
+// oldLineFor returns the pre-change line number of the unchanged (context)
+// line at new-side line number line in the file at path. It returns 0 when the
+// line is not an unchanged line of that file's diff, for example an added line.
+func oldLineFor(diffs []diff.FileDiff, path string, line int) int {
+	for _, d := range diffs {
+		if d.NewPath != path && d.OldPath != path {
+			continue
+		}
+		for _, h := range d.Hunks {
+			for _, l := range h.Lines {
+				if l.Type == diff.LineContext && l.NewLineNo == line {
+					return l.OldLineNo
+				}
+			}
+		}
+	}
+	return 0
+}

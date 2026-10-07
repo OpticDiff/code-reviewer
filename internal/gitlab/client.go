@@ -470,6 +470,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 					StartSHA:     req.Version.StartSHA,
 					NewPath:      comment.Path,
 					OldPath:      comment.Path,
+					OldLine:      oldLinePtr(comment),
 					NewLine:      &newLine,
 				},
 			}
@@ -506,6 +507,16 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 		"drafts_failed", draftsFailed,
 	)
 	return nil
+}
+
+// oldLinePtr returns the comment's pre-change line number, or nil for an added
+// line. GitLab requires both old_line and new_line to anchor a note on an
+// unchanged line, and rejects the position when old_line is missing.
+func oldLinePtr(comment vcs.ReviewComment) *int {
+	if comment.OldLine <= 0 {
+		return nil
+	}
+	return &comment.OldLine
 }
 
 // submitViaIndividualComments is the legacy path: PostNote + N×CreateDiscussion.
@@ -545,6 +556,7 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 					StartSHA: req.Version.StartSHA,
 					NewPath:  comment.Path,
 					OldPath:  comment.Path,
+					OldLine:  oldLinePtr(comment),
 					NewLine:  &newLine,
 				},
 			}
