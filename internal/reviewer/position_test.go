@@ -82,17 +82,17 @@ deleted file mode 100644
 			raw: `diff --git a/conf.yaml b/conf.yaml
 --- a/conf.yaml
 +++ b/conf.yaml
-@@ -1,2 +1,2 @@
+@@ -1,3 +1,2 @@
  ctx
 -old
-+new
-@@ -40,2 +40,3 @@
+ ctx2
+@@ -40,2 +39,3 @@
  ctx
 +later
  ctx
 `,
 			path: "conf.yaml",
-			want: 2,
+			want: 40,
 		},
 	}
 	for _, tt := range tests {
@@ -135,5 +135,91 @@ func TestOldLineFor(t *testing.T) {
 				t.Errorf("oldLineFor(%q, %d) = %d, want %d", tt.path, tt.line, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestOldLineFor_MultipleHunksWithDifferentOffsets(t *testing.T) {
+	diffs := mustParseDiff(t, `diff --git a/f.go b/f.go
+--- a/f.go
++++ b/f.go
+@@ -1,3 +1,4 @@
+ a
++b
+ c
+ d
+@@ -20,3 +21,3 @@
+ e
+-f
++g
+ h
+`)
+	tests := []struct {
+		line int
+		want int
+	}{
+		{1, 1},   // first hunk, before the addition
+		{4, 3},   // first hunk, after one added line
+		{21, 20}, // second hunk, shifted by the first hunk's addition
+		{23, 22}, // second hunk, after the replaced line
+		{22, 0},  // added line
+	}
+	for _, tt := range tests {
+		if got := oldLineFor(diffs, "f.go", tt.line); got != tt.want {
+			t.Errorf("oldLineFor(f.go, %d) = %d, want %d", tt.line, got, tt.want)
+		}
+	}
+}
+
+const renameDiff = `diff --git a/old.yaml b/new.yaml
+similarity index 80%
+rename from old.yaml
+rename to new.yaml
+--- a/old.yaml
++++ b/new.yaml
+@@ -5,3 +5,4 @@
+ keep
++added
+ keep-too
+ tail
+`
+
+func TestOldPathAndOldLineFor_Rename(t *testing.T) {
+	diffs := mustParseDiff(t, renameDiff)
+	if got := oldPathFor(diffs, "new.yaml"); got != "old.yaml" {
+		t.Errorf("oldPathFor(new.yaml) = %q, want old.yaml", got)
+	}
+	if got := oldLineFor(diffs, "new.yaml", 5); got != 5 {
+		t.Errorf("oldLineFor(new.yaml, 5) = %d, want 5", got)
+	}
+	if got := oldPathFor(mustParseDiff(t, contextFirstDiff), "conf.yaml"); got != "" {
+		t.Errorf("oldPathFor for an unrenamed file = %q, want empty", got)
+	}
+}
+
+func TestOldLineFor_PrefersNewPathOverOldPath(t *testing.T) {
+	// a.txt is renamed to b.txt, and a new a.txt is added.
+	diffs := mustParseDiff(t, `diff --git a/a.txt b/b.txt
+similarity index 80%
+rename from a.txt
+rename to b.txt
+--- a/a.txt
++++ b/b.txt
+@@ -10,2 +11,3 @@
+ x
++y
+ z
+diff --git a/a.txt b/a.txt
+new file mode 100644
+--- /dev/null
++++ b/a.txt
+@@ -0,0 +1,2 @@
++one
++two
+`)
+	if got := oldLineFor(diffs, "a.txt", 1); got != 0 {
+		t.Errorf("oldLineFor(a.txt, 1) = %d, want 0 (added line of the new file)", got)
+	}
+	if got := oldPathFor(diffs, "a.txt"); got != "" {
+		t.Errorf("oldPathFor(a.txt) = %q, want empty", got)
 	}
 }

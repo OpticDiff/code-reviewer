@@ -469,7 +469,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 					HeadSHA:      req.Version.HeadSHA,
 					StartSHA:     req.Version.StartSHA,
 					NewPath:      comment.Path,
-					OldPath:      comment.Path,
+					OldPath:      oldPathOf(comment),
 					OldLine:      oldLinePtr(comment),
 					NewLine:      &newLine,
 				},
@@ -507,6 +507,15 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 		"drafts_failed", draftsFailed,
 	)
 	return nil
+}
+
+// oldPathOf returns the path the comment's file had before the change: the
+// pre-rename path for a renamed file, the file's own path otherwise.
+func oldPathOf(comment vcs.ReviewComment) string {
+	if comment.OldPath != "" {
+		return comment.OldPath
+	}
+	return comment.Path
 }
 
 // oldLinePtr returns the comment's pre-change line number, or nil for an added
@@ -555,7 +564,7 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 					HeadSHA:  req.Version.HeadSHA,
 					StartSHA: req.Version.StartSHA,
 					NewPath:  comment.Path,
-					OldPath:  comment.Path,
+					OldPath:  oldPathOf(comment),
 					OldLine:  oldLinePtr(comment),
 					NewLine:  &newLine,
 				},

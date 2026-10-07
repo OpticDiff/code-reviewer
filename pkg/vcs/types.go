@@ -73,6 +73,7 @@ type InlineCommentRequest struct {
 type ReviewComment struct {
 	Path       string // File path relative to repo root.
 	Line       int    // Start line (or single line), as a new-side line number.
+	OldPath    string // Pre-rename path when the file was renamed; empty otherwise.
 	OldLine    int    // Pre-change line number when Line is an unchanged context line; 0 for an added line.
 	EndLine    int    // End line (0 means single-line comment).
 	Body       string // Pre-formatted markdown body.

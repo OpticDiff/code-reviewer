@@ -607,7 +607,7 @@ skipAgent:
 			result.Summary = FormatScopeMarkdown(scopeAssessment) + result.Summary
 		}
 
-		if err := PostReview(ctx, r.cfg, r.glClient, result, diffs, version, incrementalChangedFiles, r.cfg.Profile); err != nil {
+		if err := PostReview(ctx, r.cfg, r.glClient, result, auditDiffs, version, incrementalChangedFiles, r.cfg.Profile); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
 

@@ -1571,17 +1571,27 @@ func TestSubmitReview_InlinePositionLineNumbers(t *testing.T) {
 		comment     vcs.ReviewComment
 		wantNewLine float64
 		wantOldLine float64 // 0 means the key must be absent.
+		wantOldPath string
 	}{
 		{
 			name:        "added line sends new_line only",
 			comment:     vcs.ReviewComment{Path: "a.go", Line: 28, Body: "x"},
 			wantNewLine: 28,
+			wantOldPath: "a.go",
 		},
 		{
 			name:        "unchanged line sends old_line and new_line",
 			comment:     vcs.ReviewComment{Path: "a.go", Line: 27, OldLine: 24, Body: "x"},
 			wantNewLine: 27,
 			wantOldLine: 24,
+			wantOldPath: "a.go",
+		},
+		{
+			name:        "renamed file sends the pre-rename path as old_path",
+			comment:     vcs.ReviewComment{Path: "new.go", OldPath: "old.go", Line: 27, OldLine: 24, Body: "x"},
+			wantNewLine: 27,
+			wantOldLine: 24,
+			wantOldPath: "old.go",
 		},
 	}
 
@@ -1641,6 +1651,9 @@ func TestSubmitReview_InlinePositionLineNumbers(t *testing.T) {
 				}
 				if tt.wantOldLine != 0 && oldLine != tt.wantOldLine {
 					t.Errorf("old_line = %v, want %v", oldLine, tt.wantOldLine)
+				}
+				if got["old_path"] != tt.wantOldPath {
+					t.Errorf("old_path = %v, want %v", got["old_path"], tt.wantOldPath)
 				}
 			})
 		}

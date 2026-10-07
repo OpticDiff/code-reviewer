@@ -629,3 +629,36 @@ func TestPostReview_SetsOldLineForUnchangedLines(t *testing.T) {
 		}
 	}
 }
+
+func TestPostReview_RenamedFileCarriesOldPath(t *testing.T) {
+	diffs := mustParseDiff(t, renameDiff)
+	mockClient := &outputMockVCS{}
+	cfg := &config.Config{
+		CIProjectID:      "proj",
+		CIMergeRequestID: "1",
+		CommentMode:      config.CommentModeDiscussions,
+	}
+	result := &model.ReviewResult{
+		Summary: "Review",
+		Findings: []model.Finding{
+			{File: "new.yaml", Line: 5, Severity: "HIGH", Title: "on context", Body: "b"},
+			{File: "new.yaml", Line: 6, Severity: "HIGH", Title: "on added", Body: "b"},
+		},
+	}
+	version := &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"}
+
+	if err := PostReview(context.Background(), cfg, mockClient, result, diffs, version, nil, ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	comments := mockClient.submitReviewReq.Comments
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(comments))
+	}
+	if comments[0].OldPath != "old.yaml" || comments[0].OldLine != 5 {
+		t.Errorf("context comment = old %s:%d, want old.yaml:5", comments[0].OldPath, comments[0].OldLine)
+	}
+	if comments[1].OldPath != "old.yaml" || comments[1].OldLine != 0 {
+		t.Errorf("added comment = old %s:%d, want old.yaml:0", comments[1].OldPath, comments[1].OldLine)
+	}
+}
