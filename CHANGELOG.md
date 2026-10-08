@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.23.0] — 2026-10-08
 
 ### Added
+- `confidence_floor` configuration field, `--confidence-floor` CLI flag, and `REVIEW_CONFIDENCE_FLOOR` environment variable to change the 80% confidence threshold in the built-in system prompt. Unset keeps the prompt unchanged.
 - Explicit `token_limit` configuration field, `--token-limit` CLI flag, and `REVIEW_TOKEN_LIMIT` environment variable to override context window limits for diff chunking without code changes.
 
 ### Changed

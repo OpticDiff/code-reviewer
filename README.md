@@ -336,6 +336,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--comment-mode` | `notes` or `discussions` | `notes` |
 | `--chunk-strategy` | `fail` or `split` | `fail` |
 | `--token-limit` | Context window token limit override (0 = use model default) | — |
+| `--confidence-floor` | Minimum model confidence percent (1-100) required to report a finding | `80` |
 | `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
 | `--extra-rules` | Additional prompt rules | — |
 | `--custom-prompt` | Path to custom system prompt file | — |
@@ -393,6 +394,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_COMMENT_MODE` | Comment mode | `notes` |
 | `REVIEW_CHUNK_STRATEGY` | Chunk strategy | `fail` |
 | `REVIEW_TOKEN_LIMIT` | Context window token limit override | — |
+| `REVIEW_CONFIDENCE_FLOOR` | Minimum model confidence percent (1-100) to report a finding | `80` |
 | `REVIEW_CONTEXT_FILES` | Directory-scoped guidance files, comma-separated | — |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
@@ -428,6 +430,7 @@ Create `.code-reviewer.yaml` in your repo root:
 ```yaml
 model: gemini-3.8-flash
 token_limit: 1000000     # Optional: explicit context window token limit override
+confidence_floor: 80     # Optional: minimum model confidence percent (1-100) to report a finding
 focus: [bugs, security]
 context_files: [AGENTS.md]   # Optional: include the nearest AGENTS.md for each changed directory
 min_severity: low

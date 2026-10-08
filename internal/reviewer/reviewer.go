@@ -388,6 +388,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Step 4: Build prompt and call model for each chunk.
 	systemPrompt := model.BuildPromptWithProfile(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, extraRules, intentContext, r.cfg.Profile)
+	systemPrompt = model.WithConfidenceFloor(systemPrompt, r.cfg.ConfidenceFloor)
 	var summary string
 
 	budgetExceeded := false

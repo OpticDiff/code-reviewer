@@ -134,6 +134,22 @@ Concentrate on documentation quality:
 - Are outdated comments updated to match the new code?`,
 }
 
+// defaultConfidenceFloor is the confidence percentage baked into basePrompt.
+const defaultConfidenceFloor = 80
+
+// WithConfidenceFloor rewrites the confidence threshold sentence of a built
+// prompt so the model omits findings below floor percent. A floor of 0 or the
+// built-in default returns the prompt unchanged. Custom prompts that do not
+// contain the built-in sentence are returned unchanged.
+func WithConfidenceFloor(prompt string, floor int) string {
+	if floor <= 0 || floor == defaultConfidenceFloor {
+		return prompt
+	}
+	return strings.Replace(prompt,
+		fmt.Sprintf("confidence below %d%%, omit the finding", defaultConfidenceFloor),
+		fmt.Sprintf("confidence below %d%%, omit the finding", floor), 1)
+}
+
 // BuildPrompt constructs the full system prompt for a review call.
 // Uses the built-in basePrompt as the system prompt.
 func BuildPrompt(focusModes []string, extraRules string) string {

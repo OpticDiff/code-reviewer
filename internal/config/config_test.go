@@ -1291,7 +1291,6 @@ func TestLoad_TokenLimitPrecedence(t *testing.T) {
 	}
 }
 
-
 func TestLoad_ContextFilesPrecedenceAndValidation(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
@@ -1334,5 +1333,81 @@ func TestLoad_ContextFilesPrecedenceAndValidation(t *testing.T) {
 	os.Args = []string{"code-reviewer", "--diff", "--context-files", "../secrets.md"}
 	if _, err := Load(); err == nil {
 		t.Error("expected validation error for context file name containing a path separator")
+	}
+}
+
+func TestLoad_ConfidenceFloorPrecedence(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), []byte("confidence_floor: 60\n"), 0o644); err != nil {
+		t.Fatalf("writing yaml: %v", err)
+	}
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	defer os.Chdir(oldDir) //nolint:errcheck
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	os.Args = []string{"code-reviewer", "--diff"}
+	t.Setenv("REVIEW_CONFIDENCE_FLOOR", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.ConfidenceFloor != 60 {
+		t.Errorf("ConfidenceFloor = %d, want 60 (from YAML)", cfg.ConfidenceFloor)
+	}
+
+	t.Setenv("REVIEW_CONFIDENCE_FLOOR", "70")
+	if cfg, err = Load(); err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.ConfidenceFloor != 70 {
+		t.Errorf("ConfidenceFloor = %d, want 70 (from env)", cfg.ConfidenceFloor)
+	}
+
+	os.Args = []string{"code-reviewer", "--diff", "--confidence-floor", "90"}
+	if cfg, err = Load(); err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.ConfidenceFloor != 90 {
+		t.Errorf("ConfidenceFloor = %d, want 90 (from flag)", cfg.ConfidenceFloor)
+	}
+}
+
+func TestLoad_ConfidenceFloorDefaultAndValidation(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_CONFIDENCE_FLOOR", "")
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	defer os.Chdir(oldDir) //nolint:errcheck
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	os.Args = []string{"code-reviewer", "--diff"}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.ConfidenceFloor != 0 {
+		t.Errorf("ConfidenceFloor = %d, want 0 (unset means the built-in 80)", cfg.ConfidenceFloor)
+	}
+
+	for _, bad := range []string{"101", "-5"} {
+		os.Args = []string{"code-reviewer", "--diff", "--confidence-floor=" + bad}
+		if _, err := Load(); err == nil {
+			t.Errorf("--confidence-floor=%s: want validation error, got nil", bad)
+		}
 	}
 }
