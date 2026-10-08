@@ -91,6 +91,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var totalUsage model.TokenUsage
 	var dedupedCount int
 	var cacheHits int
+	var agentVerdicts []FindingVerdict
 
 	start := time.Now()
 
@@ -110,6 +111,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		entry := buildAuditEntry(r.cfg, d, auditSkipped, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
 		entry.ProfileFilteredCount = r.profileFilteredCount
 		entry.SuggestionsDropped = r.suggestionsDropped
+		entry.AgentVerdicts = agentVerdicts
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -492,24 +494,25 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				Timeout:         r.cfg.AgentTimeout,
 				RepoRoot:        findRepoRoot(),
 			}
-			agentResult, err := RunAgentLoop(ctx, r.chatter, agentCfg, allFindings)
+			scoped, agentResult, err := runScopedAgentLoop(ctx, r.chatter, agentCfg, allFindings, r.cfg.AgentScope)
 			// Always aggregate usage, even on error (agent preserves accumulated tokens).
 			if agentResult != nil {
 				totalUsage.InputTokens += agentResult.Usage.InputTokens
 				totalUsage.OutputTokens += agentResult.Usage.OutputTokens
 				totalUsage.TotalTokens += agentResult.Usage.TotalTokens
+				agentVerdicts = agentResult.Verdicts
 			}
 			if err != nil {
 				slog.Warn("agent loop failed, using initial findings", "error", err)
-			} else {
+			} else if agentResult != nil {
 				slog.Info("agent loop completed",
 					"iterations", agentResult.Iterations,
 					"stop_reason", agentResult.StopReason,
 					"tools_used", agentResult.ToolCalls,
 					"findings_before", len(allFindings),
-					"findings_after", len(agentResult.Findings),
+					"findings_after", len(scoped),
 				)
-				allFindings = agentResult.Findings
+				allFindings = scoped
 			}
 		}
 	}

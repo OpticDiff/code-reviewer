@@ -202,6 +202,7 @@ type Config struct {
 	AgentLoop          bool          // Enable agent refinement loop.
 	AgentMaxIterations int           // Max refinement iterations (default 3).
 	AgentTimeout       time.Duration // Wall-clock timeout for agent loop (default 3m).
+	AgentScope         string        // Findings the agent loop examines: "all" (default) or "high_severity_only".
 
 	// Scope enforcement.
 	MaxFiles    int
@@ -280,6 +281,7 @@ type repoConfig struct {
 	AgentLoop                *bool    `yaml:"agent_loop"`
 	AgentMaxIterations       int      `yaml:"agent_max_iterations"`
 	AgentTimeout             string   `yaml:"agent_timeout"`
+	AgentScope               string   `yaml:"agent_scope"`
 
 	IntentChecks *model.IntentChecks `yaml:"intent_checks"`
 }
@@ -603,6 +605,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 		}
 		c.AgentTimeout = d
 	}
+	if rc.AgentScope != "" {
+		c.AgentScope = rc.AgentScope
+	}
 	return nil
 }
 
@@ -844,6 +849,7 @@ func (c *Config) loadFlags() error {
 	agent := fs.Bool("agent", false, "Enable agent refinement loop")
 	agentIterations := fs.Int("agent-iterations", 3, "Max agent refinement iterations")
 	agentTimeout := fs.Duration("agent-timeout", 3*time.Minute, "Agent loop timeout")
+	agentScope := fs.String("agent-scope", "", "Findings the agent loop examines: all (default) or high_severity_only")
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return err
@@ -1024,6 +1030,8 @@ func (c *Config) loadFlags() error {
 			c.AgentMaxIterations = *agentIterations
 		case "agent-timeout":
 			c.AgentTimeout = *agentTimeout
+		case "agent-scope":
+			c.AgentScope = *agentScope
 		}
 	})
 	// Apply agent defaults if not set by either flag or YAML.
@@ -1164,6 +1172,16 @@ func (c *Config) validate() error {
 				"--profile platform loaded 0 rules and 0 guidelines from %s; "+
 					"refusing to silently pass (fail-closed)", c.PlatformConfig)}
 		}
+	}
+
+	if c.AgentScope == "" {
+		c.AgentScope = "all"
+	}
+	switch c.AgentScope {
+	case "all", "high_severity_only":
+		// Valid.
+	default:
+		return &ConfigError{Err: fmt.Errorf("invalid agent scope %q: must be all or high_severity_only", c.AgentScope)}
 	}
 
 	// Validate platform visibility.

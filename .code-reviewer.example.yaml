@@ -125,6 +125,12 @@ extra_rules: |
 # When set, GOOGLE_CLOUD_PROJECT is not required.
 # api_url: http://localhost:11434/v1
 
+# Which findings the agent refinement loop (--agent) verifies with tool calls.
+# "all" (default) or "high_severity_only" to spend tokens only on HIGH and
+# CRITICAL findings. Has no effect unless the loop is enabled (--agent or
+# agent_loop: true). Verdicts are recorded in the audit log.
+# agent_scope: high_severity_only
+
 # NOTE: The following settings are CLI/env-only and cannot be set in YAML:
 #   --models / --consensus-threshold (multi-model consensus)
 #   --api-key / REVIEW_API_KEY

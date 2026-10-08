@@ -1411,3 +1411,59 @@ func TestLoad_ConfidenceFloorDefaultAndValidation(t *testing.T) {
 		}
 	}
 }
+
+// loadWithAgentScope runs Load() with the given YAML body and CLI args.
+func loadWithAgentScope(t *testing.T, yamlBody string, args ...string) (*Config, error) {
+	t.Helper()
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	os.Args = append([]string{"code-reviewer", "--diff"}, args...)
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), []byte(yamlBody), 0o644); err != nil {
+		t.Fatalf("writing yaml: %v", err)
+	}
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	t.Cleanup(func() { os.Chdir(oldDir) }) //nolint:errcheck
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	return Load()
+}
+
+func TestLoad_AgentScope(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		args    []string
+		want    string
+		wantErr bool
+	}{
+		{name: "default is all", want: "all"},
+		{name: "yaml", yaml: "agent_scope: high_severity_only\n", want: "high_severity_only"},
+		{name: "flag overrides yaml", yaml: "agent_scope: all\n", args: []string{"--agent-scope", "high_severity_only"}, want: "high_severity_only"},
+		{name: "composes with --agent", args: []string{"--agent", "--agent-scope=high_severity_only"}, want: "high_severity_only"},
+		{name: "invalid", yaml: "agent_scope: some\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := loadWithAgentScope(t, tt.yaml, tt.args...)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("Load() succeeded, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() unexpected error: %v", err)
+			}
+			if cfg.AgentScope != tt.want {
+				t.Errorf("AgentScope = %q, want %q", cfg.AgentScope, tt.want)
+			}
+		})
+	}
+}
