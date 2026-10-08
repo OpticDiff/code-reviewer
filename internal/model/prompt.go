@@ -356,6 +356,11 @@ func BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff string, snippets [
 // BuildIntentContext generates an intent context prompt section from a SummaryResult.
 // This is injected into the review prompt during two-pass intent-aware review.
 func BuildIntentContext(intent *SummaryResult) string {
+	return BuildIntentContextWithChecks(intent, IntentChecks{})
+}
+
+// BuildIntentContextWithChecks is BuildIntentContext with configurable rule severities.
+func BuildIntentContextWithChecks(intent *SummaryResult, checks IntentChecks) string {
 	if intent == nil {
 		return ""
 	}
@@ -383,23 +388,35 @@ func BuildIntentContext(intent *SummaryResult) string {
 	sb.WriteString("Given the inferred intent above, apply these additional checks:\n\n")
 
 	// Scope creep detection (always active).
-	if len(intent.ScopeAreas) > 0 {
-		fmt.Fprintf(&sb, "* SCOPE CREEP: Flag any file changes that fall OUTSIDE the stated scope areas (%s). Report as category \"scope\" with severity MEDIUM.\n", strings.Join(intent.ScopeAreas, ", "))
+	if sev := checks.ScopeCreep.mustLevel("MEDIUM"); len(intent.ScopeAreas) > 0 && sev != "" {
+		fmt.Fprintf(&sb, "* SCOPE CREEP: Flag any file changes that fall OUTSIDE the stated scope areas (%s). Report as category \"scope\" with severity %s.\n", strings.Join(intent.ScopeAreas, ", "), sev)
 	}
 
 	// Classification-specific rules.
 	switch intent.Classification {
 	case "feat":
-		sb.WriteString("* TEST COVERAGE: This is a feature change. If new behavior is introduced without corresponding test files or test functions, report as category \"scope\" with severity HIGH and title \"New feature missing test coverage\".\n")
+		sev := checks.MissingTests.mustLevel("HIGH")
+		if checks.StackAware && checks.Stacked && sev != "" {
+			sev = "LOW" // Tests commonly land in a later merge request of the stack.
+		}
+		if sev != "" {
+			fmt.Fprintf(&sb, "* TEST COVERAGE: This is a feature change. If new behavior is introduced without corresponding test files or test functions, report as category \"scope\" with severity %s and title \"New feature missing test coverage\".\n", sev)
+		}
 	case "fix":
 		sb.WriteString("* ROOT CAUSE: This is a bug fix. Verify the fix addresses the root cause, not just symptoms. If the fix appears to be a workaround, report as category \"scope\" with severity MEDIUM.\n")
 	case "refactor":
-		sb.WriteString("* BEHAVIORAL PRESERVATION: This is a refactor. Verify no behavioral changes are introduced. If behavior changes, report as category \"scope\" with severity HIGH and title \"Refactor introduces behavioral change\".\n")
+		if sev := checks.BehaviourChange.mustLevel("HIGH"); sev != "" {
+			fmt.Fprintf(&sb, "* BEHAVIORAL PRESERVATION: This is a refactor. Verify no behavioral changes are introduced. If behavior changes, report as category \"scope\" with severity %s and title \"Refactor introduces behavioral change\".\n", sev)
+		}
 	}
 
 	// Breaking changes documentation check.
-	if len(intent.BreakingChanges) > 0 {
-		sb.WriteString("* BREAKING CHANGES: Breaking changes were detected. Verify each is documented in CHANGELOG, README, or migration guide. Report undocumented breaking changes as category \"scope\" with severity HIGH.\n")
+	if sev := checks.BreakingChanges.mustLevel("HIGH"); len(intent.BreakingChanges) > 0 && sev != "" {
+		where := "CHANGELOG, README, or migration guide"
+		if locs := checks.BreakingChanges.documentationLocations(); locs != "" {
+			where = locs
+		}
+		fmt.Fprintf(&sb, "* BREAKING CHANGES: Breaking changes were detected. Verify each is documented in %s. Report undocumented breaking changes as category \"scope\" with severity %s.\n", where, sev)
 	}
 
 	// Risk-level-specific rules.
