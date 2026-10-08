@@ -159,3 +159,13 @@ func TestAuditEntry_IncludesProfile(t *testing.T) {
 		t.Errorf("buildAuditEntry() profile = %q, want %q", entry.Profile, "platform")
 	}
 }
+
+func TestAuditEntry_SuggestionsDropped(t *testing.T) {
+	data, err := json.Marshal(AuditEntry{SuggestionsDropped: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte(`"suggestions_dropped":2`)) {
+		t.Errorf("audit entry missing suggestions_dropped: %s", data)
+	}
+}

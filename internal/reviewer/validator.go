@@ -58,7 +58,7 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 				// Fall back to ResolvePosition before dropping
 				if pos := ResolvePosition(parsedDiff, f); pos != nil {
 					f.File = pos.File
-					f.Line = pos.Line
+					reanchor(&f, pos.Line)
 					valid = append(valid, f)
 					continue
 				}
@@ -83,7 +83,7 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 			// Fall back to ResolvePosition before dropping
 			if pos := ResolvePosition(parsedDiff, f); pos != nil {
 				f.File = pos.File
-				f.Line = pos.Line
+				reanchor(&f, pos.Line)
 				valid = append(valid, f)
 				continue
 			}

@@ -26,6 +26,7 @@ type AuditEntry struct {
 	FindingsCount  int                `json:"findings_count"`
 	ProfileFilteredCount int          `json:"profile_filtered_count,omitempty"`
 	DedupedCount   int                `json:"deduped_count,omitempty"`
+	SuggestionsDropped int            `json:"suggestions_dropped,omitempty"`
 	CacheHits      int                `json:"cache_hits,omitempty"`
 	SeverityCounts map[string]int     `json:"severity_counts"`
 	Usage          *model.TokenUsage  `json:"usage,omitempty"`

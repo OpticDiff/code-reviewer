@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Explicit `token_limit` configuration field, `--token-limit` CLI flag, and `REVIEW_TOKEN_LIMIT` environment variable to override context window limits for diff chunking without code changes.
 
 ### Changed
+- Suggestions are checked against the diff before posting. A suggestion that repeats lines directly above or below its range, or whose range does not contain the code the finding quotes, is dropped; the finding is still posted and the count is recorded as `suggestions_dropped` in the audit log.
 - Default model is now `gemini-3.8-flash` and the default `GOOGLE_CLOUD_LOCATION` is `global`. `gemini-2.5-flash` retires on Vertex AI on 2026-10-20, and Gemini 3.x is not served from `us-central1`.
 - Token limits for the current Gemini 3.x and Claude models; `gemini-2.0-flash` (shut down) removed.
 
