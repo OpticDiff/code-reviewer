@@ -147,3 +147,36 @@ func TestWriteGitLabSAST_Empty(t *testing.T) {
 		t.Fatalf("Expected 0 vulnerabilities, got %d", len(report.Vulnerabilities))
 	}
 }
+
+func TestWriteGitLabSAST_SkipsRemovedLineFindings(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "sast.json")
+	result := &model.ReviewResult{Findings: []model.Finding{
+		{File: "a.go", Line: 5, Severity: "HIGH", Category: "bug", Title: "added"},
+		{File: "a.go", OldLine: 21, Severity: "HIGH", Category: "bug", Title: "guard removed"},
+		{File: "a.go", OldLine: 22, Severity: "HIGH", Category: "bug", Title: "guard removed"},
+	}}
+	if err := WriteGitLabSAST(outPath, "dev", result); err != nil {
+		t.Fatalf("WriteGitLabSAST failed: %v", err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report struct {
+		Vulnerabilities []struct {
+			Location struct {
+				StartLine int `json:"start_line"`
+				EndLine   int `json:"end_line"`
+			} `json:"location"`
+		} `json:"vulnerabilities"`
+	}
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Vulnerabilities) != 1 {
+		t.Fatalf("expected only the new-side finding, got %d", len(report.Vulnerabilities))
+	}
+	if loc := report.Vulnerabilities[0].Location; loc.StartLine != 5 || loc.EndLine != 5 {
+		t.Errorf("location = %+v, want lines 5-5", loc)
+	}
+}

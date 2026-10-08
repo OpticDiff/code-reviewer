@@ -161,3 +161,23 @@ func TestRunScopedAgentLoop_ChatErrorLeavesFindingsUnverified(t *testing.T) {
 		t.Fatalf("result = %+v, want one unverified verdict", res)
 	}
 }
+
+func TestValidateRefinedFindings_RemovedLinesKeyedByOldLine(t *testing.T) {
+	initial := []model.Finding{
+		{File: "a.go", OldLine: 21, Title: "first"},
+		{File: "a.go", Line: 5, Title: "added"},
+	}
+	refined := []model.Finding{
+		{File: "a.go", OldLine: 40, Title: "swapped removed-line finding"},
+		{File: "a.go", Line: 5, Title: "added"},
+	}
+	got := validateRefinedFindings(initial, refined)
+	if len(got) != 1 {
+		t.Fatalf("expected only the added finding, got %+v", got)
+	}
+	for _, f := range got {
+		if f.OldLine == 40 {
+			t.Errorf("refine step must not introduce a new removed-line finding: %+v", f)
+		}
+	}
+}

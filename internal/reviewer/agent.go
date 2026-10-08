@@ -376,18 +376,19 @@ func buildRefinementSystemPrompt(findingsJSON string) string {
 func validateRefinedFindings(initial, refined []model.Finding) []model.Finding {
 	// Build count of initial findings per location.
 	type key struct {
-		File string
-		Line int
+		File    string
+		Line    int
+		OldLine int
 	}
 	initialCounts := make(map[key]int, len(initial))
 	for _, f := range initial {
-		initialCounts[key{File: f.File, Line: f.Line}]++
+		initialCounts[key{File: f.File, Line: f.Line, OldLine: f.OldLine}]++
 	}
 
 	// Accept refined findings only while their location has remaining matches.
 	validated := make([]model.Finding, 0, len(refined))
 	for _, f := range refined {
-		k := key{File: f.File, Line: f.Line}
+		k := key{File: f.File, Line: f.Line, OldLine: f.OldLine}
 		if initialCounts[k] > 0 {
 			initialCounts[k]--
 			validated = append(validated, f)

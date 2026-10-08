@@ -132,6 +132,12 @@ func buildSARIF(result *model.ReviewResult, version, profile string) sarifReport
 	var results []sarifResult
 
 	for _, f := range result.Findings {
+		// A finding on a removed line has no location in the new file, which
+		// is what SARIF regions describe; anchoring it to line 1 would raise
+		// a code-scanning alert about code that is not there.
+		if f.Line <= 0 && f.OldLine > 0 {
+			continue
+		}
 		ruleID := f.Category
 		if ruleID == "" {
 			ruleID = "general"
