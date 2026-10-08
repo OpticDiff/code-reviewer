@@ -974,3 +974,62 @@ func TestSubmitReview_SingleLine(t *testing.T) {
 	}
 }
 
+
+func TestSubmitReview_RemovedLineUsesLeftSide(t *testing.T) {
+	var gotReq CreateReviewRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&gotReq)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "Summary",
+		Comments: []vcs.ReviewComment{
+			{Path: "a.go", OldLine: 7, EndLine: 9, Suggestion: "x", Body: "guard removed"},
+		},
+	}
+	if err := client.SubmitReview(context.Background(), "owner/repo", "1", req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(gotReq.Comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(gotReq.Comments))
+	}
+	c := gotReq.Comments[0]
+	if c.Side != "LEFT" || c.Line != 7 || c.StartLine != nil {
+		t.Errorf("comment = side %q line %d start %v, want LEFT line 7 and no start_line", c.Side, c.Line, c.StartLine)
+	}
+	if strings.Contains(c.Body, "suggestion") {
+		t.Errorf("removed-line comment must not carry a suggestion block: %q", c.Body)
+	}
+}
+
+func TestCreateDiscussion_RemovedLineUsesLeftSide(t *testing.T) {
+	var req CreatePullCommentRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	oldLine := 7
+	err := client.CreateDiscussion(context.Background(), "owner/repo", "1", vcs.InlineCommentRequest{
+		Body:     "guard removed",
+		Position: &vcs.InlineCommentPosition{HeadSHA: "h", NewPath: "a.go", OldLine: &oldLine},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Side != "LEFT" || req.Line != 7 {
+		t.Errorf("got side %q line %d, want LEFT 7", req.Side, req.Line)
+	}
+}
