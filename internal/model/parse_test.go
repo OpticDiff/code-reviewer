@@ -140,7 +140,6 @@ func TestParseReviewJSON_WhitespaceWrapped(t *testing.T) {
 	}
 }
 
-
 func TestParseReviewJSON_PreservesNonASCIISuggestion(t *testing.T) {
 	const line = "const LIGATURES = \"ﬀﬁﬂﬃﬄﬅﬆ\"; // soft\u00adhyphen 🚀 日本語"
 	raw, err := json.Marshal(map[string]any{
