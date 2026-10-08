@@ -390,6 +390,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	systemPrompt := model.BuildPromptWithProfile(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, extraRules, intentContext, r.cfg.Profile)
 	systemPrompt = model.WithConfidenceFloor(systemPrompt, r.cfg.ConfidenceFloor)
 	var summary string
+	var chunkSummaries []string
 
 	budgetExceeded := false
 	anyTruncated := false
@@ -400,6 +401,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			i+1, len(chunks), len(chunk), diff.EstimateTokens(chunk)))
 
 		numberedDiff := buildNumberedDiff(chunk)
+		if len(chunks) > 1 {
+			numberedDiff = buildChangedFilesSection(auditDiffs, tokenLimit/changedFilesBudgetDivisor) + numberedDiff
+		}
 		userPrompt := model.BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff, contextSnippets)
 
 		result, err := r.provider.Review(ctx, systemPrompt, userPrompt)
@@ -416,9 +420,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			}
 		}
 
-		if summary == "" {
-			summary = result.Summary
-		}
+		chunkSummaries = append(chunkSummaries, result.Summary)
 		allFindings = append(allFindings, result.Findings...)
 		if result.Usage != nil {
 			totalUsage.InputTokens += result.Usage.InputTokens
@@ -447,6 +449,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 	}
 
+	summary = mergeChunkSummaries(chunkSummaries)
 	if summary == "" {
 		if len(cachedFindings) == 0 {
 			summary = "Review complete: no issues found."
