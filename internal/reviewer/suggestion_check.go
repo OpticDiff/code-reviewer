@@ -9,6 +9,11 @@ import (
 	"github.com/OpticDiff/code-reviewer/internal/model"
 )
 
+// maxSuggestionSpan is the longest range that is verified. GitLab caps
+// multi-line suggestions at 201 lines, so anything longer is model noise that
+// cannot be applied anyway and is left alone rather than iterated over.
+const maxSuggestionSpan = 201
+
 // CheckSuggestions drops suggestions that would corrupt the file if applied,
 // returning the findings (with the offending suggestions cleared) and the
 // number of suggestions dropped. The findings themselves are always kept.
@@ -77,7 +82,10 @@ func suggestionProblem(f model.Finding, src map[int]string) string {
 	if f.EndLine > f.Line {
 		end = f.EndLine
 	}
-	rangeLines := make([]string, 0, end-start+1)
+	if end-start >= maxSuggestionSpan {
+		return ""
+	}
+	var rangeLines []string
 	for n := start; n <= end; n++ {
 		line, ok := src[n]
 		if !ok {
@@ -149,21 +157,26 @@ func repeatedBelow(repl []string, src map[int]string, end int) int {
 // no signal and pass.
 func quotedCodeInRange(quoted string, rangeLines []string) bool {
 	var lines []string
-	for _, l := range strings.Split(quoted, "\n") {
-		if l = strings.TrimSpace(l); isSubstantive(l) {
-			lines = append(lines, l)
+	for _, l := range splitAndNormalize(quoted) {
+		if isSubstantive(l) {
+			lines = append(lines, collapseSpace(l))
 		}
 	}
 	if len(lines) == 0 {
 		return true
 	}
-	text := strings.Join(rangeLines, "\n")
+	text := collapseSpace(strings.Join(rangeLines, "\n"))
 	for _, q := range lines {
 		if strings.Contains(text, q) {
 			return true
 		}
 	}
 	return false
+}
+
+// collapseSpace folds every run of whitespace into a single space.
+func collapseSpace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func anySubstantive(lines []string) bool {
@@ -180,4 +193,13 @@ func isSubstantive(line string) bool {
 	return strings.IndexFunc(line, func(r rune) bool {
 		return unicode.IsLetter(r) || unicode.IsDigit(r)
 	}) >= 0
+}
+
+// reanchor moves a finding to line while keeping the length of its range, so
+// Line..EndLine still describes one span after the resolver relocates it.
+func reanchor(f *model.Finding, line int) {
+	if f.EndLine > f.Line {
+		f.EndLine = line + (f.EndLine - f.Line)
+	}
+	f.Line = line
 }

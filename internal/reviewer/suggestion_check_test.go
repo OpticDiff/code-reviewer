@@ -1,8 +1,14 @@
 package reviewer
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
+	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
 )
@@ -124,5 +130,92 @@ func TestCheckSuggestions_DoesNotMutateInput(t *testing.T) {
 	CheckSuggestions(in, suggestionDiffs())
 	if in[0].Suggestion == "" {
 		t.Error("input slice was mutated")
+	}
+}
+
+func TestCheckSuggestions_HugeEndLineIsUnverifiable(t *testing.T) {
+	in := []model.Finding{{File: "pkg/service.go", Line: 12, EndLine: 1 << 40, Suggestion: "\tvar cfg Config\n\tx()"}}
+	got, dropped := CheckSuggestions(in, suggestionDiffs())
+	if dropped != 0 || got[0].Suggestion == "" {
+		t.Errorf("unverifiable range must keep the suggestion, dropped=%d", dropped)
+	}
+}
+
+func TestCheckSuggestions_QuoteNormalization(t *testing.T) {
+	for name, quote := range map[string]string{
+		"plus marker":      "+\tcfg, err := load()",
+		"minus marker":     "- cfg, err := load()",
+		"inner whitespace": "cfg,   err  :=\tload()",
+		"ellipsis":         "...\ncfg, err := load()\n...",
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := model.Finding{File: "pkg/service.go", Line: 12, ExistingCode: quote, Suggestion: "\tcfg, err := loadConfig()"}
+			if _, dropped := CheckSuggestions([]model.Finding{f}, suggestionDiffs()); dropped != 0 {
+				t.Errorf("suggestion wrongly dropped for quote %q", quote)
+			}
+		})
+	}
+}
+
+func TestCheckSuggestions_EdgeExemptions(t *testing.T) {
+	// Trailing edge: replacement ends like the original last line of the range,
+	// which also equals the line below (duplicated source lines).
+	src := []diff.FileDiff{{NewPath: "a.go", Hunks: []diff.Hunk{{Lines: []diff.DiffLine{
+		{Type: diff.LineContext, NewLineNo: 1, Content: "call(x)"},
+		{Type: diff.LineContext, NewLineNo: 2, Content: "call(x)"},
+	}}}}}
+	f := model.Finding{File: "a.go", Line: 1, Suggestion: "prep()\ncall(x)"}
+	if _, dropped := CheckSuggestions([]model.Finding{f}, src); dropped != 0 {
+		t.Error("trailing-edge exemption: suggestion ending like the original line must be kept")
+	}
+	// Leading edge: starts like the original first line, equal to the line above.
+	f = model.Finding{File: "a.go", Line: 2, Suggestion: "call(x)\ncheck()"}
+	if _, dropped := CheckSuggestions([]model.Finding{f}, src); dropped != 0 {
+		t.Error("leading-edge exemption: suggestion starting like the original line must be kept")
+	}
+}
+
+func TestReanchor_KeepsSpan(t *testing.T) {
+	f := model.Finding{Line: 10, EndLine: 12}
+	reanchor(&f, 20)
+	if f.Line != 20 || f.EndLine != 22 {
+		t.Errorf("got %d-%d, want 20-22", f.Line, f.EndLine)
+	}
+	single := model.Finding{Line: 10}
+	reanchor(&single, 5)
+	if single.Line != 5 || single.EndLine != 0 {
+		t.Errorf("got %d-%d, want 5-0", single.Line, single.EndLine)
+	}
+}
+
+func TestRun_AuditRecordsSuggestionsDropped(t *testing.T) {
+	testDiffs := suggestionDiffs()
+	logPath := filepath.Join(t.TempDir(), "audit.jsonl")
+	cfg := &config.Config{NoCache: true,
+		DiffMode:      true,
+		Model:         "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail,
+		MinSeverity:   config.SeverityLow,
+		DryRun:        true,
+		AuditLog:      logPath,
+	}
+	mm := &mockModel{result: &model.ReviewResult{Summary: "s", Findings: []model.Finding{{
+		File: "pkg/service.go", Line: 12, Severity: "HIGH", Category: "bug", Title: "t", Body: "b",
+		Suggestion: "\tvar cfg Config\n\tcfg, err := loadConfig()",
+	}}}}
+	r := NewWithDiffSource(cfg, mm, &mockVCS{}, &mockDiffSource{diffs: testDiffs})
+	if _, err := r.Run(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entry AuditEntry
+	if err := json.Unmarshal(bytes.TrimSpace(data), &entry); err != nil {
+		t.Fatal(err)
+	}
+	if entry.SuggestionsDropped != 1 || entry.FindingsCount != 1 {
+		t.Errorf("suggestions_dropped=%d findings=%d, want 1 and 1", entry.SuggestionsDropped, entry.FindingsCount)
 	}
 }
