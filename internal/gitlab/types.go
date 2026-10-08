@@ -30,6 +30,8 @@ func (r *MRChangesResponse) toVCS() *vcs.MRChanges {
 			NewFile:     c.NewFile,
 			RenamedFile: c.RenamedFile,
 			DeletedFile: c.DeletedFile,
+			Collapsed:   c.Collapsed,
+			TooLarge:    c.TooLarge,
 		}
 	}
 	return &vcs.MRChanges{
@@ -51,6 +53,9 @@ type DiffEntry struct {
 	NewFile     bool   `json:"new_file"`
 	RenamedFile bool   `json:"renamed_file"`
 	DeletedFile bool   `json:"deleted_file"`
+	// Collapsed and TooLarge are reported by GitLab 18.4+ diff endpoints.
+	Collapsed bool `json:"collapsed"`
+	TooLarge  bool `json:"too_large"`
 }
 
 // DiffVersion represents a version of the MR diff (from the versions API).

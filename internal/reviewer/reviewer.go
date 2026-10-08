@@ -87,6 +87,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Hoist variables captured by the audit defer.
 	var diffs []diff.FileDiff
 	var skippedFiles []string
+	var unreviewable []SkippedFile
+	var inScope int
 	var allFindings []model.Finding
 	var totalUsage model.TokenUsage
 	var dedupedCount int
@@ -107,8 +109,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		if d == nil {
 			d = diffs
 		}
-		auditSkipped := append(skippedFiles, r.parseFailedFiles...)
-		entry := buildAuditEntry(r.cfg, d, auditSkipped, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
+		cov := buildCoverage(inScope, unreviewable, r.parseFailedFiles, skippedFiles, r.cfg.ExcludedPatterns)
+		entry := buildAuditEntry(r.cfg, d, cov.paths(), allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
+		entry.FilesSkippedDetail = cov.skipped
 		entry.ProfileFilteredCount = r.profileFilteredCount
 		entry.SuggestionsDropped = r.suggestionsDropped
 		entry.AgentVerdicts = agentVerdicts
@@ -214,9 +217,16 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 	}
 
+	// Step 2b.1: Set aside files the platform supplied no patch for.
+	diffs, unreviewable = splitUnreviewable(diffs)
+	inScope = len(diffs)
+
 	if len(diffs) == 0 {
 		slog.Info("no files to review after incremental filtering")
 		fmt.Println("✅ No reviewable files changed in latest push.")
+		if line := buildCoverage(inScope, unreviewable, r.parseFailedFiles, nil, r.cfg.ExcludedPatterns).line(); line != "" {
+			fmt.Println(line)
+		}
 		return 0, nil
 	}
 
@@ -565,6 +575,11 @@ skipAgent:
 	allFindings = filterBySeverity(allFindings, r.cfg.MinSeverity)
 	slog.Info(fmt.Sprintf("%d finding(s) at or above %s severity", len(allFindings), r.cfg.MinSeverity))
 
+	cov := buildCoverage(inScope, unreviewable, r.parseFailedFiles, skippedFiles, r.cfg.ExcludedPatterns)
+	if line := cov.line(); line != "" {
+		summary += "\n\n" + line
+	}
+
 	result := &model.ReviewResult{
 		Summary:  summary,
 		Findings: allFindings,
@@ -636,9 +651,8 @@ skipAgent:
 		if r.cfg.AutoApprove {
 			// Include parse-failed files as unreviewed — they were never
 			// sent to the model, so approval would be incomplete.
-			allSkipped := append(skippedFiles, r.parseFailedFiles...)
 			decision := EvaluateAutoApprove(r.cfg, len(auditDiffs), rawFindingsCount,
-				allSkipped, budgetExceeded,
+				cov.paths(), budgetExceeded,
 				scopeAssessment != nil && scopeAssessment.IsOversized,
 				anyTruncated, r.mrDraft)
 			if decision.Approved {
@@ -755,6 +769,11 @@ func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, str
 			slog.Warn("failed to parse diff for file", "file", change.NewPath, "error", err)
 			r.parseFailedFiles = append(r.parseFailedFiles, change.NewPath)
 			continue
+		}
+		if reason := skipReasonFor(change.Diff, change.Collapsed, change.TooLarge); reason != "" {
+			for i := range parsed {
+				parsed[i].SkipReason = reason
+			}
 		}
 		diffs = append(diffs, parsed...)
 	}

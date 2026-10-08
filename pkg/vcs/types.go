@@ -26,6 +26,12 @@ type DiffEntry struct {
 	NewFile     bool
 	RenamedFile bool
 	DeletedFile bool
+	// Collapsed is set when the platform withheld the file's diff but can
+	// serve it on request.
+	Collapsed bool
+	// TooLarge is set when the platform withheld the file's diff and
+	// cannot serve it.
+	TooLarge bool
 }
 
 // DiffVersion represents a point-in-time snapshot of the MR/PR diff,

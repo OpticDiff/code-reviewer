@@ -34,6 +34,15 @@ func TestMRChangesResponse_toVCS(t *testing.T) {
 			},
 		},
 		{
+			name: "collapsed and too_large flags",
+			resp: &MRChangesResponse{
+				Changes: []DiffEntry{{NewPath: "big.go", TooLarge: true}, {NewPath: "fold.go", Collapsed: true}},
+			},
+			want: &vcs.MRChanges{
+				Changes: []vcs.DiffEntry{{NewPath: "big.go", TooLarge: true}, {NewPath: "fold.go", Collapsed: true}},
+			},
+		},
+		{
 			name: "empty response",
 			resp: &MRChangesResponse{},
 			want: &vcs.MRChanges{Changes: []vcs.DiffEntry{}},

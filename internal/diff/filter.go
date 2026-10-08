@@ -31,6 +31,11 @@ func Filter(diffs []FileDiff, patterns []string) []FileDiff {
 	return result
 }
 
+// IsExcluded reports whether path matches any of the exclusion patterns.
+func IsExcluded(path string, patterns []string) bool {
+	return shouldExclude(path, patterns)
+}
+
 func shouldExclude(path string, patterns []string) bool {
 	base := filepath.Base(path)
 
