@@ -369,7 +369,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				slog.Warn("intent inference failed, falling back to standard review", "error", serr)
 			} else {
 				intentSummary = summaryResult
-				intentContext = model.BuildIntentContext(summaryResult)
+				intentContext = model.BuildIntentContextWithChecks(summaryResult, r.cfg.IntentChecks)
 				slog.Info("intent inferred",
 					"classification", summaryResult.Classification,
 					"intent", summaryResult.Intent,

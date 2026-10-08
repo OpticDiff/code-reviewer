@@ -460,6 +460,33 @@ scope_action: warn      # warn or fail
 
 See [`.code-reviewer.example.yaml`](.code-reviewer.example.yaml) for all options.
 
+### Intent Check Severities
+
+With intent-aware review enabled (`intent_review`), the second pass applies a few rules whose
+findings use the `scope` category. Their severities are configurable in `.code-reviewer.yaml`;
+omitted entries keep the defaults shown here.
+
+```yaml
+intent_checks:
+  missing_tests:    { severity: high }    # feat without tests
+  behaviour_change: { severity: high }    # refactor that changes behaviour
+  breaking_changes:                       # breaking change not documented
+    severity: high
+    documented_in: ["CHANGELOG.md", "proto/**", "MR_DESCRIPTION"]
+  scope_creep:      { severity: medium }  # changes outside the inferred scope
+  stack_aware: false                      # downgrade missing_tests to low on stacked MRs/PRs
+```
+
+Valid severities are `off`, `low`, `medium`, `high` and `critical`; `off` drops the rule but keeps
+the intent summary. `MR_DESCRIPTION` in `documented_in` means the merge request or pull request
+description. Without `documented_in`, breaking changes count as documented in a CHANGELOG, README or
+migration guide.
+
+With `stack_aware: true`, a change whose target branch is not the repository default branch is
+treated as part of a stack and `missing_tests` is reported as `low` (the lowest severity findings
+carry). The target and default branch come from `CI_MERGE_REQUEST_TARGET_BRANCH_NAME` /
+`CI_DEFAULT_BRANCH` on GitLab, and `GITHUB_BASE_REF` / the event payload's default branch on GitHub.
+
 ### Self-Hosted Models
 
 Use `--api-url` to point at any OpenAI-compatible endpoint. No GCP project required.

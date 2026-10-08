@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/OpticDiff/code-reviewer/internal/model"
 )
 
 // Severity levels for filtering findings.
@@ -181,6 +183,9 @@ type Config struct {
 	IntentReview   bool // Enable two-pass intent-aware review.
 	NoIntentReview bool // Explicitly disable (overrides CI default).
 
+	// IntentChecks configures the severities of the intent-aware rules.
+	IntentChecks model.IntentChecks
+
 	// Explain mode.
 	Explain bool // Explain the diff instead of reviewing it.
 
@@ -275,6 +280,8 @@ type repoConfig struct {
 	AgentLoop                *bool    `yaml:"agent_loop"`
 	AgentMaxIterations       int      `yaml:"agent_max_iterations"`
 	AgentTimeout             string   `yaml:"agent_timeout"`
+
+	IntentChecks *model.IntentChecks `yaml:"intent_checks"`
 }
 
 // DefaultExcludedPatterns are file patterns excluded by default.
@@ -554,6 +561,14 @@ func (c *Config) applyRepoConfig(data []byte) error {
 		if !*rc.IntentReview {
 			c.NoIntentReview = true // Explicit false prevents CI auto-enable.
 		}
+	}
+	if rc.IntentChecks != nil {
+		if err := rc.IntentChecks.Validate(); err != nil {
+			return err
+		}
+		stacked := c.IntentChecks.Stacked
+		c.IntentChecks = *rc.IntentChecks
+		c.IntentChecks.Stacked = stacked
 	}
 	if rc.AutoApprove != nil {
 		c.AutoApprove = *rc.AutoApprove
@@ -1057,6 +1072,8 @@ func (c *Config) loadGitLabCIEnv() {
 	c.CIDiffBaseSHA = os.Getenv("CI_MERGE_REQUEST_DIFF_BASE_SHA")
 	c.CICommitBeforeSHA = os.Getenv("CI_COMMIT_BEFORE_SHA")
 	c.CICommitMessage = os.Getenv("CI_COMMIT_MESSAGE")
+	target, def := os.Getenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"), os.Getenv("CI_DEFAULT_BRANCH")
+	c.IntentChecks.Stacked = target != "" && def != "" && target != def
 }
 
 func (c *Config) loadGitHubCIEnv() {
@@ -1080,6 +1097,8 @@ func (c *Config) loadGitHubCIEnv() {
 		}
 	}
 
+	c.IntentChecks.Stacked = githubStackedPR(os.Getenv("GITHUB_BASE_REF"), os.Getenv("GITHUB_EVENT_PATH"))
+
 	// Parse PR number from GITHUB_REF (e.g., "refs/pull/42/merge").
 	if ref := os.Getenv("GITHUB_REF"); ref != "" {
 		parts := strings.Split(ref, "/")
@@ -1087,6 +1106,28 @@ func (c *Config) loadGitHubCIEnv() {
 			c.CIMergeRequestID = parts[2]
 		}
 	}
+}
+
+// githubStackedPR reports whether the pull request base differs from the
+// repository default branch recorded in the Actions event payload.
+func githubStackedPR(baseRef, eventPath string) bool {
+	if baseRef == "" || eventPath == "" {
+		return false
+	}
+	data, err := os.ReadFile(eventPath)
+	if err != nil {
+		return false
+	}
+	var evt struct {
+		Repository struct {
+			DefaultBranch string `json:"default_branch"`
+		} `json:"repository"`
+	}
+	if err := json.Unmarshal(data, &evt); err != nil {
+		return false
+	}
+	def := evt.Repository.DefaultBranch
+	return def != "" && baseRef != def
 }
 
 func (c *Config) validate() error {
