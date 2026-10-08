@@ -351,7 +351,9 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--max-tokens` | Maximum total tokens per review (0 = unlimited) | `0` |
 | `--max-files` | Maximum files before scope enforcement (0 = unlimited) | `0` |
 | `--scope-action` | Action when scope exceeded: `warn` or `fail` | `warn` |
-| `--audit-log` | Write structured JSONL audit log to file | — |
+| `--audit-log` | Write structured JSONL audit log to file; with `--agent`, includes a per-finding `agent_verdicts` list (`verified`, `dismissed`, `unverified`) | — |
+| `--agent` | Enable the agent refinement loop that verifies findings with `read_file`, `find_definition` and `list_directory` | `false` |
+| `--agent-scope` | Findings the agent loop examines: `all` or `high_severity_only` (HIGH and CRITICAL only; also `agent_scope` in YAML) | `all` |
 | `--auto-approve` | Automatically approve MR/PR on clean review (CI mode only) | `false` |
 | `--api-url` | OpenAI-compatible API endpoint (e.g., `http://localhost:11434/v1`) | — |
 | `--api-key` | API key for HTTP provider (optional for IAM/ADC auth) | — |

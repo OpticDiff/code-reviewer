@@ -325,6 +325,24 @@ done:
 	return result, nil
 }
 
+// runScopedAgentLoop runs the agent loop over the findings selected by scope
+// and returns them merged with the findings the scope excluded. When nothing
+// is selected the model is not called and the result is nil. On error the
+// original findings are returned unchanged.
+func runScopedAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
+	findings []model.Finding, scope string,
+) ([]model.Finding, *AgentResult, error) {
+	candidates, rest := splitAgentCandidates(findings, scope)
+	if len(candidates) == 0 {
+		return findings, nil, nil
+	}
+	result, err := RunAgentLoop(ctx, chatter, cfg, candidates)
+	if err != nil {
+		return findings, result, err
+	}
+	return append(append([]model.Finding{}, result.Findings...), rest...), result, nil
+}
+
 // buildRefinementSystemPrompt constructs the system prompt with pinned findings
 // and tool schemas. Initial findings are in the system instruction so they
 // survive memory compression (from ML Systems review).

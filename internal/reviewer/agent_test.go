@@ -107,3 +107,35 @@ func TestBuildAuditEntry_IncludesAgentVerdicts(t *testing.T) {
 		t.Errorf("verdict = %v", got[0])
 	}
 }
+
+func TestRunScopedAgentLoop_HighSeverityOnlyLeavesRestUntouched(t *testing.T) {
+	findings := []model.Finding{
+		{File: "a.go", Line: 1, Severity: "HIGH", Title: "refuted"},
+		{File: "b.go", Line: 2, Severity: "LOW", Title: "minor"},
+	}
+	chatter := &scriptedChatter{replies: []string{`{"action":"findings","findings":[]}`}}
+
+	merged, res, err := runScopedAgentLoop(context.Background(), chatter, AgentConfig{RepoRoot: t.TempDir()}, findings, AgentScopeHighSeverityOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged) != 1 || merged[0].File != "b.go" {
+		t.Errorf("merged = %+v, want only the LOW finding", merged)
+	}
+	if len(res.Verdicts) != 1 || res.Verdicts[0].Status != VerdictDismissed {
+		t.Errorf("verdicts = %+v, want one dismissed (LOW finding is never examined)", res.Verdicts)
+	}
+}
+
+func TestRunScopedAgentLoop_NoCandidatesSkipsModel(t *testing.T) {
+	findings := []model.Finding{{File: "b.go", Line: 2, Severity: "LOW"}}
+	chatter := &scriptedChatter{}
+
+	merged, res, err := runScopedAgentLoop(context.Background(), chatter, AgentConfig{RepoRoot: t.TempDir()}, findings, AgentScopeHighSeverityOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chatter.calls != 0 || res != nil || len(merged) != 1 {
+		t.Errorf("calls=%d res=%v merged=%v; want no model call and findings unchanged", chatter.calls, res, merged)
+	}
+}
