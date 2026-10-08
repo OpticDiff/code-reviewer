@@ -288,6 +288,16 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		extraRules += contextGuidance
 	}
 
+	// Threads a person already resolved or replied to must be read before
+	// posting, because cleanup of previous bot comments may remove the evidence.
+	dismissed := r.listDismissedFindings(ctx)
+	if prompt := FormatDismissedPrompt(dismissed); prompt != "" {
+		if extraRules != "" {
+			extraRules += "\n\n"
+		}
+		extraRules += prompt
+	}
+
 	// In CI mode, source REVIEW.md from the trusted base/target ref so that
 	// contributor-controlled branches cannot inject review instructions.
 	reviewMD := r.cfg.ReviewMD
@@ -588,6 +598,7 @@ skipAgent:
 	// Preserve raw count for auto-approve safety: approval must consider ALL
 	// findings regardless of severity filter, not just the displayed subset.
 	rawFindingsCount := len(allFindings)
+
 	allFindings = filterBySeverity(allFindings, r.cfg.MinSeverity)
 	slog.Info(fmt.Sprintf("%d finding(s) at or above %s severity", len(allFindings), r.cfg.MinSeverity))
 
@@ -595,6 +606,20 @@ skipAgent:
 	if line := cov.line(); line != "" {
 		summary += "\n\n" + line
 	}
+
+	// Step 6a: Fingerprint findings and stop re-posting those a person already
+	// dismissed on unchanged code. Suppressed HIGH/CRITICAL findings still count
+	// toward the returned total (the CI gate), and auto-approve and SARIF/SAST
+	// output still see every finding.
+	AssignFingerprints(allFindings, auditDiffs)
+	reportable := allFindings
+	var suppressed []model.Finding
+	allFindings, suppressed = FilterDismissed(allFindings, dismissed)
+	suppressedBlocking := BlockingCount(suppressed)
+	if len(suppressed) > 0 {
+		slog.Info(fmt.Sprintf("not re-posting %d finding(s) previously dismissed on unchanged code (%d high or critical still count toward the exit status)", len(suppressed), suppressedBlocking))
+	}
+	keepFingerprints := KeepFingerprints(dismissed, allFindings, auditDiffs)
 
 	result := &model.ReviewResult{
 		Summary:  summary,
@@ -607,14 +632,14 @@ skipAgent:
 	// Step 7a: Write SARIF if requested (before posting to GitLab so it's not
 	// skipped when PostReview fails).
 	if r.cfg.SARIFOutput != "" {
-		if err := WriteSARIF(r.cfg.SARIFOutput, result, r.cfg.Version, r.cfg.Profile); err != nil {
+		if err := WriteSARIF(r.cfg.SARIFOutput, &model.ReviewResult{Summary: result.Summary, Findings: reportable, Usage: result.Usage}, r.cfg.Version, r.cfg.Profile); err != nil {
 			return len(allFindings), fmt.Errorf("writing SARIF: %w", err)
 		}
 		slog.Info("SARIF output written", "path", r.cfg.SARIFOutput)
 	}
 
 	if r.cfg.SASTOutput != "" {
-		if err := WriteGitLabSAST(r.cfg.SASTOutput, r.cfg.Version, result); err != nil {
+		if err := WriteGitLabSAST(r.cfg.SASTOutput, r.cfg.Version, &model.ReviewResult{Summary: result.Summary, Findings: reportable, Usage: result.Usage}); err != nil {
 			return len(allFindings), fmt.Errorf("writing GitLab SAST: %w", err)
 		}
 		slog.Info("GitLab SAST output written", "path", r.cfg.SASTOutput)
@@ -659,7 +684,7 @@ skipAgent:
 			result.Summary = FormatScopeMarkdown(scopeAssessment) + result.Summary
 		}
 
-		if err := PostReview(ctx, r.cfg, r.glClient, result, auditDiffs, version, incrementalChangedFiles, r.cfg.Profile); err != nil {
+		if err := postReview(ctx, r.cfg, r.glClient, result, auditDiffs, version, incrementalChangedFiles, r.cfg.Profile, keepFingerprints); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
 
@@ -748,7 +773,26 @@ skipAgent:
 
 
 
-	return len(allFindings), nil
+	return len(allFindings) + suppressedBlocking, nil
+}
+
+// listDismissedFindings returns the tool's own review threads that a person
+// resolved or replied to. It returns nil outside CI posting mode, when the
+// platform client cannot read threads, or on error (dismissal is best effort).
+func (r *Reviewer) listDismissedFindings(ctx context.Context) []vcs.DismissedFinding {
+	if !r.cfg.CIMode || r.cfg.DryRun || r.glClient == nil {
+		return nil
+	}
+	reader, ok := r.glClient.(vcs.ThreadReader)
+	if !ok {
+		return nil
+	}
+	dismissed, err := reader.ListDismissedFindings(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
+	if err != nil {
+		slog.Warn("could not read dismissed review threads, continuing without them", "error", err)
+		return nil
+	}
+	return dismissed
 }
 
 func (r *Reviewer) getDiffs(ctx context.Context) ([]diff.FileDiff, string, string, error) {

@@ -28,11 +28,13 @@ type mockModel struct {
 	err            error
 	calls          int
 	lastUserPrompt string
+	lastSystemPrompt string
 }
 
 func (m *mockModel) Review(ctx context.Context, systemPrompt, userPrompt string) (*model.ReviewResult, error) {
 	m.calls++
 	m.lastUserPrompt = userPrompt
+	m.lastSystemPrompt = systemPrompt
 	return m.result, m.err
 }
 

@@ -22,9 +22,12 @@ type Finding struct {
 	CodeSnippet  string `json:"code_snippet,omitempty"`
 	ExistingCode string `json:"existing_code,omitempty"`
 	RuleName     string `json:"rule_name,omitempty"`
-	RuleSource   string `json:"rule_source,omitempty"` // "platform" or "repo"
-	RuleFile     string `json:"rule_file,omitempty"`   // e.g. "hipaa-phi.yaml"
-	RuleURL      string `json:"rule_url,omitempty"`    // documentation/runbook link
+	RuleSource   string `json:"rule_source,omitempty"`  // "platform" or "repo"
+	RuleFile     string `json:"rule_file,omitempty"`    // e.g. "hipaa-phi.yaml"
+	RuleURL      string `json:"rule_url,omitempty"`     // documentation/runbook link
+	Fingerprint  string `json:"fingerprint,omitempty"`  // set by the reviewer; see reviewer.Fingerprint
+	Anchor       string `json:"anchor,omitempty"`       // set by the reviewer; hash of the anchored lines
+	AnchorLines  int    `json:"anchor_lines,omitempty"` // set by the reviewer; lines the anchor spans
 }
 
 // TokenUsage tracks token consumption across model calls.

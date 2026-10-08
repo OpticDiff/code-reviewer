@@ -100,6 +100,12 @@ type Note struct {
 	System    bool                `json:"system"`
 	CreatedAt time.Time           `json:"created_at"`
 	Position  *DiscussionPosition `json:"position,omitempty"`
+
+	// Resolvable, Resolved and ResolvedBy describe the thread state; they are
+	// only populated for notes returned by the discussions API.
+	Resolvable bool    `json:"resolvable,omitempty"`
+	Resolved   bool    `json:"resolved,omitempty"`
+	ResolvedBy *Author `json:"resolved_by,omitempty"`
 }
 
 // toVCS converts a GitLab note to the platform-agnostic type.
