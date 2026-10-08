@@ -69,6 +69,81 @@ type AgentResult struct {
 	Iterations int                `json:"iterations"`
 	ToolCalls  map[string]int     `json:"tool_calls"` // tool name -> call count
 	StopReason string             `json:"stop_reason"` // "done", "budget", "iterations", "timeout", "error", "stable"
+	// Verdicts records, for every finding the loop was given, whether it was
+	// verified, dismissed, or left unverified because the loop did not finish.
+	Verdicts []FindingVerdict `json:"verdicts,omitempty"`
+}
+
+// Agent loop verdict statuses.
+const (
+	// VerdictVerified marks a finding that survived a completed agent loop.
+	VerdictVerified = "verified"
+	// VerdictDismissed marks a finding the agent loop refuted and dropped.
+	VerdictDismissed = "dismissed"
+	// VerdictUnverified marks a finding the loop could not rule on, for
+	// example because it hit its budget, timeout or an error first.
+	VerdictUnverified = "unverified"
+)
+
+// Values accepted for Config.AgentScope.
+const (
+	// AgentScopeAll sends every finding through the agent loop.
+	AgentScopeAll = "all"
+	// AgentScopeHighSeverityOnly sends only HIGH and CRITICAL findings through the agent loop.
+	AgentScopeHighSeverityOnly = "high_severity_only"
+)
+
+// FindingVerdict is the agent loop's outcome for a single finding, written to the audit log.
+type FindingVerdict struct {
+	File     string `json:"file"`
+	Line     int    `json:"line"`
+	Severity string `json:"severity"`
+	Title    string `json:"title"`
+	Status   string `json:"status"` // VerdictVerified, VerdictDismissed or VerdictUnverified.
+}
+
+// splitAgentCandidates partitions findings into those the agent loop should
+// examine under the given scope and those it should leave untouched.
+func splitAgentCandidates(findings []model.Finding, scope string) (candidates, rest []model.Finding) {
+	if scope != AgentScopeHighSeverityOnly {
+		return findings, nil
+	}
+	for _, f := range findings {
+		if severityRank(f.Severity) >= severityRank("HIGH") {
+			candidates = append(candidates, f)
+		} else {
+			rest = append(rest, f)
+		}
+	}
+	return candidates, rest
+}
+
+// buildVerdicts labels each initial finding by whether it survives in the
+// final findings. When the loop did not complete, nothing is ruled on.
+func buildVerdicts(initial, final []model.Finding, completed bool) []FindingVerdict {
+	type key struct {
+		File string
+		Line int
+	}
+	retained := make(map[key]int, len(final))
+	for _, f := range final {
+		retained[key{f.File, f.Line}]++
+	}
+	verdicts := make([]FindingVerdict, 0, len(initial))
+	for _, f := range initial {
+		k := key{f.File, f.Line}
+		status := VerdictUnverified
+		switch {
+		case !completed:
+		case retained[k] > 0:
+			retained[k]--
+			status = VerdictVerified
+		default:
+			status = VerdictDismissed
+		}
+		verdicts = append(verdicts, FindingVerdict{File: f.File, Line: f.Line, Severity: f.Severity, Title: f.Title, Status: status})
+	}
+	return verdicts
 }
 
 // agentAction is the parsed model response format.
@@ -246,6 +321,7 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 
 done:
 	result.Usage = totalUsage
+	result.Verdicts = buildVerdicts(initialFindings, result.Findings, result.StopReason == "done")
 	return result, nil
 }
 

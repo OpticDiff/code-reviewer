@@ -33,6 +33,7 @@ type AuditEntry struct {
 	Incremental    bool               `json:"incremental,omitempty"`
 	PlatformRuleHashes map[string]string `json:"platform_rule_hashes,omitempty"`
 	PlatformRulesCount int               `json:"platform_rules_count,omitempty"`
+	AgentVerdicts      []FindingVerdict  `json:"agent_verdicts,omitempty"`
 }
 
 // buildAuditEntry constructs an AuditEntry from the review run data.
