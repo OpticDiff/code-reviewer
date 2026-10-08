@@ -126,6 +126,7 @@ type Config struct {
 
 	// Review settings.
 	Focus        []string
+	ContextFiles []string // Directory-scoped guidance file names (e.g. AGENTS.md) to include for changed directories.
 	MinSeverity  Severity
 	ExtraRules   string
 	CustomPrompt string // Path to custom system prompt file.
@@ -241,6 +242,7 @@ type repoConfig struct {
 	Model            string   `yaml:"model"`
 	TokenLimit       int      `yaml:"token_limit"`
 	Focus            []string `yaml:"focus"`
+	ContextFiles     []string `yaml:"context_files"`
 	MinSeverity      string   `yaml:"min_severity"`
 	CommentMode      string   `yaml:"comment_mode"`
 	CleanupMode      string   `yaml:"cleanup_mode"`
@@ -468,6 +470,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if len(rc.Focus) > 0 {
 		c.Focus = rc.Focus
 	}
+	if len(rc.ContextFiles) > 0 {
+		c.ContextFiles = rc.ContextFiles
+	}
 	if rc.MinSeverity != "" {
 		sev, err := ParseSeverity(rc.MinSeverity)
 		if err != nil {
@@ -597,6 +602,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("REVIEW_FOCUS"); v != "" {
 		c.Focus = strings.Split(v, ",")
+	}
+	if v := os.Getenv("REVIEW_CONTEXT_FILES"); v != "" {
+		c.ContextFiles = splitAndTrim(v)
 	}
 	if v := os.Getenv("REVIEW_MIN_SEVERITY"); v != "" {
 		if sev, err := ParseSeverity(v); err == nil {
@@ -763,6 +771,7 @@ func (c *Config) loadFlags() error {
 
 	model := fs.String("model", "", "Vertex AI model ID (e.g., gemini-3.8-flash, claude-sonnet-5)")
 	tokenLimit := fs.Int("token-limit", 0, "Explicit context window token limit (overrides model default)")
+	contextFiles := fs.String("context-files", "", "Directory-scoped guidance file names to include for changed directories, comma-separated (e.g. AGENTS.md)")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")
@@ -837,6 +846,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *focus != "" {
 		c.Focus = strings.Split(*focus, ",")
+	}
+	if *contextFiles != "" {
+		c.ContextFiles = splitAndTrim(*contextFiles)
 	}
 	if *minSev != "" {
 		sev, err := ParseSeverity(*minSev)
@@ -1070,6 +1082,12 @@ func (c *Config) validate() error {
 		// Valid.
 	default:
 		return &ConfigError{Err: fmt.Errorf("invalid --profile %q: must be platform, product, or all", c.Profile)}
+	}
+
+	for _, name := range c.ContextFiles {
+		if name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+			return &ConfigError{Err: fmt.Errorf("invalid context_files entry %q: must be a plain file name such as AGENTS.md", name)}
+		}
 	}
 
 	// Fail-closed: platform profile requires platform governance config (N2).
