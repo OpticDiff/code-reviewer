@@ -695,3 +695,17 @@ func TestPostReview_RemovedLineFindingCarriesOnlyOldLine(t *testing.T) {
 		t.Errorf("removed-line comment must not carry a range or suggestion, got end=%d suggestion=%q", c.EndLine, c.Suggestion)
 	}
 }
+
+func TestFormatSummaryNote_RemovedLineFinding(t *testing.T) {
+	result := &model.ReviewResult{
+		Summary:  "s",
+		Findings: []model.Finding{{File: "a.go", OldLine: 21, Severity: "HIGH", Title: "guard removed"}},
+	}
+	out := formatSummaryNote(result, "", false)
+	if !strings.Contains(out, "`a.go:old 21`") {
+		t.Errorf("summary should locate the finding by its old line, got:\n%s", out)
+	}
+	if strings.Contains(out, "a.go:0") {
+		t.Errorf("summary must not print line 0:\n%s", out)
+	}
+}

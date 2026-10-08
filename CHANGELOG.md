@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Findings on removed lines. The model can report a defect introduced by a deletion (a removed guard or check) with `old_line`; the comment is anchored on the old side only (`position.old_line` on GitLab, `side: LEFT` on GitHub), without suggestions or ranges, and falls back to a merge request note naming the file and old line when GitLab refuses the position. Removed-line findings are left out of the SARIF and GitLab SAST reports, which need a location in the new file. `agent_verdicts` audit entries carry an optional `old_line` for such findings.
+
 ## [0.23.0] — 2026-10-08
 
 ### Added
