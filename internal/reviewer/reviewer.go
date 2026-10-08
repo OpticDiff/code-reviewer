@@ -251,6 +251,15 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		slog.Info(fmt.Sprintf("applying %d/%d custom rules", len(applicableRules), len(r.cfg.Rules)))
 	}
 
+	// Directory-scoped context files (e.g. AGENTS.md) follow the YAML rules.
+	contextGuidance := r.contextGuidance(ctx, diffs)
+	if contextGuidance != "" {
+		if extraRules != "" {
+			extraRules += "\n\n"
+		}
+		extraRules += contextGuidance
+	}
+
 	// In CI mode, source REVIEW.md from the trusted base/target ref so that
 	// contributor-controlled branches cannot inject review instructions.
 	reviewMD := r.cfg.ReviewMD
@@ -293,7 +302,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cachedFindings []model.Finding
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
-		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil))
+		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil)+contextGuidance)
 		if forceFullReview {
 			slog.Info("bypassing review cache due to commit trigger", "trigger", triggerMatched)
 			diffs, _, _, cacheKeys = cache.Partition(diffs, nil, cacheModelID, promptHash)

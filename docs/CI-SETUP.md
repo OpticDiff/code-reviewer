@@ -341,6 +341,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `comment_mode` | `--comment-mode` | `REVIEW_COMMENT_MODE` | `notes` | GitLab comment mode: `notes` or `discussions` |
 | `chunk_strategy` | `--chunk-strategy` | `REVIEW_CHUNK_STRATEGY` | `fail` | How to handle large diffs: `fail` or `split` |
 | `token_limit` | `--token-limit` | `REVIEW_TOKEN_LIMIT` | — | Context window token limit override |
+| `context_files` | `--context-files` | `REVIEW_CONTEXT_FILES` | — | Directory-scoped guidance files (e.g. `AGENTS.md`), read from the base ref |
 | `extra_rules` | `--extra-rules` | `REVIEW_EXTRA_RULES` | — | Additional prompt rules (free text) |
 | `custom_prompt` | `--custom-prompt` | `REVIEW_CUSTOM_PROMPT` | — | Path to custom system prompt file |
 | — | `--incremental` | `INCREMENTAL` | `false` | Only review files changed in latest push (CI) |

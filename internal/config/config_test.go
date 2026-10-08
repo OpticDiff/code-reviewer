@@ -1291,3 +1291,48 @@ func TestLoad_TokenLimitPrecedence(t *testing.T) {
 	}
 }
 
+
+func TestLoad_ContextFilesPrecedenceAndValidation(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), []byte("context_files: [AGENTS.md]\n"), 0o644); err != nil {
+		t.Fatalf("writing yaml: %v", err)
+	}
+	t.Chdir(tmpDir)
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_CONTEXT_FILES", "")
+
+	os.Args = []string{"code-reviewer", "--diff"}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if got := strings.Join(cfg.ContextFiles, ","); got != "AGENTS.md" {
+		t.Errorf("ContextFiles = %q, want AGENTS.md (from YAML)", got)
+	}
+
+	t.Setenv("REVIEW_CONTEXT_FILES", "CLAUDE.md, NOTES.md")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if got := strings.Join(cfg.ContextFiles, ","); got != "CLAUDE.md,NOTES.md" {
+		t.Errorf("ContextFiles = %q, want CLAUDE.md,NOTES.md (from env)", got)
+	}
+
+	os.Args = []string{"code-reviewer", "--diff", "--context-files", "GUIDE.md"}
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if got := strings.Join(cfg.ContextFiles, ","); got != "GUIDE.md" {
+		t.Errorf("ContextFiles = %q, want GUIDE.md (from flag)", got)
+	}
+
+	os.Args = []string{"code-reviewer", "--diff", "--context-files", "../secrets.md"}
+	if _, err := Load(); err == nil {
+		t.Error("expected validation error for context file name containing a path separator")
+	}
+}
