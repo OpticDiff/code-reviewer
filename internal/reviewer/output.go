@@ -84,6 +84,17 @@ func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, 
 	// are only available via SARIF (Security tab) and the audit log.
 	if !redacted && cfg.CommentMode == config.CommentModeDiscussions && version != nil {
 		for _, f := range result.Findings {
+			if f.Line <= 0 && f.OldLine > 0 {
+				// A removed line has no new-side number and cannot take a
+				// suggestion or a new-side range.
+				req.Comments = append(req.Comments, vcs.ReviewComment{
+					Path:    f.File,
+					OldPath: oldPathFor(diffs, f.File),
+					OldLine: f.OldLine,
+					Body:    formatInlineComment(f),
+				})
+				continue
+			}
 			req.Comments = append(req.Comments, vcs.ReviewComment{
 				Path:       f.File,
 				Line:       f.Line,

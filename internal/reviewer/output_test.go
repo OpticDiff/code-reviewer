@@ -662,3 +662,36 @@ func TestPostReview_RenamedFileCarriesOldPath(t *testing.T) {
 		t.Errorf("added comment = old %s:%d, want old.yaml:0", comments[1].OldPath, comments[1].OldLine)
 	}
 }
+
+func TestPostReview_RemovedLineFindingCarriesOnlyOldLine(t *testing.T) {
+	diffs := mustParseDiff(t, contextFirstDiff)
+	mockClient := &outputMockVCS{}
+	cfg := &config.Config{
+		CIProjectID:      "proj",
+		CIMergeRequestID: "1",
+		CommentMode:      config.CommentModeDiscussions,
+	}
+	result := &model.ReviewResult{
+		Summary: "Review",
+		Findings: []model.Finding{
+			{File: "conf.yaml", OldLine: 28, EndLine: 30, Suggestion: "x", Severity: "HIGH", Title: "removed", Body: "b"},
+		},
+	}
+	version := &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"}
+
+	if err := PostReview(context.Background(), cfg, mockClient, result, diffs, version, nil, ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	comments := mockClient.submitReviewReq.Comments
+	if len(comments) != 1 {
+		t.Fatalf("expected 1 comment, got %d", len(comments))
+	}
+	c := comments[0]
+	if c.Line != 0 || c.OldLine != 28 {
+		t.Errorf("comment = line %d old_line %d, want line 0 old_line 28", c.Line, c.OldLine)
+	}
+	if c.EndLine != 0 || c.Suggestion != "" {
+		t.Errorf("removed-line comment must not carry a range or suggestion, got end=%d suggestion=%q", c.EndLine, c.Suggestion)
+	}
+}
