@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-10-08
+
 ### Added
 - Explicit `token_limit` configuration field, `--token-limit` CLI flag, and `REVIEW_TOKEN_LIMIT` environment variable to override context window limits for diff chunking without code changes.
 
