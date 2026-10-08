@@ -1850,19 +1850,26 @@ func TestGetMRChanges_TruncatedRawDiffsKeepsEntriesIncomplete(t *testing.T) {
 
 func TestGetMRChanges_MissingFiles(t *testing.T) {
 	tests := []struct {
-		count string
-		want  int
+		count   string
+		entries int
+		want    int
 	}{
-		{"5", 4},
-		{"1", 0},
-		{"", 0},
-		{"1000+", 0},
+		{"5", 1, 4},
+		{"1", 1, 0},
+		{"", 1, 0},
+		{"abc", 1, 0},
+		{"1000+", 1, 1000}, // more than 1000 files exist; only one arrived
+		{"1000+", 1001, 0}, // everything above the cap arrived
 	}
 	for _, tt := range tests {
-		t.Run("count="+tt.count, func(t *testing.T) {
+		t.Run(fmt.Sprintf("count=%s/entries=%d", tt.count, tt.entries), func(t *testing.T) {
+			diffs := make([]string, tt.entries)
+			for i := range diffs {
+				diffs[i] = diffJSON(fmt.Sprintf("f%d.go", i), "@@ -1 +1 @@\n-a\n+b\n", "")
+			}
 			m := &mrServer{
 				meta:  fmt.Sprintf(`{"id":1,"iid":1,"changes_count":%q}`, tt.count),
-				diffs: []string{diffJSON("a.go", "@@ -1 +1 @@\n-a\n+b\n", "")},
+				diffs: diffs,
 			}
 			srv := httptest.NewServer(m.handler(t))
 			defer srv.Close()

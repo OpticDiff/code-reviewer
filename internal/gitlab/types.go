@@ -20,33 +20,6 @@ type MergeRequest struct {
 	ChangesCount string `json:"changes_count"`
 }
 
-// MRChangesResponse is the response from GET /projects/:id/merge_requests/:iid/changes.
-type MRChangesResponse struct {
-	ID          int         `json:"id"`
-	IID         int         `json:"iid"`
-	Title       string      `json:"title"`
-	Description string      `json:"description"`
-	State       string      `json:"state"`
-	Draft       bool        `json:"draft"`
-	Changes     []DiffEntry `json:"changes"`
-}
-
-// toVCS converts a GitLab MR response to the platform-agnostic type.
-func (r *MRChangesResponse) toVCS() *vcs.MRChanges {
-	changes := make([]vcs.DiffEntry, len(r.Changes))
-	for i, c := range r.Changes {
-		changes[i] = c.toVCS()
-	}
-	return &vcs.MRChanges{
-		ID:          r.ID,
-		IID:         r.IID,
-		Title:       r.Title,
-		Description: r.Description,
-		State:       r.State,
-		Draft:       r.Draft,
-		Changes:     changes,
-	}
-}
 
 // DiffEntry represents a single file change in an MR.
 type DiffEntry struct {

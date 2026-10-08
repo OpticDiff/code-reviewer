@@ -283,21 +283,27 @@ func pairFrom(oldPart, newPart string) [][2]string {
 }
 
 // missingFiles returns how many files the merge request reports beyond the
-// diff entries received. Empty or capped ("1000+") counts are not comparable
-// and only log.
+// diff entries received. GitLab caps changes_count at 1000 and returns "1000+";
+// that means more than 1000 files, so it counts as 1001. Empty or unparseable
+// counts are not comparable and only log.
 func missingFiles(mr MergeRequest, got int) int {
-	want, err := strconv.Atoi(mr.ChangesCount)
+	count := mr.ChangesCount
+	capped := strings.HasSuffix(count, "+")
+	want, err := strconv.Atoi(strings.TrimSuffix(count, "+"))
 	if err != nil {
-		if mr.ChangesCount != "" {
-			slog.Warn("merge request changes_count is not a number; cannot verify all files were received", "changes_count", mr.ChangesCount)
+		if count != "" {
+			slog.Warn("merge request changes_count is not a number; cannot verify all files were received", "changes_count", count)
 		}
 		return 0
+	}
+	if capped {
+		want++
 	}
 	if want == got {
 		return 0
 	}
 	slog.Warn("merge request diffs do not match changes_count; some files may be missing from the review",
-		"changes_count", want, "diff_entries", got)
+		"changes_count", count, "diff_entries", got)
 	if want > got {
 		return want - got
 	}

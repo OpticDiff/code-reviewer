@@ -1994,7 +1994,6 @@ func TestReviewer_TokenLimitOverride(t *testing.T) {
 	}
 }
 
-
 func TestGetCIDiffs_IncompleteEntries(t *testing.T) {
 	const patch = "@@ -1 +1 @@\n-a\n+b\n"
 	mock := &mockVCS{mrChanges: &vcs.MRChanges{
