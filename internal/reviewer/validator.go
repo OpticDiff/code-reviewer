@@ -72,6 +72,17 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 			}
 		}
 
+		if f.OldLine > 0 {
+			if !fileLines[f.Line] && isRemovedLine(f.File, f.OldLine, diffs) {
+				// The finding is about deleted code: anchor it on the old side only.
+				f.Line = 0
+				f.EndLine = 0
+				valid = append(valid, f)
+				continue
+			}
+			f.OldLine = 0 // Not a removed line: fall back to the new-side checks.
+		}
+
 		if f.Line <= 0 || !fileLines[f.Line] {
 			// Line not in the changed set. Check if it's at least in the file's hunks.
 			if f.Line > 0 && isInHunkRange(f.File, f.Line, diffs) {
@@ -319,6 +330,28 @@ func isInHunkRange(file string, line int, diffs []diff.FileDiff) bool {
 			end := h.NewStart + h.NewCount
 			if line >= h.NewStart && line < end {
 				return true
+			}
+		}
+	}
+	return false
+}
+
+// isRemovedLine reports whether oldLine is the pre-change number of a line the
+// diff removes from the given file.
+func isRemovedLine(file string, oldLine int, diffs []diff.FileDiff) bool {
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path != file {
+			continue
+		}
+		for _, h := range d.Hunks {
+			for _, l := range h.Lines {
+				if l.Type == diff.LineRemoved && l.OldLineNo == oldLine {
+					return true
+				}
 			}
 		}
 	}

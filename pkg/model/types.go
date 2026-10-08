@@ -12,6 +12,9 @@ type ReviewResult struct {
 type Finding struct {
 	File         string `json:"file"`
 	Line         int    `json:"line"`
+	// OldLine anchors a finding on a removed line, by the line's number in the
+	// pre-change file. It is set only when Line is 0.
+	OldLine      int    `json:"old_line,omitempty"`
 	EndLine      int    `json:"end_line,omitempty"`
 	Severity     string `json:"severity"`
 	Category     string `json:"category"`
