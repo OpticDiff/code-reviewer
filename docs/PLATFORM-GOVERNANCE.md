@@ -135,10 +135,11 @@ Dropped findings are logged via `slog.Info` and the count is recorded in the aud
 
 ### Auto-Discovery of Platform Configuration
 
-When `--platform-config` is not explicitly set, the tool auto-discovers platform files by walking parent directories up to the repository root, looking for:
+When platform configuration is not explicitly supplied via CLI (`--platform-config`), YAML (`platform_config`), or environment variables (`CODE_REVIEW_PLATFORM_CONFIG`, `CODE_REVIEWER_PLATFORM_CONFIG`, `REVIEW_PLATFORM_CONFIG`), the tool auto-discovers platform rule files by walking parent directories up to the repository root, looking for:
 
 - `.code-reviewer.platform.yaml` or `.code-reviewer.platform.yml`
-- `PLATFORM_REVIEW.md`
+
+Setting a platform config skips rule file discovery, but `PLATFORM_REVIEW.md` will still be independently auto-discovered unless explicitly supplied via `--platform-review-md`, `platform_review_md`, or `CODE_REVIEW_PLATFORM_REVIEW_MD`.
 
 > **Note:** Auto-discovery does **not** scan `.platform/` subdirectories. To use files in `.platform/rules/*.yaml`, set `--platform-config` or `CODE_REVIEW_PLATFORM_CONFIG` explicitly.
 
@@ -154,22 +155,26 @@ cosign verify-blob \
   --certificate checksums.txt.pem \
   --signature checksums.txt.sig \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp 'github.com/OpticDiff/code-reviewer' \
+  --certificate-identity-regexp '^https://github\.com/OpticDiff/code-reviewer/\.github/workflows/release\.yml@refs/tags/v' \
   checksums.txt
 ```
 
 **Verify SLSA provenance:**
 ```bash
-gh attestation verify checksums.txt -R OpticDiff/code-reviewer
+gh attestation verify checksums.txt \
+  -R OpticDiff/code-reviewer \
+  --signer-workflow OpticDiff/code-reviewer/.github/workflows/release.yml
 ```
+*(Note: `gh attestation verify` validates release archive integrity against `checksums.txt`. For container image verification, use Cosign against immutable tags or digests below).*
 
 **Verify Docker image:**
 ```bash
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp 'github.com/OpticDiff/code-reviewer' \
-  ghcr.io/opticdiff/code-reviewer:latest
+  --certificate-identity-regexp '^https://github\.com/OpticDiff/code-reviewer/\.github/workflows/release\.yml@refs/tags/v' \
+  ghcr.io/opticdiff/code-reviewer:v0.23.0
 ```
+*(Or pin and verify by digest: `ghcr.io/opticdiff/code-reviewer@sha256:<digest>`)*
 
 ### SARIF `versionControlProvenance`
 
