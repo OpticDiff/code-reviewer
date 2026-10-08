@@ -181,3 +181,18 @@ func TestValidateRefinedFindings_RemovedLinesKeyedByOldLine(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildVerdicts_RemovedLinesAreDistinct(t *testing.T) {
+	initial := []model.Finding{
+		{File: "a.go", OldLine: 21, Title: "first"},
+		{File: "a.go", OldLine: 22, Title: "second"},
+	}
+	final := []model.Finding{{File: "a.go", OldLine: 22, Title: "second"}}
+	got := buildVerdicts(initial, final, true)
+	if got[0].Status != VerdictDismissed || got[1].Status != VerdictVerified {
+		t.Errorf("verdicts = %+v, want first dismissed and second verified", got)
+	}
+	if got[0].OldLine != 21 {
+		t.Errorf("verdict should carry old_line, got %+v", got[0])
+	}
+}

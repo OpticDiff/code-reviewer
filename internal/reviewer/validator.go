@@ -77,6 +77,7 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 				// The finding is about deleted code: anchor it on the old side only.
 				f.Line = 0
 				f.EndLine = 0
+				f.Suggestion = "" // Suggestions replace new-file lines; a removed line has none.
 				valid = append(valid, f)
 				continue
 			}

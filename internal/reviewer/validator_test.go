@@ -431,3 +431,14 @@ func TestValidateFindings_OldLineIgnoredWhenNewLineValid(t *testing.T) {
 		t.Fatalf("got %+v, want line=11 old_line=0", result)
 	}
 }
+
+func TestValidateFindings_RemovedLineDropsSuggestion(t *testing.T) {
+	// A suggestion replaces lines of the new file; a removed line has none.
+	findings := []model.Finding{
+		{File: "internal/auth.go", OldLine: 21, Severity: "HIGH", Title: "removed guard", Suggestion: "if !u.Admin {\n}"},
+	}
+	result := ValidateFindings(findings, removedLineDiffs())
+	if len(result) != 1 || result[0].Suggestion != "" {
+		t.Fatalf("got %+v, want one finding without a suggestion", result)
+	}
+}

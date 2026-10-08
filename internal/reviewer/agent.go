@@ -97,6 +97,7 @@ const (
 type FindingVerdict struct {
 	File     string `json:"file"`
 	Line     int    `json:"line"`
+	OldLine  int    `json:"old_line,omitempty"` // Set instead of Line for a finding on a removed line.
 	Severity string `json:"severity"`
 	Title    string `json:"title"`
 	Status   string `json:"status"` // VerdictVerified, VerdictDismissed or VerdictUnverified.
@@ -122,16 +123,17 @@ func splitAgentCandidates(findings []model.Finding, scope string) (candidates, r
 // final findings. When the loop did not complete, nothing is ruled on.
 func buildVerdicts(initial, final []model.Finding, completed bool) []FindingVerdict {
 	type key struct {
-		File string
-		Line int
+		File    string
+		Line    int
+		OldLine int
 	}
 	retained := make(map[key]int, len(final))
 	for _, f := range final {
-		retained[key{f.File, f.Line}]++
+		retained[key{f.File, f.Line, f.OldLine}]++
 	}
 	verdicts := make([]FindingVerdict, 0, len(initial))
 	for _, f := range initial {
-		k := key{f.File, f.Line}
+		k := key{f.File, f.Line, f.OldLine}
 		status := VerdictUnverified
 		switch {
 		case !completed:
@@ -141,7 +143,7 @@ func buildVerdicts(initial, final []model.Finding, completed bool) []FindingVerd
 		default:
 			status = VerdictDismissed
 		}
-		verdicts = append(verdicts, FindingVerdict{File: f.File, Line: f.Line, Severity: f.Severity, Title: f.Title, Status: status})
+		verdicts = append(verdicts, FindingVerdict{File: f.File, Line: f.Line, OldLine: f.OldLine, Severity: f.Severity, Title: f.Title, Status: status})
 	}
 	return verdicts
 }
