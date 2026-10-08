@@ -205,6 +205,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				before := len(diffs)
 				incrementalChangedFiles = changedFiles
 				diffs = filterByFiles(diffs, changedFiles)
+				r.parseFailedFiles = filterPaths(r.parseFailedFiles, changedFiles)
 				slog.Info("incremental review",
 					"total_files", before,
 					"changed_files", len(changedFiles),
@@ -223,10 +224,18 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	if len(diffs) == 0 {
 		slog.Info("no files to review after incremental filtering")
-		fmt.Println("✅ No reviewable files changed in latest push.")
 		if line := buildCoverage(inScope, unreviewable, r.parseFailedFiles, nil, r.cfg.ExcludedPatterns).line(); line != "" {
-			fmt.Println(line)
+			// Nothing was reviewed, so say so where the author will see it
+			// instead of leaving the MR without any note.
+			fmt.Println("⚠️  " + line)
+			if r.cfg.CIMode && !r.cfg.DryRun && r.glClient != nil {
+				if _, err := r.glClient.PostNote(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID, "## 📋 Code Review Summary\n\n"+line); err != nil {
+					slog.Warn("failed to post coverage note", "error", err)
+				}
+			}
+			return 0, nil
 		}
+		fmt.Println("✅ No reviewable files changed in latest push.")
 		return 0, nil
 	}
 
@@ -652,7 +661,7 @@ skipAgent:
 			// Include parse-failed files as unreviewed — they were never
 			// sent to the model, so approval would be incomplete.
 			decision := EvaluateAutoApprove(r.cfg, len(auditDiffs), rawFindingsCount,
-				cov.paths(), budgetExceeded,
+				cov.blockingPaths(), budgetExceeded,
 				scopeAssessment != nil && scopeAssessment.IsOversized,
 				anyTruncated, r.mrDraft)
 			if decision.Approved {
@@ -770,7 +779,7 @@ func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, str
 			r.parseFailedFiles = append(r.parseFailedFiles, change.NewPath)
 			continue
 		}
-		if reason := skipReasonFor(change.Diff, change.Collapsed, change.TooLarge); reason != "" {
+		if reason := skipReasonFor(change); reason != "" {
 			for i := range parsed {
 				parsed[i].SkipReason = reason
 			}
@@ -908,6 +917,21 @@ func filterByFiles(diffs []diff.FileDiff, changedFiles []string) []diff.FileDiff
 		}
 	}
 	return filtered
+}
+
+// filterPaths keeps only the paths present in keep.
+func filterPaths(paths, keep []string) []string {
+	set := make(map[string]bool, len(keep))
+	for _, k := range keep {
+		set[k] = true
+	}
+	var out []string
+	for _, p := range paths {
+		if set[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // findRepoRoot walks up from cwd to find the git repository root.

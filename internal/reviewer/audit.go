@@ -23,7 +23,7 @@ type AuditEntry struct {
 	MRID           string             `json:"mr_id,omitempty"`
 	FilesReviewed  []string           `json:"files_reviewed"`
 	FilesSkipped   []string           `json:"files_skipped,omitempty"`
-	FilesSkippedDetail []SkippedFile  `json:"files_skipped_detail,omitempty"`
+	FilesSkippedDetail []SkippedFile `json:"files_skipped_detail,omitempty"`
 	FindingsCount  int                `json:"findings_count"`
 	ProfileFilteredCount int          `json:"profile_filtered_count,omitempty"`
 	DedupedCount   int                `json:"deduped_count,omitempty"`

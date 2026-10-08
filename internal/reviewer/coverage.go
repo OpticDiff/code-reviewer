@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/diff"
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
 // Reasons a file was not reviewed, as reported in the audit log and the
@@ -46,14 +47,21 @@ func splitUnreviewable(diffs []diff.FileDiff) ([]diff.FileDiff, []SkippedFile) {
 }
 
 // skipReasonFor classifies a file whose platform-supplied patch is unusable,
-// or returns "" when the patch is present.
-func skipReasonFor(patch string, collapsed, tooLarge bool) string {
+// or returns "" when the patch is present or legitimately absent.
+//
+// Renames, empty new files and deletions of empty files carry no hunks by
+// design, so an empty diff is only a gap for a modified file. Binary and
+// mode-only changes also arrive with an empty diff and cannot be told apart
+// from a truncated one with the fields the platforms return, so they are
+// reported as empty_patch too; see coverage.blockingPaths for why that does not
+// block approval.
+func skipReasonFor(e vcs.DiffEntry) string {
 	switch {
-	case tooLarge:
+	case e.TooLarge:
 		return SkipTooLarge
-	case collapsed:
+	case e.Collapsed:
 		return SkipCollapsed
-	case patch == "":
+	case e.Diff == "" && !e.RenamedFile && !e.NewFile && !e.DeletedFile:
 		return SkipEmptyPatch
 	}
 	return ""
@@ -93,6 +101,20 @@ func (c coverage) paths() []string {
 	out := make([]string, len(c.skipped))
 	for i, s := range c.skipped {
 		out[i] = s.Path
+	}
+	return out
+}
+
+// blockingPaths returns the skipped paths that must stop auto-approval.
+// empty_patch is excluded: it is ambiguous (binary and mode-only changes look
+// the same as a truncated patch), so blocking on it would refuse some merge
+// requests permanently with nothing the author can fix. It is still reported.
+func (c coverage) blockingPaths() []string {
+	var out []string
+	for _, s := range c.skipped {
+		if s.Reason != SkipEmptyPatch {
+			out = append(out, s.Path)
+		}
 	}
 	return out
 }

@@ -112,3 +112,95 @@ func TestCoverageLine(t *testing.T) {
 		t.Errorf("coverageLine with nothing skipped = %q, want empty", got)
 	}
 }
+
+func TestSkipReasonFor(t *testing.T) {
+	tests := []struct {
+		name  string
+		entry vcs.DiffEntry
+		want  string
+	}{
+		{"normal patch", vcs.DiffEntry{Diff: "@@ -1 +1 @@\n-a\n+b\n"}, ""},
+		{"too large", vcs.DiffEntry{TooLarge: true}, SkipTooLarge},
+		{"collapsed", vcs.DiffEntry{Collapsed: true}, SkipCollapsed},
+		{"pure rename", vcs.DiffEntry{OldPath: "a", NewPath: "b", RenamedFile: true}, ""},
+		{"empty new file", vcs.DiffEntry{NewPath: "a", NewFile: true}, ""},
+		{"deleted empty file", vcs.DiffEntry{OldPath: "a", DeletedFile: true}, ""},
+		{"modified file with no patch", vcs.DiffEntry{OldPath: "a", NewPath: "a"}, SkipEmptyPatch},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := skipReasonFor(tt.entry); got != tt.want {
+				t.Errorf("skipReasonFor = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEmptyPatchDoesNotBlockApproval(t *testing.T) {
+	c := buildCoverage(1, []SkippedFile{{Path: "bin.png", Reason: SkipEmptyPatch}, {Path: "big.go", Reason: SkipTooLarge}}, nil, nil, nil)
+	got := c.blockingPaths()
+	if len(got) != 1 || got[0] != "big.go" {
+		t.Errorf("blockingPaths = %v, want [big.go]", got)
+	}
+}
+
+func TestRun_AllFilesUnreviewablePostsCoverageNote(t *testing.T) {
+	cfg := &config.Config{
+		NoCache: true, CIMode: true, Model: "gemini-2.5-flash",
+		ChunkStrategy: config.ChunkStrategyFail, MinSeverity: config.SeverityLow,
+		CommentMode: config.CommentModeNotes, CIProjectID: "1", CIMergeRequestID: "2",
+	}
+	changes := &vcs.MRChanges{Changes: []vcs.DiffEntry{{OldPath: "big.go", NewPath: "big.go", TooLarge: true}}}
+	client := &mockVCS{mrChanges: changes}
+	mm := &mockModel{result: &model.ReviewResult{Summary: "ok"}}
+
+	if _, err := New(cfg, mm, client).Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if client.postNoteCalls != 1 {
+		t.Errorf("postNoteCalls = %d, want 1 coverage note", client.postNoteCalls)
+	}
+	if mm.calls != 0 {
+		t.Errorf("model called %d times, want 0", mm.calls)
+	}
+}
+
+func TestRun_IncrementalCoverageIgnoresParseFailuresOutsideChangedSet(t *testing.T) {
+	run := func(incremental bool) []string {
+		auditPath := filepath.Join(t.TempDir(), "audit.jsonl")
+		cfg := &config.Config{
+			NoCache: true, CIMode: true, Incremental: incremental, AuditLog: auditPath,
+			Model: "gemini-2.5-flash", ChunkStrategy: config.ChunkStrategyFail,
+			MinSeverity: config.SeverityLow, CommentMode: config.CommentModeNotes,
+			CIProjectID: "1", CIMergeRequestID: "2",
+		}
+		client := &mockVCS{
+			mrChanges: &vcs.MRChanges{Changes: []vcs.DiffEntry{
+				{OldPath: "a.go", NewPath: "a.go", Diff: "@@ -1,1 +1,2 @@\n a\n+b\n"},
+				{OldPath: "broken.go", NewPath: "broken.go", Diff: "@@ nonsense\n"},
+			}},
+			mrVersions:   []vcs.DiffVersion{{ID: 2, HeadSHA: "new"}, {ID: 1, HeadSHA: "old"}},
+			compareFiles: []string{"a.go"},
+		}
+		mm := &mockModel{result: &model.ReviewResult{Summary: "ok"}}
+		if _, err := New(cfg, mm, client).Run(context.Background()); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		data, err := os.ReadFile(auditPath)
+		if err != nil {
+			t.Fatalf("reading audit log: %v", err)
+		}
+		var entry AuditEntry
+		if err := json.Unmarshal(data, &entry); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return entry.FilesSkipped
+	}
+
+	if got := run(false); len(got) != 1 || got[0] != "broken.go" {
+		t.Fatalf("control: full review files_skipped = %v, want [broken.go]", got)
+	}
+	if got := run(true); len(got) != 0 {
+		t.Errorf("incremental files_skipped = %v, want none (broken.go is outside the changed set)", got)
+	}
+}
