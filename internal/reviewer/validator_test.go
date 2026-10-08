@@ -313,3 +313,52 @@ func TestSanitizeSuggestions_EmptyAndWhitespace(t *testing.T) {
 		t.Errorf("expected empty fenced block to be cleared, got %q", result[2].Suggestion)
 	}
 }
+
+func TestValidateFindings_DropsMojibakeSuggestion(t *testing.T) {
+	const src = "const LIGATURES = \"ﬀﬁﬂﬃﬄﬅﬆ\"; // soft\u00adhyphen 🚀 日本語"
+	diffs := []diff.FileDiff{{
+		NewPath: "lib/text.go",
+		Hunks: []diff.Hunk{{
+			NewStart: 1, NewCount: 2,
+			Lines: []diff.DiffLine{
+				{Type: diff.LineAdded, NewLineNo: 1, Content: src},
+				{Type: diff.LineAdded, NewLineNo: 2, Content: "var x = 1"},
+			},
+		}},
+	}}
+	mojibake := latin1Mojibake(src)
+	if mojibake == src {
+		t.Fatal("fixture did not produce mojibake")
+	}
+
+	tests := []struct {
+		name       string
+		suggestion string
+		want       string
+	}{
+		{"intact text is kept", src, src},
+		{"mojibake of source is dropped", mojibake, ""},
+		{"new non-ASCII text is kept", `const GREETING = "café 日本語"`, `const GREETING = "café 日本語"`},
+		{"ASCII is kept", "var y = 2", "var y = 2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ValidateFindings([]model.Finding{{File: "lib/text.go", Line: 1, Suggestion: tt.suggestion}}, diffs)
+			if len(got) != 1 {
+				t.Fatalf("finding must survive, got %d findings", len(got))
+			}
+			if got[0].Suggestion != tt.want {
+				t.Errorf("suggestion = %q, want %q", got[0].Suggestion, tt.want)
+			}
+		})
+	}
+}
+
+// latin1Mojibake re-encodes s the way a byte-wise Latin-1 decode would.
+func latin1Mojibake(s string) string {
+	var sb strings.Builder
+	for i := 0; i < len(s); i++ {
+		sb.WriteRune(rune(s[i]))
+	}
+	return sb.String()
+}
