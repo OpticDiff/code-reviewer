@@ -50,6 +50,17 @@ comment_mode: notes
 
 # intent_review: true        # Enable two-pass intent-aware review (default: true in CI)
 
+# Severities of the intent-aware rules (off, low, medium, high, critical).
+# Omitted entries keep the defaults shown.
+# intent_checks:
+#   missing_tests:    { severity: high }
+#   behaviour_change: { severity: high }
+#   breaking_changes:
+#     severity: high
+#     documented_in: ["CHANGELOG.md", "proto/**", "MR_DESCRIPTION"]
+#   scope_creep:      { severity: medium }
+#   stack_aware: false   # Report missing_tests as low when the target is not the default branch
+
 # Commit message triggers that force a full PR/MR re-review in incremental mode.
 # When any of these strings appear in the latest commit message, incremental filtering
 # and review caching are bypassed, re-evaluating all files in the PR/MR.
