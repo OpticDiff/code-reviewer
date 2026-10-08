@@ -42,6 +42,17 @@ type HTTPProvider struct {
 	tokenSource oauth2.TokenSource // GCP ADC (used when apiKey is empty)
 	modelName   string
 	httpClient  *http.Client
+	temperature *float32 // nil = defaultTemperature.
+}
+
+// SetTemperature overrides the sampling temperature for review calls.
+func (p *HTTPProvider) SetTemperature(t float32) { p.temperature = &t }
+
+func (p *HTTPProvider) temperatureValue() float32 {
+	if p.temperature != nil {
+		return *p.temperature
+	}
+	return defaultTemperature
 }
 
 // NewHTTPProvider creates a provider that talks to any OpenAI-compatible endpoint.
@@ -145,7 +156,7 @@ func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
 		},
-		Temperature: 0.2,
+		Temperature: p.temperatureValue(),
 	}
 
 	payload, err := json.Marshal(reqBody)

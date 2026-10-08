@@ -1467,3 +1467,56 @@ func TestLoad_AgentScope(t *testing.T) {
 		})
 	}
 }
+
+
+// TestLoad_Temperature verifies the optional sampling temperature is unset by
+// default and can be set from env, with the flag taking precedence.
+func TestLoad_Temperature(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	t.Run("unset by default", func(t *testing.T) {
+		os.Args = []string{"code-reviewer", "--diff"}
+		t.Setenv("REVIEW_TEMPERATURE", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() unexpected error: %v", err)
+		}
+		if cfg.Temperature != nil {
+			t.Errorf("Temperature = %v, want nil", *cfg.Temperature)
+		}
+	})
+
+	t.Run("env zero is honoured", func(t *testing.T) {
+		os.Args = []string{"code-reviewer", "--diff"}
+		t.Setenv("REVIEW_TEMPERATURE", "0")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() unexpected error: %v", err)
+		}
+		if cfg.Temperature == nil || *cfg.Temperature != 0 {
+			t.Errorf("Temperature = %v, want 0", cfg.Temperature)
+		}
+	})
+
+	t.Run("flag overrides env", func(t *testing.T) {
+		os.Args = []string{"code-reviewer", "--diff", "--temperature", "0.5"}
+		t.Setenv("REVIEW_TEMPERATURE", "0")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() unexpected error: %v", err)
+		}
+		if cfg.Temperature == nil || *cfg.Temperature != 0.5 {
+			t.Errorf("Temperature = %v, want 0.5", cfg.Temperature)
+		}
+	})
+
+	t.Run("out of range flag is rejected", func(t *testing.T) {
+		os.Args = []string{"code-reviewer", "--diff", "--temperature", "3"}
+		t.Setenv("REVIEW_TEMPERATURE", "")
+		if _, err := Load(); err == nil {
+			t.Error("Load() error = nil, want out-of-range error")
+		}
+	})
+}

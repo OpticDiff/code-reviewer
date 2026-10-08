@@ -338,6 +338,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--token-limit` | Context window token limit override (0 = use model default) | — |
 | `--confidence-floor` | Minimum model confidence percent (1-100) required to report a finding | `80` |
 | `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
+| `--temperature` | Sampling temperature for review calls, 0-2 (unset = built-in 0.2) | — |
 | `--extra-rules` | Additional prompt rules | — |
 | `--custom-prompt` | Path to custom system prompt file | — |
 | `--dry-run` | Analyze without posting | `false` |
@@ -398,6 +399,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_TOKEN_LIMIT` | Context window token limit override | — |
 | `REVIEW_CONFIDENCE_FLOOR` | Minimum model confidence percent (1-100) to report a finding | `80` |
 | `REVIEW_CONTEXT_FILES` | Directory-scoped guidance files, comma-separated | — |
+| `REVIEW_TEMPERATURE` | Sampling temperature for review calls (0-2) | — |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
 | `CODE_REVIEW_PLATFORM_REVIEW_MD` | Platform guidelines markdown path or glob | — |
@@ -433,6 +435,7 @@ Create `.code-reviewer.yaml` in your repo root:
 model: gemini-3.8-flash
 token_limit: 1000000     # Optional: explicit context window token limit override
 confidence_floor: 80     # Optional: minimum model confidence percent (1-100) to report a finding
+temperature: 0           # Optional: sampling temperature (0-2); unset = built-in 0.2
 focus: [bugs, security]
 context_files: [AGENTS.md]   # Optional: include the nearest AGENTS.md for each changed directory
 min_severity: low

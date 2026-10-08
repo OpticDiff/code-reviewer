@@ -304,3 +304,45 @@ type errorTokenSource struct {
 func (e *errorTokenSource) Token() (*oauth2.Token, error) {
 	return nil, e.err
 }
+
+func TestHTTPProvider_Temperature(t *testing.T) {
+	tests := []struct {
+		name string
+		set  *float32
+		want float32
+	}{
+		{name: "default keeps 0.2", want: 0.2},
+		{name: "override to zero", set: float32Ptr(0), want: 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var got float32 = -1
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req chatRequest
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Errorf("decoding request: %v", err)
+				}
+				got = req.Temperature
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"summary\":\"ok\",\"findings\":[]}"}}]}`))
+			}))
+			defer server.Close()
+
+			p, err := NewHTTPProvider(server.URL+"/v1", "k", "m")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.set != nil {
+				p.SetTemperature(*tc.set)
+			}
+			if _, err := p.Review(context.Background(), "sys", "user"); err != nil {
+				t.Fatalf("Review: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("temperature = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func float32Ptr(v float32) *float32 { return &v }
