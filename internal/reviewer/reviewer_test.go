@@ -1994,3 +1994,32 @@ func TestReviewer_TokenLimitOverride(t *testing.T) {
 	}
 }
 
+
+func TestGetCIDiffs_IncompleteEntries(t *testing.T) {
+	const patch = "@@ -1 +1 @@\n-a\n+b\n"
+	mock := &mockVCS{mrChanges: &vcs.MRChanges{
+		Changes: []vcs.DiffEntry{
+			{OldPath: "main.go", NewPath: "main.go", Diff: patch},
+			{OldPath: "big.go", NewPath: "big.go", Incomplete: true},
+			{OldPath: "go.sum", NewPath: "go.sum", Incomplete: true},
+		},
+	}}
+	cfg := &config.Config{
+		CIMode:           true,
+		CIProjectID:      "1",
+		CIMergeRequestID: "2",
+		ExcludedPatterns: []string{"go.sum"},
+	}
+	r := New(cfg, nil, mock)
+
+	diffs, _, _, err := r.getCIDiffs(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(diffs) != 1 || diffs[0].NewPath != "main.go" {
+		t.Errorf("diffs = %+v, want only main.go", diffs)
+	}
+	if got := r.parseFailedFiles; len(got) != 1 || got[0] != "big.go" {
+		t.Errorf("unreviewed files = %v, want [big.go] (excluded go.sum must not count)", got)
+	}
+}
