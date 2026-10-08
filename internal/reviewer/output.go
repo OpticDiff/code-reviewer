@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
+	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
 	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
@@ -63,8 +64,11 @@ func TerminalOutput(result *model.ReviewResult) string {
 }
 
 // PostReview posts review results to a GitLab merge request or GitHub pull request.
+// diffs must cover every reviewed file, including those whose findings came from the
+// cache. They let inline comments carry the pre-rename path and, for unchanged lines,
+// the pre-change line number, which GitLab requires alongside the new one.
 // If changedFiles is non-nil, only cleans previous comments on those files (incremental mode).
-func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, result *model.ReviewResult, version *vcs.DiffVersion, changedFiles []string, profile string) error {
+func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, result *model.ReviewResult, diffs []diff.FileDiff, version *vcs.DiffVersion, changedFiles []string, profile string) error {
 	// When platform visibility is security-team-only, redact finding details
 	// from PR comments. Full details are preserved in SARIF and audit log.
 	redacted := cfg.PlatformVisibility == "security-team-only" && profile == "platform"
@@ -83,6 +87,8 @@ func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, 
 			req.Comments = append(req.Comments, vcs.ReviewComment{
 				Path:       f.File,
 				Line:       f.Line,
+				OldPath:    oldPathFor(diffs, f.File),
+				OldLine:    oldLineFor(diffs, f.File, f.Line),
 				EndLine:    f.EndLine,
 				Body:       formatInlineComment(f),
 				Suggestion: f.Suggestion,

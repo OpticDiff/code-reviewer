@@ -469,7 +469,8 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 					HeadSHA:      req.Version.HeadSHA,
 					StartSHA:     req.Version.StartSHA,
 					NewPath:      comment.Path,
-					OldPath:      comment.Path,
+					OldPath:      oldPathOf(comment),
+					OldLine:      oldLinePtr(comment),
 					NewLine:      &newLine,
 				},
 			}
@@ -508,6 +509,25 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 	return nil
 }
 
+// oldPathOf returns the path the comment's file had before the change: the
+// pre-rename path for a renamed file, the file's own path otherwise.
+func oldPathOf(comment vcs.ReviewComment) string {
+	if comment.OldPath != "" {
+		return comment.OldPath
+	}
+	return comment.Path
+}
+
+// oldLinePtr returns the comment's pre-change line number, or nil for an added
+// line. GitLab requires both old_line and new_line to anchor a note on an
+// unchanged line, and rejects the position when old_line is missing.
+func oldLinePtr(comment vcs.ReviewComment) *int {
+	if comment.OldLine <= 0 {
+		return nil
+	}
+	return &comment.OldLine
+}
+
 // submitViaIndividualComments is the legacy path: PostNote + N×CreateDiscussion.
 // Used as fallback when Draft Notes API is unavailable.
 func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
@@ -544,7 +564,8 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 					HeadSHA:  req.Version.HeadSHA,
 					StartSHA: req.Version.StartSHA,
 					NewPath:  comment.Path,
-					OldPath:  comment.Path,
+					OldPath:  oldPathOf(comment),
+					OldLine:  oldLinePtr(comment),
 					NewLine:  &newLine,
 				},
 			}

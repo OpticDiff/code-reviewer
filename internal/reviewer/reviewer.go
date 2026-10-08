@@ -151,24 +151,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	if poisoned := DetectConfigPoisoning(poisonCheckPaths); len(poisoned) > 0 {
 		slog.Warn("Config file modified in this PR — review manually")
 		for _, p := range poisoned {
-			line := 1
-			// Anchor to first changed line so ValidateFindings doesn't drop it.
-			for _, d := range diffs {
-				if d.NewPath == p || d.OldPath == p {
-					for _, h := range d.Hunks {
-						for _, l := range h.Lines {
-							if l.NewLineNo > 0 {
-								line = l.NewLineNo
-								break
-							}
-						}
-						if line > 1 {
-							break
-						}
-					}
-					break
-				}
-			}
+			// Anchor to a line ValidateFindings keeps and the platform accepts.
+			line := configAnchorLine(diffs, p)
 			allFindings = append(allFindings, ConfigPoisoningFinding(p, line))
 		}
 	}
@@ -623,7 +607,7 @@ skipAgent:
 			result.Summary = FormatScopeMarkdown(scopeAssessment) + result.Summary
 		}
 
-		if err := PostReview(ctx, r.cfg, r.glClient, result, version, incrementalChangedFiles, r.cfg.Profile); err != nil {
+		if err := PostReview(ctx, r.cfg, r.glClient, result, auditDiffs, version, incrementalChangedFiles, r.cfg.Profile); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
 

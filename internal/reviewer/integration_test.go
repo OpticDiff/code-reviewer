@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/OpticDiff/code-reviewer/internal/cache"
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
@@ -849,5 +851,50 @@ func TestIntegration_PostNoteError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "403 Forbidden") {
 		t.Errorf("expected '403 Forbidden' in error, got: %v", err)
+	}
+}
+
+// A finding replayed from the review cache on an unchanged line must still
+// carry its old line number, even though its file is not re-reviewed.
+func TestIntegration_CIDiscussions_CachedFindingOnContextLineHasOldLine(t *testing.T) {
+	diffs := integrationDiffs()
+
+	cacheDir := t.TempDir()
+	cfg := ciConfig()
+	cfg.NoCache = false
+	cfg.CacheDir = cacheDir
+	cfg.CacheMaxAge = time.Hour
+	cfg.CommentMode = config.CommentModeDiscussions
+
+	c, err := cache.New(cacheDir, time.Hour)
+	if err != nil {
+		t.Fatalf("creating cache: %v", err)
+	}
+	promptHash := cache.PromptHash(cfg.CustomPrompt, "", "", cfg.Focus, cfg.ExtraRules, "")
+	cached := model.Finding{
+		File: "internal/auth/handler.go", Line: 13, Severity: "HIGH", Category: "bug", Title: "Cached", Body: "b",
+	}
+	key := cache.CacheKey(cache.DiffHash(diffs[0]), cfg.Model, promptHash)
+	if err := c.Store(key, cache.Entry{
+		FilePath: "internal/auth/handler.go", DiffHash: cache.DiffHash(diffs[0]), Model: cfg.Model,
+		Findings: []model.Finding{cached},
+	}); err != nil {
+		t.Fatalf("storing cache entry: %v", err)
+	}
+
+	mm := &mockModel{result: &model.ReviewResult{Summary: "ok"}}
+	client := &capturingVCS{mockVCS: mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h", BaseSHA: "b", StartSHA: "s"}}}}
+	r := NewWithDiffSource(cfg, mm, client, &mockDiffSource{diffs: diffs})
+
+	if _, err := r.Run(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if client.submitReviewReq == nil || len(client.submitReviewReq.Comments) != 1 {
+		t.Fatalf("expected 1 comment from the cached finding, got %+v", client.submitReviewReq)
+	}
+	got := client.submitReviewReq.Comments[0]
+	if got.Line != 13 || got.OldLine != 11 {
+		t.Errorf("cached comment = new %d / old %d, want new 13 / old 11", got.Line, got.OldLine)
 	}
 }

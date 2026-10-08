@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Vertex AI snapshot IDs such as `claude-haiku-4-5@20251001` resolve to their base model's token limit instead of the 128k fallback.
+- GitLab inline comments on unchanged diff lines now send both `old_line` and `new_line`. Previously only `new_line` was sent, the draft was accepted, and `bulk_publish` then failed, so the whole review was lost.
+- The "Config File Modified" finding is anchored to the first added line of the config file instead of an unchanged context line.
+- GitLab inline comments on renamed files send the pre-rename path as `old_path`, and findings replayed from the review cache get their `old_line` like fresh ones.
 
 ## [0.7.0] — 2026-08-24
 
