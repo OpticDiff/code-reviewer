@@ -184,3 +184,18 @@ func TestBuildSARIF_EmptyCategory(t *testing.T) {
 		t.Errorf("expected 'general' for empty category, got %s", report.Runs[0].Results[0].RuleID)
 	}
 }
+
+func TestBuildSARIF_SkipsRemovedLineFindings(t *testing.T) {
+	result := &model.ReviewResult{Findings: []model.Finding{
+		{File: "a.go", Line: 5, Severity: "HIGH", Category: "bug", Title: "added"},
+		{File: "a.go", OldLine: 21, Severity: "HIGH", Category: "security", Title: "guard removed", Suggestion: "x"},
+	}}
+	report := buildSARIF(result, "dev", "")
+
+	if got := len(report.Runs[0].Results); got != 1 {
+		t.Fatalf("expected only the new-side finding, got %d results", got)
+	}
+	if got := len(report.Runs[0].Tool.Driver.Rules); got != 1 {
+		t.Errorf("expected no rule for the skipped finding, got %d rules", got)
+	}
+}

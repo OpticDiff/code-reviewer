@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
@@ -45,7 +46,7 @@ func TerminalOutput(result *model.ReviewResult) string {
 			if f.EndLine > 0 && f.EndLine > f.Line {
 				fmt.Fprintf(&sb, "### L%d-%d: [%s] %s\n", f.Line, f.EndLine, f.Severity, f.Title)
 			} else {
-				fmt.Fprintf(&sb, "### L%d: [%s] %s\n", f.Line, f.Severity, f.Title)
+				fmt.Fprintf(&sb, "### %s: [%s] %s\n", lineLabel(f), f.Severity, f.Title)
 			}
 			sb.WriteString(f.Body + "\n")
 			if f.Suggestion != "" {
@@ -84,6 +85,17 @@ func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, 
 	// are only available via SARIF (Security tab) and the audit log.
 	if !redacted && cfg.CommentMode == config.CommentModeDiscussions && version != nil {
 		for _, f := range result.Findings {
+			if f.Line <= 0 && f.OldLine > 0 {
+				// A removed line has no new-side number and cannot take a
+				// suggestion or a new-side range.
+				req.Comments = append(req.Comments, vcs.ReviewComment{
+					Path:    f.File,
+					OldPath: oldPathFor(diffs, f.File),
+					OldLine: f.OldLine,
+					Body:    formatInlineComment(f),
+				})
+				continue
+			}
 			req.Comments = append(req.Comments, vcs.ReviewComment{
 				Path:       f.File,
 				Line:       f.Line,
@@ -187,7 +199,7 @@ func formatSummaryNote(result *model.ReviewResult, profile string, redacted bool
 		} else if f.RuleName != "" {
 			badge = fmt.Sprintf(" 📋 **[%s]**", f.RuleName)
 		}
-		fmt.Fprintf(&sb, "- %s **[%s]**%s `%s:%d` — %s\n", severityEmoji(f.Severity), f.Severity, badge, f.File, f.Line, f.Title)
+		fmt.Fprintf(&sb, "- %s **[%s]**%s `%s:%s` — %s\n", severityEmoji(f.Severity), f.Severity, badge, f.File, lineRef(f), f.Title)
 	}
 
 	return sb.String()
@@ -226,4 +238,22 @@ func severityEmoji(severity string) string {
 	default:
 		return "⚪"
 	}
+}
+
+// lineRef renders where a finding sits in its file: the new-side line number,
+// or "old N" for a finding on a removed line, which has no new-side number.
+func lineRef(f model.Finding) string {
+	if f.Line <= 0 && f.OldLine > 0 {
+		return fmt.Sprintf("old %d", f.OldLine)
+	}
+	return strconv.Itoa(f.Line)
+}
+
+// lineLabel is lineRef prefixed for headings: "L12", or "old L12" for a
+// finding on a removed line.
+func lineLabel(f model.Finding) string {
+	if f.Line <= 0 && f.OldLine > 0 {
+		return fmt.Sprintf("old L%d", f.OldLine)
+	}
+	return fmt.Sprintf("L%d", f.Line)
 }

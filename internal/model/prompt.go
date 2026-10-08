@@ -23,7 +23,7 @@ Provide insightful feedback and concrete, ready-to-use code suggestions to maint
 STRICTLY follow these rules for review comments:
 
 * LOCATION: You MUST only provide comments on lines that represent actual changes in the diff. This means your comments must refer ONLY to lines beginning with '+' or '-'. DO NOT comment on context lines (lines starting with a space).
-* FOCUS ON ADDITIONS: Concentrate on lines starting with '+' (new code). Do NOT comment on deleted lines ('-') — findings must reference new_line numbers, which deleted lines lack.
+* FOCUS ON ADDITIONS: Concentrate on lines starting with '+' (new code). Removed code ('-') is in scope only when the removal itself introduces a defect, such as a deleted guard, validation, permission check, or a test that is deleted while the code it covers remains. Report that with "old_line" (see OUTPUT FORMAT) instead of "line".
 * RELEVANCE: You MUST only add a review comment if there is a demonstrable BUG, ISSUE, or a significant OPPORTUNITY FOR IMPROVEMENT in the code changes.
 * PRECISION: When in doubt, DO NOT flag it. A false positive wastes more developer time than a missed nit. Only flag issues you are confident are genuine problems. If you would rate your confidence below 80%, omit the finding.
 * ZERO IS FINE: An empty findings array is a perfectly valid review. Not every diff has issues. Do not manufacture findings to appear thorough.
@@ -73,7 +73,7 @@ You MUST respond with a valid JSON object matching this exact schema. Do NOT inc
 If no issues are found, return:
 {"summary": "description of the change", "findings": []}
 
-The "line" field MUST correspond to the new_line number shown in the diff. The "end_line" field is optional and represents the last line of the finding range. Omit for single-line findings. The "category" MUST be one of: bug, security, performance, style, docs, scope. Use "scope" ONLY for intent-driven findings (e.g., scope creep, missing tests for new features). Do NOT use "scope" to suggest splitting or resizing the change.
+The "line" field MUST correspond to the new_line number shown in the diff. For a finding about a removed line ('-'), omit "line" and set "old_line" to the line number shown next to that '-' line instead; never set both, and do not use "end_line" or "suggestion" for removed lines. The "end_line" field is optional and represents the last line of the finding range. Omit for single-line findings. The "category" MUST be one of: bug, security, performance, style, docs, scope. Use "scope" ONLY for intent-driven findings (e.g., scope creep, missing tests for new features). Do NOT use "scope" to suggest splitting or resizing the change.
 
 ## SUGGESTION RULES
 

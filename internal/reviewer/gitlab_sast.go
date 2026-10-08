@@ -77,6 +77,11 @@ func WriteGitLabSAST(path, toolVersion string, result *model.ReviewResult) error
 	}
 
 	for _, finding := range result.Findings {
+		// A finding on a removed line has no start_line in the new file, and
+		// the report schema requires one, so it is left to the inline comment.
+		if finding.Line <= 0 && finding.OldLine > 0 {
+			continue
+		}
 		// id = hex(SHA256(`file:line:category:title`))[:32]
 		idStr := fmt.Sprintf("%s:%d:%s:%s", finding.File, finding.Line, finding.Category, finding.Title)
 		hash := sha256.Sum256([]byte(idStr))

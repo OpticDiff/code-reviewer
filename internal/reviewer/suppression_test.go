@@ -302,3 +302,12 @@ func TestEnforceRuleAttribution_PlatformDefaultSuppressionDenied(t *testing.T) {
 		t.Errorf("expected platform-default-strict finding, got %s", result[0].RuleName)
 	}
 }
+
+func TestCheckInlineSuppression_RemovedLineFindingNotSuppressed(t *testing.T) {
+	d := diff.FileDiff{Hunks: []diff.Hunk{{Lines: []diff.DiffLine{
+		{Type: diff.LineAdded, NewLineNo: 1, Content: "// opticdiff:ignore all: reason"},
+	}}}}
+	if ok, _ := checkInlineSuppression(d, 0, "some-rule"); ok {
+		t.Error("a finding on a removed line (line 0) must not be matched by a suppression comment at the top of the file")
+	}
+}

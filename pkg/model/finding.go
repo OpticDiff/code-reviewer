@@ -10,7 +10,14 @@ func FindingsMatch(a, b Finding) bool {
 	if a.Category != b.Category {
 		return false
 	}
+	aRemoved, bRemoved := a.Line <= 0 && a.OldLine > 0, b.Line <= 0 && b.OldLine > 0
+	if aRemoved != bRemoved {
+		return false // Old-side and new-side numbers are not comparable.
+	}
 	lineDiff := a.Line - b.Line
+	if aRemoved {
+		lineDiff = a.OldLine - b.OldLine
+	}
 	if lineDiff < 0 {
 		lineDiff = -lineDiff
 	}

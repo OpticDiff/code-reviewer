@@ -362,3 +362,83 @@ func latin1Mojibake(s string) string {
 	}
 	return sb.String()
 }
+
+func removedLineDiffs() []diff.FileDiff {
+	return []diff.FileDiff{
+		{
+			OldPath: "internal/auth.go",
+			NewPath: "internal/auth.go",
+			Hunks: []diff.Hunk{{
+				OldStart: 20,
+				OldCount: 4,
+				NewStart: 20,
+				NewCount: 2,
+				Lines: []diff.DiffLine{
+					{Type: diff.LineContext, OldLineNo: 20, NewLineNo: 20, Content: "func check(u User) error {"},
+					{Type: diff.LineRemoved, OldLineNo: 21, Content: "if !u.Admin {"},
+					{Type: diff.LineRemoved, OldLineNo: 22, Content: "    return ErrForbidden"},
+					{Type: diff.LineRemoved, OldLineNo: 23, Content: "}"},
+					{Type: diff.LineContext, OldLineNo: 24, NewLineNo: 21, Content: "return nil"},
+				},
+			}},
+		},
+	}
+}
+
+func TestValidateFindings_RemovedLineKept(t *testing.T) {
+	findings := []model.Finding{
+		{File: "internal/auth.go", OldLine: 21, Severity: "HIGH", Title: "removed guard"},
+	}
+	result := ValidateFindings(findings, removedLineDiffs())
+	if len(result) != 1 {
+		t.Fatalf("expected removed-line finding kept, got %d", len(result))
+	}
+	if result[0].OldLine != 21 || result[0].Line != 0 {
+		t.Errorf("got line=%d old_line=%d, want line=0 old_line=21", result[0].Line, result[0].OldLine)
+	}
+}
+
+func TestValidateFindings_RemovedLineClearsNewLine(t *testing.T) {
+	// A model that sets both fields for a removed line gets anchored on the old side only.
+	findings := []model.Finding{
+		{File: "internal/auth.go", Line: 21, OldLine: 22, Severity: "HIGH", Title: "removed guard"},
+	}
+	result := ValidateFindings(findings, removedLineDiffs())
+	if len(result) != 1 || result[0].Line != 0 || result[0].OldLine != 22 {
+		t.Fatalf("got %+v, want one finding with line=0 old_line=22", result)
+	}
+}
+
+func TestValidateFindings_OldLineNotRemovedDropped(t *testing.T) {
+	// old_line 20 is an unchanged line, 999 is outside the diff: neither is a removed line.
+	for _, old := range []int{20, 999} {
+		findings := []model.Finding{
+			{File: "internal/auth.go", OldLine: old, Severity: "HIGH", Title: "bad old line"},
+		}
+		if result := ValidateFindings(findings, removedLineDiffs()); len(result) != 0 {
+			t.Errorf("old_line %d: expected finding dropped, got %d", old, len(result))
+		}
+	}
+}
+
+func TestValidateFindings_OldLineIgnoredWhenNewLineValid(t *testing.T) {
+	// Added line 11 is valid; a stray old_line must not turn it into a removed-line finding.
+	findings := []model.Finding{
+		{File: "internal/handler.go", Line: 11, OldLine: 5, Severity: "HIGH", Title: "added"},
+	}
+	result := ValidateFindings(findings, testDiffs())
+	if len(result) != 1 || result[0].Line != 11 || result[0].OldLine != 0 {
+		t.Fatalf("got %+v, want line=11 old_line=0", result)
+	}
+}
+
+func TestValidateFindings_RemovedLineDropsSuggestion(t *testing.T) {
+	// A suggestion replaces lines of the new file; a removed line has none.
+	findings := []model.Finding{
+		{File: "internal/auth.go", OldLine: 21, Severity: "HIGH", Title: "removed guard", Suggestion: "if !u.Admin {\n}"},
+	}
+	result := ValidateFindings(findings, removedLineDiffs())
+	if len(result) != 1 || result[0].Suggestion != "" {
+		t.Fatalf("got %+v, want one finding without a suggestion", result)
+	}
+}

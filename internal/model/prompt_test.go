@@ -265,7 +265,7 @@ func TestBasePrompt_PrecisionRules(t *testing.T) {
 		{"no manufacturing", "Do not manufacture findings"},
 		{"focus on additions", "FOCUS ON ADDITIONS"},
 		{"additions detail", "Concentrate on lines starting with '+'"},
-		{"no deleted line findings", "Do NOT comment on deleted lines"},
+		{"removed code in scope", "Removed code ('-') is in scope only when the removal itself introduces a defect"},
 		{"scope restriction", `Use "scope" ONLY for intent-driven findings`},
 		{"no split suggestion", "split into smaller changes"},
 		{"suggestion import guard", "references variables, functions, or imports not visible"},
@@ -350,5 +350,17 @@ func TestWithConfidenceFloor_CustomPromptWithoutFloorSentenceUnchanged(t *testin
 	const custom = "Review the diff and answer in JSON."
 	if got := WithConfidenceFloor(custom, 50); got != custom {
 		t.Errorf("custom prompt without a floor sentence was modified: %q", got)
+	}
+}
+
+func TestBuildPrompt_RemovedCodeIsInScope(t *testing.T) {
+	prompt := BuildPrompt([]string{"all"}, "")
+	if strings.Contains(prompt, "Do NOT comment on deleted lines") {
+		t.Error("prompt still forbids findings on deleted lines")
+	}
+	for _, want := range []string{`"old_line"`, "removed"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %q", want)
+		}
 	}
 }

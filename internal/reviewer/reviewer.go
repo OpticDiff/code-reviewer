@@ -1071,6 +1071,9 @@ func (r *Reviewer) enforceRuleAttributionAndSuppressions(findings []model.Findin
 // checkInlineSuppression scans the diff around the finding line for an inline suppression comment.
 // Format: `opticdiff:ignore <rule-name>[: <reason>]` or `opticdiff:ignore all[: <reason>]`
 func checkInlineSuppression(d diff.FileDiff, line int, ruleName string) (bool, string) {
+	if line <= 0 {
+		return false, "" // A finding on a removed line has no new-file neighbourhood to search.
+	}
 	ruleLower := strings.ToLower(ruleName)
 	for _, h := range d.Hunks {
 		for _, l := range h.Lines {

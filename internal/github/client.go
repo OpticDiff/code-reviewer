@@ -178,16 +178,20 @@ func (c *Client) PostNote(ctx context.Context, projectID, prNumber, body string)
 func (c *Client) CreateDiscussion(ctx context.Context, projectID, prNumber string, req vcs.InlineCommentRequest) error {
 	apiURL := fmt.Sprintf("%s/repos/%s/pulls/%s/comments", c.baseURL, projectID, prNumber)
 	
-	if req.Position == nil || req.Position.NewLine == nil {
-		return fmt.Errorf("position and new line required for inline comments")
+	if req.Position == nil || (req.Position.NewLine == nil && req.Position.OldLine == nil) {
+		return fmt.Errorf("position and line required for inline comments")
 	}
 
 	ghReq := CreatePullCommentRequest{
 		Body:     req.Body + "\n" + c.botMarker,
 		CommitID: req.Position.HeadSHA,
 		Path:     req.Position.NewPath,
-		Line:     *req.Position.NewLine,
-		Side:     "RIGHT",
+	}
+	if req.Position.NewLine != nil {
+		ghReq.Line, ghReq.Side = *req.Position.NewLine, "RIGHT"
+	} else {
+		// A removed line exists only on the old side of the diff.
+		ghReq.Line, ghReq.Side = *req.Position.OldLine, "LEFT"
 	}
 
 	if err := c.post(ctx, apiURL, ghReq, nil); err != nil {
@@ -273,12 +277,23 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, prNumber string, r
 	var validComments []ReviewCommentRequest
 	var dropped int
 	for _, comment := range req.Comments {
-		if comment.Path == "" || comment.Line <= 0 {
+		if comment.Path == "" || (comment.Line <= 0 && comment.OldLine <= 0) {
 			slog.Warn("dropping invalid review comment",
 				"path", comment.Path,
 				"line", comment.Line,
 			)
 			dropped++
+			continue
+		}
+		if comment.Line <= 0 {
+			// A removed line exists only on the old side of the diff and
+			// cannot take a suggestion or a new-side range.
+			validComments = append(validComments, ReviewCommentRequest{
+				Path: comment.Path,
+				Line: comment.OldLine,
+				Body: comment.Body,
+				Side: "LEFT",
+			})
 			continue
 		}
 		commentBody := comment.Body
