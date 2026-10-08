@@ -325,3 +325,30 @@ func TestBuildPromptWithPlatform_RulesWithoutPlatformMD(t *testing.T) {
 		t.Error("expected REPOSITORY REVIEW INSTRUCTIONS header")
 	}
 }
+
+func TestWithConfidenceFloor_DefaultIsByteIdentical(t *testing.T) {
+	base := BuildPrompt([]string{"all"}, "")
+	for _, floor := range []int{0, 80} {
+		if got := WithConfidenceFloor(base, floor); got != base {
+			t.Errorf("WithConfidenceFloor(base, %d) changed the prompt", floor)
+		}
+	}
+}
+
+func TestWithConfidenceFloor_Custom(t *testing.T) {
+	base := BuildPrompt([]string{"all"}, "")
+	got := WithConfidenceFloor(base, 95)
+	if !strings.Contains(got, "confidence below 95%, omit the finding") {
+		t.Errorf("prompt does not carry the 95%% floor")
+	}
+	if strings.Contains(got, "below 80%") {
+		t.Errorf("prompt still carries the default floor")
+	}
+}
+
+func TestWithConfidenceFloor_CustomPromptWithoutFloorSentenceUnchanged(t *testing.T) {
+	const custom = "Review the diff and answer in JSON."
+	if got := WithConfidenceFloor(custom, 50); got != custom {
+		t.Errorf("custom prompt without a floor sentence was modified: %q", got)
+	}
+}

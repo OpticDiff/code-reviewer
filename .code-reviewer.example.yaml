@@ -14,6 +14,11 @@ model: gemini-3.8-flash
 # directory. Read from the base ref in CI mode. Plain file names only; off by default.
 # context_files: [AGENTS.md]
 
+# Minimum model confidence (percent, 1-100) required to report a finding.
+# Raise it to cut noise, lower it to surface more speculative findings. Default: 80.
+# Only the built-in system prompt is adjusted; a custom_prompt must state its own threshold.
+# confidence_floor: 80
+
 # Multiple models for consensus review (CLI-only: --models flag).
 # Runs all models in parallel and deduplicates findings.
 # Consensus activates only with 2+ models; single model uses the normal path.

@@ -118,6 +118,7 @@ type Config struct {
 	Models             []string // Multiple models for consensus mode.
 	ConsensusThreshold int      // Min models that must agree on a finding (default: 2).
 	TokenLimit         int      // Context window limit override in tokens (0 = use model default).
+	ConfidenceFloor    int      // Minimum confidence percent (1-100) the model needs to report a finding (0 = built-in default of 80).
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
@@ -241,6 +242,7 @@ func (c *Config) EffectiveModel() string {
 type repoConfig struct {
 	Model            string   `yaml:"model"`
 	TokenLimit       int      `yaml:"token_limit"`
+	ConfidenceFloor  int      `yaml:"confidence_floor"`
 	Focus            []string `yaml:"focus"`
 	ContextFiles     []string `yaml:"context_files"`
 	MinSeverity      string   `yaml:"min_severity"`
@@ -467,6 +469,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.TokenLimit > 0 {
 		c.TokenLimit = rc.TokenLimit
 	}
+	if rc.ConfidenceFloor != 0 {
+		c.ConfidenceFloor = rc.ConfidenceFloor
+	}
 	if len(rc.Focus) > 0 {
 		c.Focus = rc.Focus
 	}
@@ -598,6 +603,14 @@ func (c *Config) loadEnv() {
 			slog.Warn("ignoring non-positive REVIEW_TOKEN_LIMIT", "value", n)
 		} else {
 			c.TokenLimit = n
+		}
+	}
+	if v := os.Getenv("REVIEW_CONFIDENCE_FLOOR"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_CONFIDENCE_FLOOR", "value", v, "error", err)
+		} else {
+			c.ConfidenceFloor = n
 		}
 	}
 	if v := os.Getenv("REVIEW_FOCUS"); v != "" {
@@ -771,6 +784,7 @@ func (c *Config) loadFlags() error {
 
 	model := fs.String("model", "", "Vertex AI model ID (e.g., gemini-3.8-flash, claude-sonnet-5)")
 	tokenLimit := fs.Int("token-limit", 0, "Explicit context window token limit (overrides model default)")
+	confidenceFloor := fs.Int("confidence-floor", 0, "Minimum model confidence percent (1-100) required to report a finding (default 80)")
 	contextFiles := fs.String("context-files", "", "Directory-scoped guidance file names to include for changed directories, comma-separated (e.g. AGENTS.md)")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
@@ -919,6 +933,9 @@ func (c *Config) loadFlags() error {
 				return
 			}
 			c.TokenLimit = *tokenLimit
+		}
+		if f.Name == "confidence-floor" {
+			c.ConfidenceFloor = *confidenceFloor
 		}
 		if f.Name == "max-tokens" {
 			if *maxTokens < 0 {
@@ -1073,6 +1090,10 @@ func (c *Config) loadGitHubCIEnv() {
 }
 
 func (c *Config) validate() error {
+	if c.ConfidenceFloor < 0 || c.ConfidenceFloor > 100 {
+		return &ConfigError{Err: fmt.Errorf("invalid confidence floor %d: must be between 1 and 100", c.ConfidenceFloor)}
+	}
+
 	// Normalize and validate profile.
 	if c.Profile == "" {
 		c.Profile = "all"
