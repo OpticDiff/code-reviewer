@@ -340,7 +340,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cachedFindings []model.Finding
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
-		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil)+contextGuidance)
+		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil)+contextGuidance+FormatDismissedPrompt(dismissed))
 		if forceFullReview {
 			slog.Info("bypassing review cache due to commit trigger", "trigger", triggerMatched)
 			diffs, _, _, cacheKeys = cache.Partition(diffs, nil, cacheModelID, promptHash)

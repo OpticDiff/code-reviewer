@@ -267,3 +267,16 @@ func TestAnchorUnchanged_RejectsHugeSpan(t *testing.T) {
 		t.Error("an oversized span must be rejected without scanning")
 	}
 }
+
+func TestAssignFingerprints_RemovedLineFindingsDoNotPanic(t *testing.T) {
+	f := []model.Finding{
+		{File: "main.go", Line: 0, Category: "bug"},
+		{File: "main.go", Line: -3, EndLine: 5, Category: "bug"},
+	}
+	AssignFingerprints(f, dismissedTestDiffs("x := compute()"))
+	for _, got := range f {
+		if got.Fingerprint != "" {
+			t.Errorf("finding at line %d should not be fingerprinted", got.Line)
+		}
+	}
+}
