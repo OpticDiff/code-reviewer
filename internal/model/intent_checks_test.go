@@ -6,15 +6,29 @@ import (
 )
 
 func TestBuildIntentContextWithChecks_DefaultsMatchLegacy(t *testing.T) {
-	s := &SummaryResult{
-		Classification:  "feat",
-		Intent:          "Add API",
-		RiskLevel:       "high",
-		ScopeAreas:      []string{"api"},
-		BreakingChanges: []string{"removed field"},
+	// Golden literals copied from the prompt text before intent_checks existed.
+	tests := []struct {
+		name string
+		s    *SummaryResult
+		want string
+	}{
+		{"feat", &SummaryResult{Classification: "feat", Intent: "x"},
+			"* TEST COVERAGE: This is a feature change. If new behavior is introduced without corresponding test files or test functions, report as category \"scope\" with severity HIGH and title \"New feature missing test coverage\".\n"},
+		{"refactor", &SummaryResult{Classification: "refactor", Intent: "x"},
+			"* BEHAVIORAL PRESERVATION: This is a refactor. Verify no behavioral changes are introduced. If behavior changes, report as category \"scope\" with severity HIGH and title \"Refactor introduces behavioral change\".\n"},
+		{"scope creep", &SummaryResult{Classification: "chore", Intent: "x", ScopeAreas: []string{"api", "db"}},
+			"* SCOPE CREEP: Flag any file changes that fall OUTSIDE the stated scope areas (api, db). Report as category \"scope\" with severity MEDIUM.\n"},
+		{"breaking", &SummaryResult{Classification: "chore", Intent: "x", BreakingChanges: []string{"b"}},
+			"* BREAKING CHANGES: Breaking changes were detected. Verify each is documented in CHANGELOG, README, or migration guide. Report undocumented breaking changes as category \"scope\" with severity HIGH.\n"},
 	}
-	if got, want := BuildIntentContextWithChecks(s, IntentChecks{}), BuildIntentContext(s); got != want {
-		t.Errorf("zero IntentChecks must match defaults:\n%s\nvs\n%s", got, want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, got := range []string{BuildIntentContext(tt.s), BuildIntentContextWithChecks(tt.s, IntentChecks{})} {
+				if !strings.Contains(got, tt.want) {
+					t.Errorf("default rule text changed; want line:\n%s\ngot:\n%s", tt.want, got)
+				}
+			}
+		})
 	}
 }
 
