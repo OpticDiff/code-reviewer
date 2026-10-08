@@ -39,6 +39,7 @@ type Reviewer struct {
 	parseFailedFiles     []string // files whose diffs failed to parse (unreviewed)
 	cache                *cache.Cache
 	profileFilteredCount int // findings dropped by profile category enforcement
+	suggestionsDropped   int // suggestions removed by CheckSuggestions
 }
 
 // New creates a new Reviewer.
@@ -108,6 +109,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		auditSkipped := append(skippedFiles, r.parseFailedFiles...)
 		entry := buildAuditEntry(r.cfg, d, auditSkipped, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
 		entry.ProfileFilteredCount = r.profileFilteredCount
+		entry.SuggestionsDropped = r.suggestionsDropped
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -547,6 +549,9 @@ skipAgent:
 
 	// Step 5d: Enforce platform rule attribution, severity locking, and inline comment suppressions.
 	allFindings = r.enforceRuleAttributionAndSuppressions(allFindings, auditDiffs)
+
+	// Step 5d½: Drop suggestions whose range would corrupt the file.
+	allFindings, r.suggestionsDropped = CheckSuggestions(allFindings, auditDiffs)
 
 	// Step 5e: Profile-based category enforcement (N3 defense-in-depth).
 	preProfileCount := len(allFindings)
