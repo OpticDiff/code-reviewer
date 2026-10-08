@@ -17,10 +17,20 @@ type PullFile struct {
 	Patch            string `json:"patch"`
 	// PreviousFilename is the old path if the file was renamed.
 	PreviousFilename string `json:"previous_filename,omitempty"`
+	// Changes is additions plus deletions; it is 0 for binary and mode-only changes.
+	Changes int `json:"changes"`
 }
 
 func (f *PullFile) toVCSDiffEntry() vcs.DiffEntry {
+	// The files API omits patch for binary files and for oversized diffs.
+	// Only the latter report changed lines, so a missing patch with changes > 0
+	// on a modified file means the diff was withheld, not that it is empty.
+	// Added, removed and renamed files are left alone: their empty patch is
+	// legitimate or reported elsewhere.
+	tooLarge := f.Patch == "" && f.Changes > 0 &&
+		f.Status != "added" && f.Status != "removed" && f.Status != "renamed"
 	return vcs.DiffEntry{
+		TooLarge:    tooLarge,
 		OldPath:     f.previousPath(),
 		NewPath:     f.Filename,
 		Diff:        f.Patch,

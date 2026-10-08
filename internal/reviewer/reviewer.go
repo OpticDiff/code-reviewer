@@ -229,7 +229,14 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			// instead of leaving the MR without any note.
 			fmt.Println("⚠️  " + line)
 			if r.cfg.CIMode && !r.cfg.DryRun && r.glClient != nil {
-				if _, err := r.glClient.PostNote(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID, "## 📋 Code Review Summary\n\n"+line); err != nil {
+				// SubmitReview replaces earlier bot summaries, so reruns do
+				// not stack identical notes.
+				req := vcs.SubmitReviewRequest{
+					Summary:      profileHeader(r.cfg.Profile) + "\n\n" + line + "\n",
+					CleanupMode:  string(r.cfg.CleanupMode),
+					ChangedFiles: incrementalChangedFiles,
+				}
+				if err := r.glClient.SubmitReview(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID, req); err != nil {
 					slog.Warn("failed to post coverage note", "error", err)
 				}
 			}

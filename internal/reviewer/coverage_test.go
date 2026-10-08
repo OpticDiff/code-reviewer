@@ -157,8 +157,15 @@ func TestRun_AllFilesUnreviewablePostsCoverageNote(t *testing.T) {
 	if _, err := New(cfg, mm, client).Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if client.postNoteCalls != 1 {
-		t.Errorf("postNoteCalls = %d, want 1 coverage note", client.postNoteCalls)
+	if client.submitReviewCalls != 1 || client.submitReviewReq == nil ||
+		!strings.Contains(client.submitReviewReq.Summary, "Reviewed 0 of 1 files") {
+		t.Errorf("want one SubmitReview carrying the coverage line, got calls=%d req=%+v", client.submitReviewCalls, client.submitReviewReq)
+	}
+	if client.cleanCalls != 1 {
+		t.Errorf("cleanCalls = %d; the note must replace earlier bot summaries so reruns do not stack", client.cleanCalls)
+	}
+	if strings.Contains(client.submitReviewReq.Summary, "No issues found") {
+		t.Errorf("coverage-only note must not claim success: %q", client.submitReviewReq.Summary)
 	}
 	if mm.calls != 0 {
 		t.Errorf("model called %d times, want 0", mm.calls)
