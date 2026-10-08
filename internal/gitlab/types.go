@@ -56,9 +56,32 @@ type DiffEntry struct {
 	NewFile     bool   `json:"new_file"`
 	RenamedFile bool   `json:"renamed_file"`
 	DeletedFile bool   `json:"deleted_file"`
-	// Collapsed and TooLarge are reported by GitLab 18.4+ diff endpoints.
-	Collapsed bool `json:"collapsed"`
-	TooLarge  bool `json:"too_large"`
+	AMode       string `json:"a_mode"`
+	BMode       string `json:"b_mode"`
+	// Collapsed marks a diff GitLab left out but can still supply on request.
+	// Nil when the instance predates the field (GitLab < 18.4).
+	Collapsed *bool `json:"collapsed"`
+	// TooLarge marks a diff GitLab left out and cannot supply.
+	// Nil when the instance predates the field (GitLab < 18.4).
+	TooLarge *bool `json:"too_large"`
+}
+
+// hasLimitFlags reports whether GitLab sent the collapsed/too_large fields.
+func (d DiffEntry) hasLimitFlags() bool {
+	return d.Collapsed != nil || d.TooLarge != nil
+}
+
+// flaggedIncomplete reports whether GitLab says it left this diff out.
+func (d DiffEntry) flaggedIncomplete() bool {
+	return (d.Collapsed != nil && *d.Collapsed) || (d.TooLarge != nil && *d.TooLarge)
+}
+
+// suspectEmpty reports whether an empty diff may be an over-limit file that an
+// instance without the collapsed/too_large fields silently blanked. Added,
+// deleted and renamed files and mode changes legitimately differ without hunks.
+func (d DiffEntry) suspectEmpty() bool {
+	return d.Diff == "" && !d.NewFile && !d.DeletedFile && !d.RenamedFile &&
+		d.AMode != "" && d.AMode == d.BMode
 }
 
 // toVCS converts a GitLab diff entry to the platform-agnostic type.
@@ -70,9 +93,9 @@ func (d DiffEntry) toVCS() vcs.DiffEntry {
 		NewFile:     d.NewFile,
 		RenamedFile: d.RenamedFile,
 		DeletedFile: d.DeletedFile,
-		Collapsed:   d.Collapsed,
-		TooLarge:    d.TooLarge,
-		Incomplete:  d.Collapsed || d.TooLarge,
+		Collapsed:   d.Collapsed != nil && *d.Collapsed,
+		TooLarge:    d.TooLarge != nil && *d.TooLarge,
+		Incomplete:  d.flaggedIncomplete(),
 	}
 }
 

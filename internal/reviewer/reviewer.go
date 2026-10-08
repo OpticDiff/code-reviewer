@@ -777,6 +777,11 @@ func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, str
 		return nil, "", "", fmt.Errorf("skipping draft MR")
 	}
 
+	if mr.MissingFiles > 0 {
+		slog.Warn("platform returned fewer files than the MR changed; the rest will not be reviewed", "missing", mr.MissingFiles)
+		r.parseFailedFiles = append(r.parseFailedFiles, fmt.Sprintf("(%d file(s) missing from the platform's diff listing)", mr.MissingFiles))
+	}
+
 	// Parse each file's diff.
 	var diffs []diff.FileDiff
 	for _, change := range mr.Changes {

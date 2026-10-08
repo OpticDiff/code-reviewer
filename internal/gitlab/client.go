@@ -17,6 +17,9 @@ import (
 	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
+// maxResponseBytes caps a single API response; var so tests can lower it.
+var maxResponseBytes int64 = 10 * 1024 * 1024
+
 const (
 	apiRateDelay   = 100 * time.Millisecond
 	maxRetries     = 3
@@ -120,41 +123,65 @@ func (c *Client) GetMRChanges(ctx context.Context, projectID, mrIID string) (*vc
 	}
 
 	changes := make([]vcs.DiffEntry, len(entries))
-	var incomplete []int
+	var incomplete, suspect []int
+	anyFlags := false
 	for i, e := range entries {
 		changes[i] = e.toVCS()
-		if changes[i].Incomplete {
+		anyFlags = anyFlags || e.hasLimitFlags()
+		switch {
+		case changes[i].Incomplete:
 			incomplete = append(incomplete, i)
+		case e.suspectEmpty():
+			suspect = append(suspect, i)
 		}
 	}
-	if len(incomplete) > 0 {
-		c.recoverFromRawDiffs(ctx, mrURL, changes, incomplete)
+	if len(entries) > 0 && !anyFlags {
+		slog.Warn("GitLab diffs carry no collapsed/too_large flags (GitLab < 18.4); over-limit files cannot be told apart from empty ones reliably")
 	}
-	warnOnChangesCountMismatch(mr, len(entries))
+	if anyFlags {
+		suspect = nil // the flags are reliable here: an empty diff is a real one
+	}
+	for _, i := range suspect {
+		changes[i].Incomplete = true
+	}
+	if len(incomplete) > 0 || len(suspect) > 0 {
+		c.recoverFromRawDiffs(ctx, mrURL, changes, incomplete, suspect)
+	}
 
 	return &vcs.MRChanges{
-		ID:          mr.ID,
-		IID:         mr.IID,
-		Title:       mr.Title,
-		Description: mr.Description,
-		State:       mr.State,
-		Draft:       mr.Draft,
-		Changes:     changes,
+		ID:           mr.ID,
+		IID:          mr.IID,
+		Title:        mr.Title,
+		Description:  mr.Description,
+		State:        mr.State,
+		Draft:        mr.Draft,
+		Changes:      changes,
+		MissingFiles: missingFiles(mr, len(entries)),
 	}, nil
 }
 
 // recoverFromRawDiffs fills in the patches of the incomplete entries from the
 // merge request's /raw_diffs. Entries it cannot fill stay Incomplete.
-func (c *Client) recoverFromRawDiffs(ctx context.Context, mrURL string, changes []vcs.DiffEntry, incomplete []int) {
+//
+// suspect entries are empty diffs from an instance without the collapsed and
+// too_large fields. They are legitimate when raw_diffs lists the file without
+// hunks (a binary file), and incomplete when raw_diffs does not list it.
+func (c *Client) recoverFromRawDiffs(ctx context.Context, mrURL string, changes []vcs.DiffEntry, incomplete, suspect []int) {
 	raw, _, err := c.doRaw(ctx, http.MethodGet, mrURL+"/raw_diffs")
 	if err != nil {
-		slog.Warn("could not fetch raw diffs for collapsed files", "error", err)
+		slog.Warn("could not fetch raw diffs for files with missing patches; leaving them unreviewed", "error", err)
 		return
 	}
 	patches := splitRawDiff(string(raw))
 	for _, i := range incomplete {
-		patch, ok := patches[changes[i].OldPath+"\x00"+changes[i].NewPath]
-		if !ok || patch == "" {
+		if patch := patches[changes[i].OldPath+"\x00"+changes[i].NewPath]; patch != "" {
+			changes[i].Diff = patch
+			changes[i].Incomplete = false
+		}
+	}
+	for _, i := range suspect {
+		patch, listed := patches[changes[i].OldPath+"\x00"+changes[i].NewPath]
+		if !listed {
 			continue
 		}
 		changes[i].Diff = patch
@@ -164,24 +191,28 @@ func (c *Client) recoverFromRawDiffs(ctx context.Context, mrURL string, changes 
 
 // splitRawDiff splits `git diff` output into per-file patches keyed by
 // "oldPath\x00newPath". Each patch starts at its first hunk header, matching
-// the shape of the "diff" field returned by the diffs API.
+// the shape of the "diff" field returned by the diffs API; files without hunks
+// (binary files, pure renames) map to "". A body always ends at the next
+// "diff --git " line, quoted paths included.
 func splitRawDiff(raw string) map[string]string {
 	patches := make(map[string]string)
-	var key string
+	var keys []string
 	var body strings.Builder
 	inHunks := false
 	flush := func() {
-		if key != "" {
-			patches[key] = body.String()
+		for _, k := range keys {
+			patches[k] = body.String()
 		}
+		keys = nil
 		body.Reset()
 		inHunks = false
 	}
 	for _, line := range strings.SplitAfter(raw, "\n") {
-		if rest, ok := strings.CutPrefix(line, "diff --git a/"); ok {
+		if rest, ok := strings.CutPrefix(line, "diff --git "); ok {
 			flush()
-			oldPath, newPath, _ := strings.Cut(strings.TrimSuffix(rest, "\n"), " b/")
-			key = oldPath + "\x00" + newPath
+			for _, p := range parseGitHeaderPaths(strings.TrimSuffix(rest, "\n")) {
+				keys = append(keys, p[0]+"\x00"+p[1])
+			}
 			continue
 		}
 		if !inHunks && strings.HasPrefix(line, "@@") {
@@ -195,15 +226,82 @@ func splitRawDiff(raw string) map[string]string {
 	return patches
 }
 
-// warnOnChangesCountMismatch logs when the diffs API returned a different
-// number of files than the merge request reports, which means files are missing.
-func warnOnChangesCountMismatch(mr MergeRequest, got int) {
+// parseGitHeaderPaths returns the candidate (old, new) path pairs of a
+// "diff --git" header with the prefix removed. Git quotes paths holding
+// non-ASCII, quote or control characters. An unquoted pair is ambiguous when a
+// path contains " b/", so every split is returned.
+func parseGitHeaderPaths(rest string) [][2]string {
+	if strings.HasPrefix(rest, `"`) {
+		oldTok, after, ok := cutQuoted(rest)
+		if !ok {
+			return nil
+		}
+		after = strings.TrimPrefix(after, " ")
+		if newTok, _, ok := cutQuoted(after); ok {
+			return pairFrom(oldTok, newTok)
+		}
+		return pairFrom(oldTok, after)
+	}
+	if i := strings.Index(rest, ` "b/`); i >= 0 {
+		if tok, _, ok := cutQuoted(rest[i+1:]); ok {
+			return pairFrom(rest[:i], tok)
+		}
+	}
+	var out [][2]string
+	for off := 0; ; {
+		i := strings.Index(rest[off:], " b/")
+		if i < 0 {
+			break
+		}
+		i += off
+		out = append(out, [2]string{strings.TrimPrefix(rest[:i], "a/"), rest[i+len(" b/"):]})
+		off = i + 1
+	}
+	return out
+}
+
+// cutQuoted unquotes the leading C-style quoted token of s.
+func cutQuoted(s string) (tok, after string, ok bool) {
+	for i := 1; i < len(s); i++ {
+		switch s[i] {
+		case '\\':
+			i++
+		case '"':
+			u, err := strconv.Unquote(s[:i+1])
+			if err != nil {
+				return "", "", false
+			}
+			return u, s[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+// pairFrom strips the a/ and b/ prefixes; quoted tokens are already unquoted.
+func pairFrom(oldPart, newPart string) [][2]string {
+	return [][2]string{{strings.TrimPrefix(oldPart, "a/"), strings.TrimPrefix(newPart, "b/")}}
+}
+
+// missingFiles returns how many files the merge request reports beyond the
+// diff entries received. Empty or capped ("1000+") counts are not comparable
+// and only log.
+func missingFiles(mr MergeRequest, got int) int {
 	want, err := strconv.Atoi(mr.ChangesCount)
-	if err != nil || want == got { // empty or capped ("1000+") counts are not comparable
-		return
+	if err != nil {
+		if mr.ChangesCount != "" {
+			slog.Warn("merge request changes_count is not a number; cannot verify all files were received", "changes_count", mr.ChangesCount)
+		}
+		return 0
+	}
+	if want == got {
+		return 0
 	}
 	slog.Warn("merge request diffs do not match changes_count; some files may be missing from the review",
 		"changes_count", want, "diff_entries", got)
+	if want > got {
+		return want - got
+	}
+	return 0
 }
 
 // GetMRVersions fetches the diff versions for a merge request.
@@ -875,11 +973,13 @@ func (c *Client) doRaw(ctx context.Context, method, url string) ([]byte, string,
 		}
 
 		linkHeader := resp.Header.Get("Link")
-		const maxResponseBytes = 10 * 1024 * 1024 // 10MB limit
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes+1))
 		_ = resp.Body.Close() //nolint:errcheck
 		if err != nil {
 			return nil, "", fmt.Errorf("reading response: %w", err)
+		}
+		if int64(len(raw)) > maxResponseBytes {
+			return nil, "", fmt.Errorf("response exceeds the %d byte limit", maxResponseBytes)
 		}
 		return raw, linkHeader, nil
 	}

@@ -21,12 +21,12 @@ func TestDiffEntry_toVCS(t *testing.T) {
 		},
 		{
 			name: "collapsed is incomplete",
-			in:   DiffEntry{NewPath: "big.go", Collapsed: true},
+			in:   DiffEntry{NewPath: "big.go", Collapsed: ptr(true)},
 			want: vcs.DiffEntry{NewPath: "big.go", Collapsed: true, Incomplete: true},
 		},
 		{
 			name: "too large is incomplete",
-			in:   DiffEntry{NewPath: "huge.go", TooLarge: true},
+			in:   DiffEntry{NewPath: "huge.go", TooLarge: ptr(true)},
 			want: vcs.DiffEntry{NewPath: "huge.go", TooLarge: true, Incomplete: true},
 		},
 	}

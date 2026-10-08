@@ -2023,3 +2023,15 @@ func TestGetCIDiffs_IncompleteEntries(t *testing.T) {
 		t.Errorf("unreviewed files = %v, want [big.go] (excluded go.sum must not count)", got)
 	}
 }
+
+func TestGetCIDiffs_MissingFilesAreUnreviewed(t *testing.T) {
+	mock := &mockVCS{mrChanges: &vcs.MRChanges{MissingFiles: 3}}
+	r := New(&config.Config{CIMode: true, CIProjectID: "1", CIMergeRequestID: "2"}, nil, mock)
+
+	if _, _, _, err := r.getCIDiffs(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(r.parseFailedFiles) != 1 || !strings.Contains(r.parseFailedFiles[0], "3 file(s)") {
+		t.Errorf("unreviewed = %v, want a marker for 3 missing files", r.parseFailedFiles)
+	}
+}

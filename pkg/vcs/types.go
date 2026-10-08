@@ -16,6 +16,9 @@ type MRChanges struct {
 	State       string
 	Draft       bool
 	Changes     []DiffEntry
+	// MissingFiles is how many files the platform reports changed beyond the
+	// Changes it returned; those files were never seen.
+	MissingFiles int
 }
 
 // DiffEntry represents a single file change in a merge/pull request.
