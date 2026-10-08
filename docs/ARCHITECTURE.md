@@ -429,6 +429,7 @@ api_url: http://localhost:11434/v1
 | `REVIEW_MODEL` | `Model` |
 | `REVIEW_TOKEN_LIMIT` | `TokenLimit` |
 | `REVIEW_FOCUS` | `Focus` (comma-separated) |
+| `REVIEW_CONTEXT_FILES` | `ContextFiles` (comma-separated) |
 | `REVIEW_MIN_SEVERITY` | `MinSeverity` |
 | `REVIEW_COMMENT_MODE` | `CommentMode` |
 | `REVIEW_CHUNK_STRATEGY` | `ChunkStrategy` |

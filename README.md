@@ -336,6 +336,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--comment-mode` | `notes` or `discussions` | `notes` |
 | `--chunk-strategy` | `fail` or `split` | `fail` |
 | `--token-limit` | Context window token limit override (0 = use model default) | — |
+| `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
 | `--extra-rules` | Additional prompt rules | — |
 | `--custom-prompt` | Path to custom system prompt file | — |
 | `--dry-run` | Analyze without posting | `false` |
@@ -392,6 +393,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_COMMENT_MODE` | Comment mode | `notes` |
 | `REVIEW_CHUNK_STRATEGY` | Chunk strategy | `fail` |
 | `REVIEW_TOKEN_LIMIT` | Context window token limit override | — |
+| `REVIEW_CONTEXT_FILES` | Directory-scoped guidance files, comma-separated | — |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
 | `CODE_REVIEW_PLATFORM_REVIEW_MD` | Platform guidelines markdown path or glob | — |
@@ -427,6 +429,7 @@ Create `.code-reviewer.yaml` in your repo root:
 model: gemini-3.8-flash
 token_limit: 1000000     # Optional: explicit context window token limit override
 focus: [bugs, security]
+context_files: [AGENTS.md]   # Optional: include the nearest AGENTS.md for each changed directory
 min_severity: low
 comment_mode: discussions
 custom_prompt: prompts/team-rules.md
@@ -517,6 +520,12 @@ Create a `REVIEW.md` in your repo root to inject team-specific review instructio
 ```
 
 The file is discovered by walking up from the working directory, the same way `.code-reviewer.yaml` is found. Presence is logged at startup (`review_md=true`).
+
+### Directory Context Files
+
+Set `context_files: [AGENTS.md]` (or `--context-files`, `REVIEW_CONTEXT_FILES`) to feed per-directory conventions to the model. For each changed directory, the nearest matching file is included, walking up to the repository root. A file shared by several changed directories is included once, and the combined content is capped at 16 KiB (excess is truncated).
+
+The content is placed after the YAML rules in a delimited block labelled as untrusted guidance; it cannot override the rules or the output format. In CI mode the files are read from the base ref (like `REVIEW.md`), so a merge request cannot add or edit instructions for its own review. Locally, the working tree is used. Entries must be plain file names (no path separators). The option is off by default.
 
 ### Repo-Aware Context
 
