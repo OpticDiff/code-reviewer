@@ -18,6 +18,9 @@ type FileDiff struct {
 	IsNew    bool
 	IsDelete bool
 	IsRename bool
+	// SkipReason, when non-empty, records why the platform supplied no
+	// reviewable patch for this file (e.g. "too_large").
+	SkipReason string
 }
 
 // LineCount returns the total number of added+removed lines in this file diff.

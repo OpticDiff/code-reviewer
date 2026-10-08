@@ -87,6 +87,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	// Hoist variables captured by the audit defer.
 	var diffs []diff.FileDiff
 	var skippedFiles []string
+	var unreviewable []SkippedFile
+	var inScope int
 	var allFindings []model.Finding
 	var totalUsage model.TokenUsage
 	var dedupedCount int
@@ -107,8 +109,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		if d == nil {
 			d = diffs
 		}
-		auditSkipped := append(skippedFiles, r.parseFailedFiles...)
-		entry := buildAuditEntry(r.cfg, d, auditSkipped, allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
+		cov := buildCoverage(inScope, unreviewable, r.parseFailedFiles, skippedFiles, r.cfg.ExcludedPatterns)
+		entry := buildAuditEntry(r.cfg, d, cov.paths(), allFindings, dedupedCount, cacheHits, &totalUsage, time.Since(start))
+		entry.FilesSkippedDetail = cov.skipped
 		entry.ProfileFilteredCount = r.profileFilteredCount
 		entry.SuggestionsDropped = r.suggestionsDropped
 		entry.AgentVerdicts = agentVerdicts
@@ -202,6 +205,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				before := len(diffs)
 				incrementalChangedFiles = changedFiles
 				diffs = filterByFiles(diffs, changedFiles)
+				r.parseFailedFiles = filterPaths(r.parseFailedFiles, changedFiles)
 				slog.Info("incremental review",
 					"total_files", before,
 					"changed_files", len(changedFiles),
@@ -214,8 +218,30 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 	}
 
+	// Step 2b.1: Set aside files the platform supplied no patch for.
+	diffs, unreviewable = splitUnreviewable(diffs)
+	inScope = len(diffs)
+
 	if len(diffs) == 0 {
 		slog.Info("no files to review after incremental filtering")
+		if line := buildCoverage(inScope, unreviewable, r.parseFailedFiles, nil, r.cfg.ExcludedPatterns).line(); line != "" {
+			// Nothing was reviewed, so say so where the author will see it
+			// instead of leaving the MR without any note.
+			fmt.Println("⚠️  " + line)
+			if r.cfg.CIMode && !r.cfg.DryRun && r.glClient != nil {
+				// SubmitReview replaces earlier bot summaries, so reruns do
+				// not stack identical notes.
+				req := vcs.SubmitReviewRequest{
+					Summary:      profileHeader(r.cfg.Profile) + "\n\n" + line + "\n",
+					CleanupMode:  string(r.cfg.CleanupMode),
+					ChangedFiles: incrementalChangedFiles,
+				}
+				if err := r.glClient.SubmitReview(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID, req); err != nil {
+					slog.Warn("failed to post coverage note", "error", err)
+				}
+			}
+			return 0, nil
+		}
 		fmt.Println("✅ No reviewable files changed in latest push.")
 		return 0, nil
 	}
@@ -565,6 +591,11 @@ skipAgent:
 	allFindings = filterBySeverity(allFindings, r.cfg.MinSeverity)
 	slog.Info(fmt.Sprintf("%d finding(s) at or above %s severity", len(allFindings), r.cfg.MinSeverity))
 
+	cov := buildCoverage(inScope, unreviewable, r.parseFailedFiles, skippedFiles, r.cfg.ExcludedPatterns)
+	if line := cov.line(); line != "" {
+		summary += "\n\n" + line
+	}
+
 	result := &model.ReviewResult{
 		Summary:  summary,
 		Findings: allFindings,
@@ -636,9 +667,8 @@ skipAgent:
 		if r.cfg.AutoApprove {
 			// Include parse-failed files as unreviewed — they were never
 			// sent to the model, so approval would be incomplete.
-			allSkipped := append(skippedFiles, r.parseFailedFiles...)
 			decision := EvaluateAutoApprove(r.cfg, len(auditDiffs), rawFindingsCount,
-				allSkipped, budgetExceeded,
+				cov.blockingPaths(), budgetExceeded,
 				scopeAssessment != nil && scopeAssessment.IsOversized,
 				anyTruncated, r.mrDraft)
 			if decision.Approved {
@@ -755,6 +785,11 @@ func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, str
 			slog.Warn("failed to parse diff for file", "file", change.NewPath, "error", err)
 			r.parseFailedFiles = append(r.parseFailedFiles, change.NewPath)
 			continue
+		}
+		if reason := skipReasonFor(change); reason != "" {
+			for i := range parsed {
+				parsed[i].SkipReason = reason
+			}
 		}
 		diffs = append(diffs, parsed...)
 	}
@@ -889,6 +924,21 @@ func filterByFiles(diffs []diff.FileDiff, changedFiles []string) []diff.FileDiff
 		}
 	}
 	return filtered
+}
+
+// filterPaths keeps only the paths present in keep.
+func filterPaths(paths, keep []string) []string {
+	set := make(map[string]bool, len(keep))
+	for _, k := range keep {
+		set[k] = true
+	}
+	var out []string
+	for _, p := range paths {
+		if set[p] {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // findRepoRoot walks up from cwd to find the git repository root.
