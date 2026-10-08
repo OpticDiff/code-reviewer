@@ -8,42 +8,18 @@ import (
 	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
-// MRChangesResponse is the response from GET /projects/:id/merge_requests/:iid/changes.
-type MRChangesResponse struct {
-	ID          int         `json:"id"`
-	IID         int         `json:"iid"`
-	Title       string      `json:"title"`
-	Description string      `json:"description"`
-	State       string      `json:"state"`
-	Draft       bool        `json:"draft"`
-	Changes     []DiffEntry `json:"changes"`
+// MergeRequest is the response from GET /projects/:id/merge_requests/:iid.
+type MergeRequest struct {
+	ID          int    `json:"id"`
+	IID         int    `json:"iid"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	State       string `json:"state"`
+	Draft       bool   `json:"draft"`
+	// ChangesCount is a string, not an integer, and is "1000+" when capped.
+	ChangesCount string `json:"changes_count"`
 }
 
-// toVCS converts a GitLab MR response to the platform-agnostic type.
-func (r *MRChangesResponse) toVCS() *vcs.MRChanges {
-	changes := make([]vcs.DiffEntry, len(r.Changes))
-	for i, c := range r.Changes {
-		changes[i] = vcs.DiffEntry{
-			OldPath:     c.OldPath,
-			NewPath:     c.NewPath,
-			Diff:        c.Diff,
-			NewFile:     c.NewFile,
-			RenamedFile: c.RenamedFile,
-			DeletedFile: c.DeletedFile,
-			Collapsed:   c.Collapsed,
-			TooLarge:    c.TooLarge,
-		}
-	}
-	return &vcs.MRChanges{
-		ID:          r.ID,
-		IID:         r.IID,
-		Title:       r.Title,
-		Description: r.Description,
-		State:       r.State,
-		Draft:       r.Draft,
-		Changes:     changes,
-	}
-}
 
 // DiffEntry represents a single file change in an MR.
 type DiffEntry struct {
@@ -53,9 +29,47 @@ type DiffEntry struct {
 	NewFile     bool   `json:"new_file"`
 	RenamedFile bool   `json:"renamed_file"`
 	DeletedFile bool   `json:"deleted_file"`
-	// Collapsed and TooLarge are reported by GitLab 18.4+ diff endpoints.
-	Collapsed bool `json:"collapsed"`
-	TooLarge  bool `json:"too_large"`
+	AMode       string `json:"a_mode"`
+	BMode       string `json:"b_mode"`
+	// Collapsed marks a diff GitLab left out but can still supply on request.
+	// Nil when the instance predates the field (GitLab < 18.4).
+	Collapsed *bool `json:"collapsed"`
+	// TooLarge marks a diff GitLab left out and cannot supply.
+	// Nil when the instance predates the field (GitLab < 18.4).
+	TooLarge *bool `json:"too_large"`
+}
+
+// hasLimitFlags reports whether GitLab sent the collapsed/too_large fields.
+func (d DiffEntry) hasLimitFlags() bool {
+	return d.Collapsed != nil || d.TooLarge != nil
+}
+
+// flaggedIncomplete reports whether GitLab says it left this diff out.
+func (d DiffEntry) flaggedIncomplete() bool {
+	return (d.Collapsed != nil && *d.Collapsed) || (d.TooLarge != nil && *d.TooLarge)
+}
+
+// suspectEmpty reports whether an empty diff may be an over-limit file that an
+// instance without the collapsed/too_large fields silently blanked. Added,
+// deleted and renamed files and mode changes legitimately differ without hunks.
+func (d DiffEntry) suspectEmpty() bool {
+	return d.Diff == "" && !d.NewFile && !d.DeletedFile && !d.RenamedFile &&
+		d.AMode != "" && d.AMode == d.BMode
+}
+
+// toVCS converts a GitLab diff entry to the platform-agnostic type.
+func (d DiffEntry) toVCS() vcs.DiffEntry {
+	return vcs.DiffEntry{
+		OldPath:     d.OldPath,
+		NewPath:     d.NewPath,
+		Diff:        d.Diff,
+		NewFile:     d.NewFile,
+		RenamedFile: d.RenamedFile,
+		DeletedFile: d.DeletedFile,
+		Collapsed:   d.Collapsed != nil && *d.Collapsed,
+		TooLarge:    d.TooLarge != nil && *d.TooLarge,
+		Incomplete:  d.flaggedIncomplete(),
+	}
 }
 
 // DiffVersion represents a version of the MR diff (from the versions API).

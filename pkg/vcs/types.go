@@ -16,6 +16,9 @@ type MRChanges struct {
 	State       string
 	Draft       bool
 	Changes     []DiffEntry
+	// MissingFiles is how many files the platform reports changed beyond the
+	// Changes it returned; those files were never seen.
+	MissingFiles int
 }
 
 // DiffEntry represents a single file change in a merge/pull request.
@@ -32,6 +35,10 @@ type DiffEntry struct {
 	// TooLarge is set when the platform withheld the file's diff and
 	// cannot serve it.
 	TooLarge bool
+	// Incomplete is true when the platform could not supply this file's patch
+	// (for example because it exceeds the platform's diff size limits), so Diff
+	// is empty or partial and must not be treated as "no changes".
+	Incomplete bool
 }
 
 // DiffVersion represents a point-in-time snapshot of the MR/PR diff,

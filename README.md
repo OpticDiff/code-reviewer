@@ -726,6 +726,8 @@ gcloud auth application-default login
 | `CI_JOB_TOKEN` | Notes API (simple comments) | Automatic, zero config |
 | Project Access Token | Notes + Discussions API (inline diff) | Settings → Access Tokens, `api` scope |
 
+Merge request files are read from the paginated `/diffs` endpoint. GitLab 18.4 or newer is recommended: it flags files whose diff was left out (`collapsed`, `too_large`), which are recovered from `/raw_diffs` or reported as not reviewed. Older instances send no such flags, so empty diffs of modified files are cross-checked against `/raw_diffs` and a warning is logged.
+
 ### GitHub API
 
 | Token Type | Capabilities | Setup |

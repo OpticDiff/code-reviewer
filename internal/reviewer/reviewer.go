@@ -777,9 +777,24 @@ func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, str
 		return nil, "", "", fmt.Errorf("skipping draft MR")
 	}
 
+	if mr.MissingFiles > 0 {
+		slog.Warn("platform returned fewer files than the MR changed; the rest will not be reviewed", "missing", mr.MissingFiles)
+		r.parseFailedFiles = append(r.parseFailedFiles, fmt.Sprintf("(%d file(s) missing from the platform's diff listing)", mr.MissingFiles))
+	}
+
 	// Parse each file's diff.
 	var diffs []diff.FileDiff
 	for _, change := range mr.Changes {
+		if change.Incomplete {
+			// The platform could not supply this patch. Reviewing it as empty would
+			// pass code the model never saw, so flag it as unreviewed unless excluded.
+			stub := []diff.FileDiff{{OldPath: change.OldPath, NewPath: change.NewPath}}
+			if len(diff.Filter(stub, r.cfg.ExcludedPatterns)) > 0 {
+				slog.Warn("diff unavailable from the platform; file will not be reviewed", "file", change.NewPath)
+				r.parseFailedFiles = append(r.parseFailedFiles, change.NewPath)
+			}
+			continue
+		}
 		parsed, err := diff.Parse(strings.NewReader("diff --git a/" + change.OldPath + " b/" + change.NewPath + "\n" + change.Diff))
 		if err != nil {
 			slog.Warn("failed to parse diff for file", "file", change.NewPath, "error", err)

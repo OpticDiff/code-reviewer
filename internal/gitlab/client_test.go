@@ -1,13 +1,16 @@
 package gitlab
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -59,43 +62,71 @@ func TestNewClient_URLNormalization(t *testing.T) {
 	}
 }
 
+// mrServer serves a merge request, its paginated /diffs (2 entries per page)
+// and its raw_diffs, recording every request path.
+type mrServer struct {
+	meta     string
+	diffs    []string // JSON objects, one per file
+	raw      string
+	rawCalls int
+	paths    []string
+}
+
+func (m *mrServer) handler(t *testing.T) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		m.paths = append(m.paths, r.URL.Path)
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/raw_diffs"):
+			m.rawCalls++
+			_, _ = fmt.Fprint(w, m.raw)
+		case strings.HasSuffix(r.URL.Path, "/diffs"):
+			page := 1
+			if p := r.URL.Query().Get("page"); p != "" {
+				page, _ = strconv.Atoi(p)
+			}
+			const perPage = 2
+			lo := (page - 1) * perPage
+			hi := min(lo+perPage, len(m.diffs))
+			if hi < len(m.diffs) {
+				next := fmt.Sprintf("http://%s%s?page=%d&per_page=%d", r.Host, r.URL.Path, page+1, perPage)
+				w.Header().Set("Link", "<"+next+`>; rel="next"`)
+			}
+			_, _ = fmt.Fprintf(w, "[%s]", strings.Join(m.diffs[lo:hi], ","))
+		default:
+			_, _ = fmt.Fprint(w, m.meta)
+		}
+	}
+}
+
+// writeEmptyMR answers the merge request and its /diffs with empty payloads.
+func writeEmptyMR(w http.ResponseWriter, r *http.Request) error {
+	body := "{}"
+	if strings.HasSuffix(r.URL.Path, "/diffs") {
+		body = "[]"
+	}
+	_, err := w.Write([]byte(body))
+	return err
+}
+
+func diffJSON(path, diff string, flags string) string {
+	b, _ := json.Marshal(diff)
+	return fmt.Sprintf(`{"old_path":%q,"new_path":%q,"diff":%s%s}`, path, path, b, flags)
+}
+
 func TestGetMRChanges_Success(t *testing.T) {
-	want := MRChangesResponse{
-		ID:          42,
-		IID:         7,
-		Title:       "Fix bug",
-		Description: "Fixes the important bug",
-		State:       "opened",
-		Draft:       false,
-		Changes: []DiffEntry{
-			{
-				OldPath:     "main.go",
-				NewPath:     "main.go",
-				Diff:        "@@ -1,3 +1,4 @@\n+// new line\n",
-				NewFile:     false,
-				RenamedFile: false,
-				DeletedFile: false,
-			},
-			{
-				OldPath:     "",
-				NewPath:     "new_file.go",
-				Diff:        "@@ -0,0 +1,5 @@\n+package main\n",
-				NewFile:     true,
-				RenamedFile: false,
-				DeletedFile: false,
-			},
+	m := &mrServer{
+		meta: `{"id":42,"iid":7,"title":"Fix bug","description":"Fixes it","state":"opened","draft":true,"changes_count":"3"}`,
+		diffs: []string{
+			diffJSON("a.go", "@@ -1 +1 @@\n-a\n+b\n", ""),
+			diffJSON("b.go", "@@ -1 +1 @@\n-c\n+d\n", ""),
+			`{"old_path":"","new_path":"new_file.go","diff":"@@ -0,0 +1 @@\n+x\n","new_file":true}`,
 		},
 	}
-
-	var gotPath string
 	var gotToken string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
 		gotToken = r.Header.Get("PRIVATE-TOKEN")
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(want); err != nil {
-			t.Fatalf("encoding response: %v", err)
-		}
+		m.handler(t)(w, r)
 	}))
 	defer srv.Close()
 
@@ -105,26 +136,93 @@ func TestGetMRChanges_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if gotPath != "/api/v4/projects/myproject/merge_requests/7/changes" {
-		t.Errorf("request path = %q, want %q", gotPath, "/api/v4/projects/myproject/merge_requests/7/changes")
-	}
 	if gotToken != "my-token" {
 		t.Errorf("PRIVATE-TOKEN = %q, want %q", gotToken, "my-token")
 	}
-	if got.ID != want.ID {
-		t.Errorf("ID = %d, want %d", got.ID, want.ID)
+	for _, p := range m.paths {
+		if strings.HasSuffix(p, "/changes") {
+			t.Errorf("deprecated /changes endpoint requested: %s", p)
+		}
 	}
-	if got.Title != want.Title {
-		t.Errorf("Title = %q, want %q", got.Title, want.Title)
+	if got.ID != 42 || got.IID != 7 || got.Title != "Fix bug" || !got.Draft || got.State != "opened" {
+		t.Errorf("metadata not populated: %+v", got)
 	}
-	if len(got.Changes) != len(want.Changes) {
-		t.Fatalf("len(Changes) = %d, want %d", len(got.Changes), len(want.Changes))
+	if len(got.Changes) != 3 {
+		t.Fatalf("len(Changes) = %d, want 3 (all pages)", len(got.Changes))
 	}
-	if got.Changes[0].OldPath != "main.go" {
-		t.Errorf("Changes[0].OldPath = %q, want %q", got.Changes[0].OldPath, "main.go")
+	if !got.Changes[2].NewFile || got.Changes[2].NewPath != "new_file.go" {
+		t.Errorf("Changes[2] = %+v", got.Changes[2])
 	}
-	if !got.Changes[1].NewFile {
-		t.Error("Changes[1].NewFile = false, want true")
+	if m.rawCalls != 0 {
+		t.Errorf("raw_diffs fetched %d times with no collapsed entries", m.rawCalls)
+	}
+}
+
+func TestGetMRChanges_RecoversCollapsedFromRawDiffs(t *testing.T) {
+	raw := "diff --git a/big.go b/big.go\nindex 111..222 100644\n--- a/big.go\n+++ b/big.go\n@@ -1 +1 @@\n-old\n+new\n" +
+		"diff --git a/ok.go b/ok.go\nindex 333..444 100644\n--- a/ok.go\n+++ b/ok.go\n@@ -1 +1 @@\n-x\n+y\n"
+	m := &mrServer{
+		meta: `{"id":1,"iid":1,"changes_count":"2"}`,
+		diffs: []string{
+			diffJSON("big.go", "", `,"collapsed":true`),
+			diffJSON("ok.go", "@@ -1 +1 @@\n-x\n+y\n", ""),
+		},
+		raw: raw,
+	}
+	srv := httptest.NewServer(m.handler(t))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "t").GetMRChanges(context.Background(), "p", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m.rawCalls != 1 {
+		t.Errorf("raw_diffs calls = %d, want 1", m.rawCalls)
+	}
+	if want := "@@ -1 +1 @@\n-old\n+new\n"; got.Changes[0].Diff != want {
+		t.Errorf("recovered diff = %q, want %q", got.Changes[0].Diff, want)
+	}
+	if got.Changes[0].Incomplete {
+		t.Error("recovered entry still flagged Incomplete")
+	}
+}
+
+func TestGetMRChanges_TooLargeStaysIncomplete(t *testing.T) {
+	m := &mrServer{
+		meta:  `{"id":1,"iid":1,"changes_count":"1"}`,
+		diffs: []string{diffJSON("go.sum", "", `,"too_large":true`)},
+		raw:   "", // GitLab could not produce a patch either
+	}
+	srv := httptest.NewServer(m.handler(t))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "t").GetMRChanges(context.Background(), "p", "1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.Changes) != 1 || !got.Changes[0].Incomplete {
+		t.Errorf("too_large entry must be kept and flagged Incomplete, got %+v", got.Changes)
+	}
+}
+
+func TestGetMRChanges_ChangesCountMismatchWarns(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	m := &mrServer{
+		meta:  `{"id":1,"iid":1,"changes_count":"5"}`,
+		diffs: []string{diffJSON("a.go", "@@ -1 +1 @@\n-a\n+b\n", "")},
+	}
+	srv := httptest.NewServer(m.handler(t))
+	defer srv.Close()
+
+	if _, err := NewClient(srv.URL, "t").GetMRChanges(context.Background(), "p", "1"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(buf.String(), "changes_count") {
+		t.Errorf("expected a changes_count mismatch warning, log was: %s", buf.String())
 	}
 }
 
@@ -425,9 +523,11 @@ func TestParseLinkNext_Formats(t *testing.T) {
 func TestURLEscape_NamespacedProject(t *testing.T) {
 	var gotRequestURI string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotRequestURI = r.RequestURI
+		if gotRequestURI == "" {
+			gotRequestURI = r.RequestURI
+		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(MRChangesResponse{}); err != nil {
+		if err := writeEmptyMR(w, r); err != nil {
 			t.Fatalf("encoding: %v", err)
 		}
 	}))
@@ -441,7 +541,7 @@ func TestURLEscape_NamespacedProject(t *testing.T) {
 
 	// url.PathEscape("my-group/my-project") => "my-group%2Fmy-project"
 	// RequestURI preserves the percent-encoding unlike URL.Path which decodes it.
-	expected := "/api/v4/projects/my-group%2Fmy-project/merge_requests/1/changes"
+	expected := "/api/v4/projects/my-group%2Fmy-project/merge_requests/1"
 	if gotRequestURI != expected {
 		t.Errorf("request URI = %q, want %q", gotRequestURI, expected)
 	}
@@ -453,7 +553,7 @@ func TestCheckRedirect_CrossHost_StripsToken(t *testing.T) {
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotHeaders = r.Header.Clone()
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(MRChangesResponse{}); err != nil {
+		if err := writeEmptyMR(w, r); err != nil {
 			t.Fatalf("encoding: %v", err)
 		}
 	}))
@@ -489,7 +589,7 @@ func TestCheckRedirect_SameHost_KeepsToken(t *testing.T) {
 		}
 		gotToken = r.Header.Get("PRIVATE-TOKEN")
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(MRChangesResponse{}); err != nil {
+		if err := writeEmptyMR(w, r); err != nil {
 			t.Fatalf("encoding: %v", err)
 		}
 	}))
@@ -595,10 +695,10 @@ func TestRetryDelay(t *testing.T) {
 	client := NewClient("https://gitlab.example.com", "test")
 
 	tests := []struct {
-		name       string
-		retryBase  int
-		header     string
-		want       time.Duration
+		name      string
+		retryBase int
+		header    string
+		want      time.Duration
 	}{
 		{"empty header, default base", 0, "", time.Duration(defaultRetryMs) * time.Millisecond},
 		{"empty header, custom base", 50, "", 50 * time.Millisecond},
@@ -1050,7 +1150,7 @@ func TestSubmitReview_DraftNotes_DropsInvalidComments(t *testing.T) {
 		Version: &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"},
 		Comments: []vcs.ReviewComment{
 			{Path: "ok.go", Line: 5, Body: "valid"},
-			{Path: "", Line: 10, Body: "empty path"},    // dropped
+			{Path: "", Line: 10, Body: "empty path"},     // dropped
 			{Path: "bad.go", Line: 0, Body: "zero line"}, // dropped
 		},
 	}
@@ -1657,5 +1757,186 @@ func TestSubmitReview_InlinePositionLineNumbers(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestSplitRawDiff(t *testing.T) {
+	const hunk = "@@ -1 +1 @@\n-a\n+b\n"
+	raw := "diff --git a/plain.go b/plain.go\nindex 1..2 100644\n--- a/plain.go\n+++ b/plain.go\n" + hunk +
+		"diff --git \"a/caf\\303\\251.go\" \"b/caf\\303\\251.go\"\nindex 1..2 100644\n--- \"a/caf\\303\\251.go\"\n+++ \"b/caf\\303\\251.go\"\n@@ -1 +1 @@\n-q\n+r\n" +
+		"diff --git a/with space.go b/with space.go\nindex 1..2 100644\n--- a/with space.go\n+++ b/with space.go\n@@ -1 +1 @@\n-s\n+t\n" +
+		"diff --git a/x b/y b/x b/y b/z.go\nsimilarity index 100%\nrename from x b/y\nrename to x b/y b/z.go\n" +
+		"diff --git a/old.go b/new.go\nsimilarity index 100%\nrename from old.go\nrename to new.go\n" +
+		"diff --git a/img.png b/img.png\nindex 1..2 100644\nBinary files a/img.png and b/img.png differ\n" +
+		"diff --git a/last.go b/last.go\nindex 1..2 100644\n--- a/last.go\n+++ b/last.go\n@@ -1 +1 @@\n-l\n+m\n"
+
+	got := splitRawDiff(raw)
+
+	tests := []struct {
+		key  string
+		want string
+	}{
+		{"plain.go\x00plain.go", hunk},
+		{"café.go\x00café.go", "@@ -1 +1 @@\n-q\n+r\n"},
+		{"with space.go\x00with space.go", "@@ -1 +1 @@\n-s\n+t\n"},
+		{"x b/y\x00x b/y b/z.go", ""}, // path containing " b/", rename with no hunks
+		{"old.go\x00new.go", ""},
+		{"img.png\x00img.png", ""},
+		{"last.go\x00last.go", "@@ -1 +1 @@\n-l\n+m\n"},
+	}
+	for _, tt := range tests {
+		v, ok := got[tt.key]
+		if !ok {
+			t.Errorf("%q not listed; keys: %q", tt.key, got)
+			continue
+		}
+		if v != tt.want {
+			t.Errorf("patch for %q = %q, want %q", tt.key, v, tt.want)
+		}
+	}
+	// The quoted file's hunks must not be glued onto the file before it.
+	if strings.Contains(got["plain.go\x00plain.go"], "-q") {
+		t.Error("quoted file's hunk leaked into the previous file")
+	}
+}
+
+func TestGetMRChanges_QuotedPathDoesNotMarkPreviousFileRecovered(t *testing.T) {
+	raw := "diff --git a/first.go b/first.go\n--- a/first.go\n+++ b/first.go\n@@ -1 +1 @@\n-a\n+b\n" +
+		"diff --git \"a/caf\\303\\251.go\" \"b/caf\\303\\251.go\"\n--- \"a/caf\\303\\251.go\"\n+++ \"b/caf\\303\\251.go\"\n@@ -1 +1 @@\n-c\n+d\n"
+	m := &mrServer{
+		meta: `{"id":1,"iid":1,"changes_count":"2"}`,
+		diffs: []string{
+			diffJSON("first.go", "", `,"collapsed":true`),
+			diffJSON("café.go", "", `,"collapsed":true`),
+		},
+		raw: raw,
+	}
+	srv := httptest.NewServer(m.handler(t))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "t").GetMRChanges(context.Background(), "p", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "@@ -1 +1 @@\n-a\n+b\n"; got.Changes[0].Diff != want {
+		t.Errorf("first.go diff = %q, want %q", got.Changes[0].Diff, want)
+	}
+	if want := "@@ -1 +1 @@\n-c\n+d\n"; got.Changes[1].Diff != want || got.Changes[1].Incomplete {
+		t.Errorf("café.go = %+v, want recovered %q", got.Changes[1], want)
+	}
+}
+
+func TestGetMRChanges_TruncatedRawDiffsKeepsEntriesIncomplete(t *testing.T) {
+	prev := maxResponseBytes
+	maxResponseBytes = 400
+	defer func() { maxResponseBytes = prev }()
+
+	m := &mrServer{
+		meta:  `{"id":1,"iid":1,"changes_count":"1"}`,
+		diffs: []string{diffJSON("big.go", "", `,"collapsed":true`)},
+		raw:   "diff --git a/big.go b/big.go\n--- a/big.go\n+++ b/big.go\n@@ -1 +1 @@\n" + strings.Repeat("+line\n", 200),
+	}
+	srv := httptest.NewServer(m.handler(t))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "t").GetMRChanges(context.Background(), "p", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Changes[0].Incomplete || got.Changes[0].Diff != "" {
+		t.Errorf("truncated raw_diffs must not recover anything, got %+v", got.Changes[0])
+	}
+}
+
+func TestGetMRChanges_MissingFiles(t *testing.T) {
+	tests := []struct {
+		count   string
+		entries int
+		want    int
+	}{
+		{"5", 1, 4},
+		{"1", 1, 0},
+		{"", 1, 0},
+		{"abc", 1, 0},
+		{"1000+", 1, 1000}, // more than 1000 files exist; only one arrived
+		{"1000+", 1001, 0}, // everything above the cap arrived
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("count=%s/entries=%d", tt.count, tt.entries), func(t *testing.T) {
+			diffs := make([]string, tt.entries)
+			for i := range diffs {
+				diffs[i] = diffJSON(fmt.Sprintf("f%d.go", i), "@@ -1 +1 @@\n-a\n+b\n", "")
+			}
+			m := &mrServer{
+				meta:  fmt.Sprintf(`{"id":1,"iid":1,"changes_count":%q}`, tt.count),
+				diffs: diffs,
+			}
+			srv := httptest.NewServer(m.handler(t))
+			defer srv.Close()
+			got, err := NewClient(srv.URL, "t").GetMRChanges(context.Background(), "p", "1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.MissingFiles != tt.want {
+				t.Errorf("MissingFiles = %d, want %d", got.MissingFiles, tt.want)
+			}
+		})
+	}
+}
+
+// legacyDiff builds an entry as served by GitLab < 18.4: modes present, no
+// collapsed/too_large fields.
+func legacyDiff(path, diff, extra string) string {
+	b, _ := json.Marshal(diff)
+	return fmt.Sprintf(`{"old_path":%q,"new_path":%q,"a_mode":"100644","b_mode":"100644","diff":%s%s}`, path, path, b, extra)
+}
+
+func TestGetMRChanges_LegacyGitLabEmptyDiffs(t *testing.T) {
+	raw := "diff --git a/big.go b/big.go\n--- a/big.go\n+++ b/big.go\n@@ -1 +1 @@\n-o\n+n\n" +
+		"diff --git a/img.png b/img.png\nindex 1..2 100644\nBinary files a/img.png and b/img.png differ\n"
+	m := &mrServer{
+		meta: `{"id":1,"iid":1,"changes_count":"6"}`,
+		diffs: []string{
+			legacyDiff("big.go", "", ""),                 // blanked by the size limit: recoverable
+			legacyDiff("img.png", "", ""),                // binary: legitimately empty
+			legacyDiff("gone.go", "", ""),                // blanked and absent from raw_diffs: unreviewed
+			legacyDiff("new.go", "", `,"new_file":true`), // empty added file
+			`{"old_path":"a.go","new_path":"b.go","a_mode":"100644","b_mode":"100644","diff":"","renamed_file":true}`,
+			legacyDiff("ok.go", "@@ -1 +1 @@\n-x\n+y\n", ""),
+		},
+		raw: raw,
+	}
+	srv := httptest.NewServer(m.handler(t))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "t").GetMRChanges(context.Background(), "p", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantIncomplete := []bool{false, false, true, false, false, false}
+	for i, w := range wantIncomplete {
+		if got.Changes[i].Incomplete != w {
+			t.Errorf("%s: Incomplete = %v, want %v", got.Changes[i].NewPath, got.Changes[i].Incomplete, w)
+		}
+	}
+	if got.Changes[0].Diff == "" {
+		t.Error("big.go should have been recovered from raw_diffs")
+	}
+}
+
+func TestGetMRChanges_NoSuspicionWhenFlagsPresent(t *testing.T) {
+	m := &mrServer{
+		meta:  `{"id":1,"iid":1,"changes_count":"1"}`,
+		diffs: []string{legacyDiff("img.png", "", `,"collapsed":false,"too_large":false`)},
+	}
+	srv := httptest.NewServer(m.handler(t))
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "t").GetMRChanges(context.Background(), "p", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Changes[0].Incomplete || m.rawCalls != 0 {
+		t.Errorf("flags say the empty diff is real; Incomplete=%v rawCalls=%d", got.Changes[0].Incomplete, m.rawCalls)
 	}
 }
