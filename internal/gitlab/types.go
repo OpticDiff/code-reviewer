@@ -8,6 +8,18 @@ import (
 	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
+// MergeRequest is the response from GET /projects/:id/merge_requests/:iid.
+type MergeRequest struct {
+	ID          int    `json:"id"`
+	IID         int    `json:"iid"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	State       string `json:"state"`
+	Draft       bool   `json:"draft"`
+	// ChangesCount is a string, not an integer, and is "1000+" when capped.
+	ChangesCount string `json:"changes_count"`
+}
+
 // MRChangesResponse is the response from GET /projects/:id/merge_requests/:iid/changes.
 type MRChangesResponse struct {
 	ID          int         `json:"id"`
@@ -23,16 +35,7 @@ type MRChangesResponse struct {
 func (r *MRChangesResponse) toVCS() *vcs.MRChanges {
 	changes := make([]vcs.DiffEntry, len(r.Changes))
 	for i, c := range r.Changes {
-		changes[i] = vcs.DiffEntry{
-			OldPath:     c.OldPath,
-			NewPath:     c.NewPath,
-			Diff:        c.Diff,
-			NewFile:     c.NewFile,
-			RenamedFile: c.RenamedFile,
-			DeletedFile: c.DeletedFile,
-			Collapsed:   c.Collapsed,
-			TooLarge:    c.TooLarge,
-		}
+		changes[i] = c.toVCS()
 	}
 	return &vcs.MRChanges{
 		ID:          r.ID,
@@ -56,6 +59,21 @@ type DiffEntry struct {
 	// Collapsed and TooLarge are reported by GitLab 18.4+ diff endpoints.
 	Collapsed bool `json:"collapsed"`
 	TooLarge  bool `json:"too_large"`
+}
+
+// toVCS converts a GitLab diff entry to the platform-agnostic type.
+func (d DiffEntry) toVCS() vcs.DiffEntry {
+	return vcs.DiffEntry{
+		OldPath:     d.OldPath,
+		NewPath:     d.NewPath,
+		Diff:        d.Diff,
+		NewFile:     d.NewFile,
+		RenamedFile: d.RenamedFile,
+		DeletedFile: d.DeletedFile,
+		Collapsed:   d.Collapsed,
+		TooLarge:    d.TooLarge,
+		Incomplete:  d.Collapsed || d.TooLarge,
+	}
 }
 
 // DiffVersion represents a version of the MR diff (from the versions API).

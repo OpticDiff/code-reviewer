@@ -8,50 +8,31 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func TestMRChangesResponse_toVCS(t *testing.T) {
+func TestDiffEntry_toVCS(t *testing.T) {
 	tests := []struct {
 		name string
-		resp *MRChangesResponse
-		want *vcs.MRChanges
+		in   DiffEntry
+		want vcs.DiffEntry
 	}{
 		{
-			name: "renamed and new files",
-			resp: &MRChangesResponse{
-				ID: 42, IID: 7, Title: "Fix bug", Description: "Important fix",
-				State: "opened", Draft: true,
-				Changes: []DiffEntry{
-					{OldPath: "old.go", NewPath: "new.go", Diff: "@@ -1 +1 @@\n-old\n+new", RenamedFile: true},
-					{NewPath: "added.go", Diff: "@@ -0,0 +1 @@\n+new file", NewFile: true},
-				},
-			},
-			want: &vcs.MRChanges{
-				ID: 42, IID: 7, Title: "Fix bug", Description: "Important fix",
-				State: "opened", Draft: true,
-				Changes: []vcs.DiffEntry{
-					{OldPath: "old.go", NewPath: "new.go", Diff: "@@ -1 +1 @@\n-old\n+new", RenamedFile: true},
-					{NewPath: "added.go", Diff: "@@ -0,0 +1 @@\n+new file", NewFile: true},
-				},
-			},
+			name: "renamed file",
+			in:   DiffEntry{OldPath: "old.go", NewPath: "new.go", Diff: "@@ -1 +1 @@\n-old\n+new", RenamedFile: true},
+			want: vcs.DiffEntry{OldPath: "old.go", NewPath: "new.go", Diff: "@@ -1 +1 @@\n-old\n+new", RenamedFile: true},
 		},
 		{
-			name: "collapsed and too_large flags",
-			resp: &MRChangesResponse{
-				Changes: []DiffEntry{{NewPath: "big.go", TooLarge: true}, {NewPath: "fold.go", Collapsed: true}},
-			},
-			want: &vcs.MRChanges{
-				Changes: []vcs.DiffEntry{{NewPath: "big.go", TooLarge: true}, {NewPath: "fold.go", Collapsed: true}},
-			},
+			name: "collapsed is incomplete",
+			in:   DiffEntry{NewPath: "big.go", Collapsed: true},
+			want: vcs.DiffEntry{NewPath: "big.go", Collapsed: true, Incomplete: true},
 		},
 		{
-			name: "empty response",
-			resp: &MRChangesResponse{},
-			want: &vcs.MRChanges{Changes: []vcs.DiffEntry{}},
+			name: "too large is incomplete",
+			in:   DiffEntry{NewPath: "huge.go", TooLarge: true},
+			want: vcs.DiffEntry{NewPath: "huge.go", TooLarge: true, Incomplete: true},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.resp.toVCS()
-			if diff := cmp.Diff(tt.want, got); diff != "" {
+			if diff := cmp.Diff(tt.want, tt.in.toVCS()); diff != "" {
 				t.Errorf("toVCS() mismatch (-want +got):\n%s", diff)
 			}
 		})

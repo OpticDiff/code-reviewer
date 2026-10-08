@@ -94,14 +94,116 @@ func (c *Client) CompareCommits(ctx context.Context, projectID, from, to string)
 	return files, nil
 }
 
-// GetMRChanges fetches the file changes for a merge request.
+// GetMRChanges fetches the merge request and its file changes.
+//
+// Diffs come from the paginated /diffs endpoint, since /changes is deprecated
+// and silently returns empty patches for large files. Entries GitLab left out
+// (collapsed or too_large) are recovered from /raw_diffs where possible;
+// whatever cannot be recovered is returned with Incomplete set.
 func (c *Client) GetMRChanges(ctx context.Context, projectID, mrIID string) (*vcs.MRChanges, error) {
-	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/changes", c.baseURL, url.PathEscape(projectID), mrIID)
-	var resp MRChangesResponse
-	if err := c.get(ctx, url, &resp); err != nil {
-		return nil, fmt.Errorf("fetching MR changes: %w", err)
+	mrURL := fmt.Sprintf("%s/projects/%s/merge_requests/%s", c.baseURL, url.PathEscape(projectID), mrIID)
+	var mr MergeRequest
+	if err := c.get(ctx, mrURL, &mr); err != nil {
+		return nil, fmt.Errorf("fetching MR: %w", err)
 	}
-	return resp.toVCS(), nil
+
+	var entries []DiffEntry
+	if err := c.getPaginated(ctx, mrURL+"/diffs?per_page=100", func(raw json.RawMessage) error {
+		var page []DiffEntry
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return err
+		}
+		entries = append(entries, page...)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("fetching MR diffs: %w", err)
+	}
+
+	changes := make([]vcs.DiffEntry, len(entries))
+	var incomplete []int
+	for i, e := range entries {
+		changes[i] = e.toVCS()
+		if changes[i].Incomplete {
+			incomplete = append(incomplete, i)
+		}
+	}
+	if len(incomplete) > 0 {
+		c.recoverFromRawDiffs(ctx, mrURL, changes, incomplete)
+	}
+	warnOnChangesCountMismatch(mr, len(entries))
+
+	return &vcs.MRChanges{
+		ID:          mr.ID,
+		IID:         mr.IID,
+		Title:       mr.Title,
+		Description: mr.Description,
+		State:       mr.State,
+		Draft:       mr.Draft,
+		Changes:     changes,
+	}, nil
+}
+
+// recoverFromRawDiffs fills in the patches of the incomplete entries from the
+// merge request's /raw_diffs. Entries it cannot fill stay Incomplete.
+func (c *Client) recoverFromRawDiffs(ctx context.Context, mrURL string, changes []vcs.DiffEntry, incomplete []int) {
+	raw, _, err := c.doRaw(ctx, http.MethodGet, mrURL+"/raw_diffs")
+	if err != nil {
+		slog.Warn("could not fetch raw diffs for collapsed files", "error", err)
+		return
+	}
+	patches := splitRawDiff(string(raw))
+	for _, i := range incomplete {
+		patch, ok := patches[changes[i].OldPath+"\x00"+changes[i].NewPath]
+		if !ok || patch == "" {
+			continue
+		}
+		changes[i].Diff = patch
+		changes[i].Incomplete = false
+	}
+}
+
+// splitRawDiff splits `git diff` output into per-file patches keyed by
+// "oldPath\x00newPath". Each patch starts at its first hunk header, matching
+// the shape of the "diff" field returned by the diffs API.
+func splitRawDiff(raw string) map[string]string {
+	patches := make(map[string]string)
+	var key string
+	var body strings.Builder
+	inHunks := false
+	flush := func() {
+		if key != "" {
+			patches[key] = body.String()
+		}
+		body.Reset()
+		inHunks = false
+	}
+	for _, line := range strings.SplitAfter(raw, "\n") {
+		if rest, ok := strings.CutPrefix(line, "diff --git a/"); ok {
+			flush()
+			oldPath, newPath, _ := strings.Cut(strings.TrimSuffix(rest, "\n"), " b/")
+			key = oldPath + "\x00" + newPath
+			continue
+		}
+		if !inHunks && strings.HasPrefix(line, "@@") {
+			inHunks = true
+		}
+		if inHunks {
+			body.WriteString(line)
+		}
+	}
+	flush()
+	return patches
+}
+
+// warnOnChangesCountMismatch logs when the diffs API returned a different
+// number of files than the merge request reports, which means files are missing.
+func warnOnChangesCountMismatch(mr MergeRequest, got int) {
+	want, err := strconv.Atoi(mr.ChangesCount)
+	if err != nil || want == got { // empty or capped ("1000+") counts are not comparable
+		return
+	}
+	slog.Warn("merge request diffs do not match changes_count; some files may be missing from the review",
+		"changes_count", want, "diff_entries", got)
 }
 
 // GetMRVersions fetches the diff versions for a merge request.
