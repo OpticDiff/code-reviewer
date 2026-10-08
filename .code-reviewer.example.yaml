@@ -19,6 +19,12 @@ model: gemini-3.8-flash
 # Only the built-in system prompt is adjusted; a custom_prompt must state its own threshold.
 # confidence_floor: 80
 
+# Sampling temperature for review calls (0-2). Unset keeps the built-in default (0.2).
+# Lower values make verdicts more repeatable on unchanged code. Note that Google
+# recommends leaving Gemini 3.x models at their default temperature; lowering it
+# can cause looping or degraded results, so prefer consensus (--models) there.
+# temperature: 0
+
 # Multiple models for consensus review (CLI-only: --models flag).
 # Runs all models in parallel and deduplicates findings.
 # Consensus activates only with 2+ models; single model uses the normal path.

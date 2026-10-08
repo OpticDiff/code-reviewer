@@ -343,6 +343,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `token_limit` | `--token-limit` | `REVIEW_TOKEN_LIMIT` | — | Context window token limit override |
 | `confidence_floor` | `--confidence-floor` | `REVIEW_CONFIDENCE_FLOOR` | `80` | Minimum model confidence percent (1-100) to report a finding |
 | `context_files` | `--context-files` | `REVIEW_CONTEXT_FILES` | — | Directory-scoped guidance files (e.g. `AGENTS.md`), read from the base ref |
+| `temperature` | `--temperature` | `REVIEW_TEMPERATURE` | — | Sampling temperature (0-2); unset keeps the built-in 0.2 |
 | `extra_rules` | `--extra-rules` | `REVIEW_EXTRA_RULES` | — | Additional prompt rules (free text) |
 | `custom_prompt` | `--custom-prompt` | `REVIEW_CUSTOM_PROMPT` | — | Path to custom system prompt file |
 | — | `--incremental` | `INCREMENTAL` | `false` | Only review files changed in latest push (CI) |

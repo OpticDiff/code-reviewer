@@ -20,8 +20,23 @@ type Finding = pkgmodel.Finding
 
 // Provider wraps the Vertex AI genai client for code review.
 type Provider struct {
-	client    *genai.Client
-	modelName string
+	client      *genai.Client
+	modelName   string
+	temperature *float32 // nil = defaultTemperature.
+}
+
+// defaultTemperature is the sampling temperature used for review calls
+// unless overridden with SetTemperature.
+const defaultTemperature float32 = 0.2
+
+// SetTemperature overrides the sampling temperature for review calls.
+func (p *Provider) SetTemperature(t float32) { p.temperature = &t }
+
+func (p *Provider) temperatureValue() float32 {
+	if p.temperature != nil {
+		return *p.temperature
+	}
+	return defaultTemperature
 }
 
 // GenaiClient returns the underlying genai.Client for multi-turn use (e.g., agent loop).
@@ -77,7 +92,7 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, bool, error) {
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
-		Temperature:       genai.Ptr(float32(0.2)),
+		Temperature:       genai.Ptr(p.temperatureValue()),
 	}
 
 	// Gemini models support native JSON mode (without schema constraint for flexibility).

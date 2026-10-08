@@ -70,15 +70,22 @@ func TerminalOutput(result *model.ReviewResult) string {
 // the pre-change line number, which GitLab requires alongside the new one.
 // If changedFiles is non-nil, only cleans previous comments on those files (incremental mode).
 func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, result *model.ReviewResult, diffs []diff.FileDiff, version *vcs.DiffVersion, changedFiles []string, profile string) error {
+	return postReview(ctx, cfg, client, result, diffs, version, changedFiles, profile, nil)
+}
+
+// postReview is PostReview plus the fingerprints of dismissed threads that
+// cleanup of previous bot comments must leave in place.
+func postReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, result *model.ReviewResult, diffs []diff.FileDiff, version *vcs.DiffVersion, changedFiles []string, profile string, keepFingerprints []string) error {
 	// When platform visibility is security-team-only, redact finding details
 	// from PR comments. Full details are preserved in SARIF and audit log.
 	redacted := cfg.PlatformVisibility == "security-team-only" && profile == "platform"
 
 	req := vcs.SubmitReviewRequest{
-		Summary:      formatSummaryNote(result, profile, redacted),
-		Version:      version,
-		CleanupMode:  string(cfg.CleanupMode),
-		ChangedFiles: changedFiles,
+		Summary:          formatSummaryNote(result, profile, redacted),
+		Version:          version,
+		CleanupMode:      string(cfg.CleanupMode),
+		ChangedFiles:     changedFiles,
+		KeepFingerprints: keepFingerprints,
 	}
 
 	// Suppress inline comments entirely when redacted — finding details
@@ -103,7 +110,7 @@ func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, 
 				OldLine:    oldLineFor(diffs, f.File, f.Line),
 				EndLine:    f.EndLine,
 				Body:       formatInlineComment(f),
-				Suggestion: f.Suggestion,
+				Suggestion: neutralizeMarkers(f.Suggestion),
 			})
 		}
 	}
@@ -205,7 +212,18 @@ func formatSummaryNote(result *model.ReviewResult, profile string, redacted bool
 	return sb.String()
 }
 
+// neutralizeMarkers defuses HTML comment openers in model-written text so it
+// cannot smuggle a fingerprint or bot marker into a comment.
+func neutralizeMarkers(s string) string {
+	return strings.ReplaceAll(s, "<!--", "&lt;!--")
+}
+
 func formatInlineComment(f model.Finding) string {
+	f.Title = neutralizeMarkers(f.Title)
+	f.Body = neutralizeMarkers(f.Body)
+	f.RuleName = neutralizeMarkers(f.RuleName)
+	f.RuleFile = neutralizeMarkers(f.RuleFile)
+	f.RuleURL = neutralizeMarkers(f.RuleURL)
 	var sb strings.Builder
 	if f.RuleSource == "platform" {
 		ruleBadge := f.RuleName
@@ -221,6 +239,11 @@ func formatInlineComment(f model.Finding) string {
 	sb.WriteString(f.Body)
 	if f.RuleURL != "" {
 		fmt.Fprintf(&sb, "\n\n📖 **Documentation**: [%s](%s)", f.RuleName, f.RuleURL)
+	}
+	if f.Fingerprint != "" {
+		sb.WriteString("\n" + vcs.FingerprintMarker(vcs.FingerprintInfo{
+			Fingerprint: f.Fingerprint, Anchor: f.Anchor, AnchorLines: f.AnchorLines,
+		}))
 	}
 	return sb.String()
 }

@@ -121,6 +121,7 @@ type Config struct {
 	ConsensusThreshold int      // Min models that must agree on a finding (default: 2).
 	TokenLimit         int      // Context window limit override in tokens (0 = use model default).
 	ConfidenceFloor    int      // Minimum confidence percent (1-100) the model needs to report a finding (0 = built-in default of 80).
+	Temperature        *float64 // Sampling temperature override (nil = provider default).
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
@@ -249,6 +250,7 @@ type repoConfig struct {
 	Model            string   `yaml:"model"`
 	TokenLimit       int      `yaml:"token_limit"`
 	ConfidenceFloor  int      `yaml:"confidence_floor"`
+	Temperature      *float64 `yaml:"temperature"`
 	Focus            []string `yaml:"focus"`
 	ContextFiles     []string `yaml:"context_files"`
 	MinSeverity      string   `yaml:"min_severity"`
@@ -481,6 +483,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.ConfidenceFloor != 0 {
 		c.ConfidenceFloor = rc.ConfidenceFloor
 	}
+	if rc.Temperature != nil {
+		c.Temperature = rc.Temperature
+	}
 	if len(rc.Focus) > 0 {
 		c.Focus = rc.Focus
 	}
@@ -631,6 +636,14 @@ func (c *Config) loadEnv() {
 			slog.Warn("ignoring invalid REVIEW_CONFIDENCE_FLOOR", "value", v, "error", err)
 		} else {
 			c.ConfidenceFloor = n
+		}
+	}
+	if v := os.Getenv("REVIEW_TEMPERATURE"); v != "" {
+		t, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_TEMPERATURE", "value", v, "error", err)
+		} else {
+			c.Temperature = &t
 		}
 	}
 	if v := os.Getenv("REVIEW_FOCUS"); v != "" {
@@ -806,6 +819,7 @@ func (c *Config) loadFlags() error {
 	tokenLimit := fs.Int("token-limit", 0, "Explicit context window token limit (overrides model default)")
 	confidenceFloor := fs.Int("confidence-floor", 0, "Minimum model confidence percent (1-100) required to report a finding (default 80)")
 	contextFiles := fs.String("context-files", "", "Directory-scoped guidance file names to include for changed directories, comma-separated (e.g. AGENTS.md)")
+	temperature := fs.Float64("temperature", 0, "Sampling temperature for review calls (0-2); unset keeps the provider default")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")
@@ -957,6 +971,9 @@ func (c *Config) loadFlags() error {
 		}
 		if f.Name == "confidence-floor" {
 			c.ConfidenceFloor = *confidenceFloor
+		}
+		if f.Name == "temperature" {
+			c.Temperature = temperature
 		}
 		if f.Name == "max-tokens" {
 			if *maxTokens < 0 {
@@ -1141,6 +1158,9 @@ func githubStackedPR(baseRef, eventPath string) bool {
 func (c *Config) validate() error {
 	if c.ConfidenceFloor < 0 || c.ConfidenceFloor > 100 {
 		return &ConfigError{Err: fmt.Errorf("invalid confidence floor %d: must be between 1 and 100", c.ConfidenceFloor)}
+	}
+	if c.Temperature != nil && (*c.Temperature < 0 || *c.Temperature > 2) {
+		return &ConfigError{Err: fmt.Errorf("invalid temperature %v: must be between 0 and 2", *c.Temperature)}
 	}
 
 	// Normalize and validate profile.

@@ -338,6 +338,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--token-limit` | Context window token limit override (0 = use model default) | — |
 | `--confidence-floor` | Minimum model confidence percent (1-100) required to report a finding | `80` |
 | `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
+| `--temperature` | Sampling temperature for review calls, 0-2 (unset = built-in 0.2) | — |
 | `--extra-rules` | Additional prompt rules | — |
 | `--custom-prompt` | Path to custom system prompt file | — |
 | `--dry-run` | Analyze without posting | `false` |
@@ -398,6 +399,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_TOKEN_LIMIT` | Context window token limit override | — |
 | `REVIEW_CONFIDENCE_FLOOR` | Minimum model confidence percent (1-100) to report a finding | `80` |
 | `REVIEW_CONTEXT_FILES` | Directory-scoped guidance files, comma-separated | — |
+| `REVIEW_TEMPERATURE` | Sampling temperature for review calls (0-2) | — |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
 | `CODE_REVIEW_PLATFORM_REVIEW_MD` | Platform guidelines markdown path or glob | — |
@@ -433,6 +435,7 @@ Create `.code-reviewer.yaml` in your repo root:
 model: gemini-3.8-flash
 token_limit: 1000000     # Optional: explicit context window token limit override
 confidence_floor: 80     # Optional: minimum model confidence percent (1-100) to report a finding
+temperature: 0           # Optional: sampling temperature (0-2); unset = built-in 0.2
 focus: [bugs, security]
 context_files: [AGENTS.md]   # Optional: include the nearest AGENTS.md for each changed directory
 min_severity: low
@@ -506,6 +509,20 @@ code-reviewer --diff --api-url http://gpu-server:8000/v1 --model meta-llama/Llam
 # With Candela proxy (observability + routing)
 code-reviewer --diff --api-url http://candela:8080/v1 --model gemini-3.8-flash
 ```
+
+### Dismissed Findings
+
+Each inline comment carries a hidden fingerprint: the file, the lowercased category and a hash of the commented lines plus the lines directly around them. In CI mode the next run stops re-posting a finding when its thread was dismissed and the code under it is unchanged, and lists those locations (path and line only, never comment text) in the prompt so the model does not rediscover them. Editing the lines, or the lines next to them, produces a new fingerprint and the finding can be raised again. On GitLab, `cleanup_mode` leaves a dismissed thread in place only while its code is unchanged; once the code changes, the thread is cleaned up as usual.
+
+Rules for who may dismiss:
+
+- A thread only counts if its first comment was written by the account the tool authenticates as (`GET /user` on both platforms). Markers typed by anyone else are ignored. If that account cannot be determined, nothing is treated as dismissed. GitHub refuses `GET /user` for the Actions `GITHUB_TOKEN`, so on GitHub this feature needs a personal access token or a GitHub App user token.
+- A reply from, or (GitLab) resolution by, anyone other than the tool counts as engagement. GitHub review-thread resolution is not exposed over REST, so GitHub only looks at replies.
+- If the only person engaged is the merge/pull request author, the dismissal applies to findings below HIGH only. HIGH and CRITICAL findings need any account other than the author.
+- Dismissed HIGH and CRITICAL findings are never re-posted, but they still count toward the exit status whenever the model emits them again. Because dismissed locations are also listed in the prompt, the model will often not emit them, so do not rely on this to keep the CI gate red. Auto-approve and SARIF/SAST output include every finding the model emitted.
+- The feature is on by default in CI mode and has no opt-out setting yet.
+
+For repeatable verdicts on unchanged code, `temperature: 0` (or `--temperature 0`) lowers sampling randomness. Google recommends leaving Gemini 3.x models at their default temperature, so on those prefer multi-model consensus.
 
 ### Auto-Approve
 

@@ -154,3 +154,20 @@ type CreatePullCommentRequest struct {
 	// Side indicates which side of the diff the comment applies to.
 	Side     string `json:"side"`
 }
+
+// PullReviewComment is an inline review comment from
+// GET /repos/{owner}/{repo}/pulls/{pr}/comments
+type PullReviewComment struct {
+	// ID is the unique identifier of the comment.
+	ID int `json:"id"`
+	// Body is the text content of the comment.
+	Body string `json:"body"`
+	// Path is the file the comment is anchored to.
+	Path string `json:"path"`
+	// Line is the line the comment is anchored to (0 when outdated).
+	Line int `json:"line"`
+	// InReplyToID is the ID of the comment this one replies to, if any.
+	InReplyToID *int `json:"in_reply_to_id,omitempty"`
+	// User is the author of the comment.
+	User User `json:"user"`
+}

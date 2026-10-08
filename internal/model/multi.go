@@ -18,7 +18,8 @@ var NewMultiProviderFromReviewers = pkgmodel.NewMultiProviderFromReviewers
 // The threshold controls how many models must agree on a finding for it to be
 // included (default: 2, minimum: 1).
 // If proxyURL is non-empty, all model calls are routed through that URL.
-func NewMultiProvider(ctx context.Context, project, location string, models []string, threshold int, proxyURL string) (*MultiProvider, error) {
+// Each opt is applied to every per-model provider after it is created.
+func NewMultiProvider(ctx context.Context, project, location string, models []string, threshold int, proxyURL string, opts ...func(*Provider)) (*MultiProvider, error) {
 	if len(models) == 0 {
 		return nil, fmt.Errorf("at least one model is required")
 	}
@@ -38,6 +39,9 @@ func NewMultiProvider(ctx context.Context, project, location string, models []st
 				existing.Close()
 			}
 			return nil, fmt.Errorf("creating provider for %s: %w", m, err)
+		}
+		for _, opt := range opts {
+			opt(p)
 		}
 		providers = append(providers, p)
 	}

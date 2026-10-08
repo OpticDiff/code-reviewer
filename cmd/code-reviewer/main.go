@@ -139,11 +139,19 @@ func run(ctx, initCtx context.Context) (int, error) {
 				if err != nil {
 					return 0, &config.InfraError{Err: fmt.Errorf("creating HTTP provider for %s: %w", m, err)}
 				}
+				if cfg.Temperature != nil {
+					p.SetTemperature(float32(*cfg.Temperature))
+				}
 				providers = append(providers, p)
 			}
 			modelProvider = model.NewMultiProviderFromReviewers(providers, threshold)
 		} else {
-			mp, err := model.NewMultiProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold, cfg.ProxyURL)
+			var opts []func(*model.Provider)
+			if cfg.Temperature != nil {
+				t := float32(*cfg.Temperature)
+				opts = append(opts, func(p *model.Provider) { p.SetTemperature(t) })
+			}
+			mp, err := model.NewMultiProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold, cfg.ProxyURL, opts...)
 			if err != nil {
 				return 0, wrapProviderError(err)
 			}
@@ -156,11 +164,17 @@ func run(ctx, initCtx context.Context) (int, error) {
 		if err != nil {
 			return 0, &config.InfraError{Err: fmt.Errorf("creating HTTP provider: %w", err)}
 		}
+		if cfg.Temperature != nil {
+			provider.SetTemperature(float32(*cfg.Temperature))
+		}
 		modelProvider = provider
 	} else {
 		provider, err := model.NewProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Model, cfg.ProxyURL)
 		if err != nil {
 			return 0, wrapProviderError(err)
+		}
+		if cfg.Temperature != nil {
+			provider.SetTemperature(float32(*cfg.Temperature))
 		}
 		modelProvider = provider
 	}

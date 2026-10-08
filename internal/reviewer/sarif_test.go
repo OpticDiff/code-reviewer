@@ -199,3 +199,17 @@ func TestBuildSARIF_SkipsRemovedLineFindings(t *testing.T) {
 		t.Errorf("expected no rule for the skipped finding, got %d rules", got)
 	}
 }
+
+func TestBuildSARIF_IncludesReviewerFingerprint(t *testing.T) {
+	result := &model.ReviewResult{Findings: []model.Finding{
+		{File: "main.go", Line: 10, Severity: "HIGH", Category: "bug", Title: "t", Body: "b", Fingerprint: "abc123"},
+		{File: "main.go", Line: 20, Severity: "HIGH", Category: "bug", Title: "u", Body: "b"},
+	}}
+	run := buildSARIF(result, "dev", "").Runs[0]
+	if got := run.Results[0].PartialFingerprints["codeReviewerFingerprint/v1"]; got != "abc123" {
+		t.Errorf("fingerprint = %q, want abc123", got)
+	}
+	if _, ok := run.Results[1].PartialFingerprints["codeReviewerFingerprint/v1"]; ok {
+		t.Error("finding without a fingerprint must not emit the key")
+	}
+}

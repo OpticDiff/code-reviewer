@@ -211,6 +211,11 @@ func buildSARIF(result *model.ReviewResult, version, profile string) sarifReport
 		hashBytes := sha256.Sum256([]byte(hashInput))
 		hashHex := fmt.Sprintf("%x", hashBytes)[:16]
 
+		partial := map[string]string{"primaryLocationLineHash": hashHex}
+		if f.Fingerprint != "" {
+			partial["codeReviewerFingerprint/v1"] = f.Fingerprint
+		}
+
 		results = append(results, sarifResult{
 			RuleID:    ruleID,
 			RuleIndex: ruleIdx,
@@ -222,9 +227,7 @@ func buildSARIF(result *model.ReviewResult, version, profile string) sarifReport
 					Region:           region,
 				},
 			}},
-			PartialFingerprints: map[string]string{
-				"primaryLocationLineHash": hashHex,
-			},
+			PartialFingerprints: partial,
 		})
 	}
 

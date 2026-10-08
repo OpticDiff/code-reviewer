@@ -475,7 +475,15 @@ func (c *Client) DeleteNote(ctx context.Context, projectID, mrIID string, noteID
 // If changedFiles is non-empty, only notes referencing those files are deleted;
 // the summary note is always deleted so it can be replaced with an updated one.
 func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID string, changedFiles []string) (int, error) {
+	return c.cleanPreviousReviews(ctx, projectID, mrIID, changedFiles, nil)
+}
+
+// cleanPreviousReviews is CleanPreviousReviews that leaves in place the
+// dismissed threads identified by keepFingerprints. They are the record that
+// lets later runs avoid re-raising a finding other people already closed out.
+func (c *Client) cleanPreviousReviews(ctx context.Context, projectID, mrIID string, changedFiles []string, keepFingerprints []string) (int, error) {
 	deleted := 0
+	keep := c.keptNoteIDs(ctx, projectID, mrIID, keepFingerprints)
 
 	if len(changedFiles) > 0 {
 		changedSet := make(map[string]bool, len(changedFiles))
@@ -489,7 +497,7 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 		}
 		for _, d := range discussions {
 			for _, n := range d.Notes {
-				if strings.Contains(n.Body, c.botMarker) && n.Position != nil && changedSet[n.Position.NewPath] {
+				if strings.Contains(n.Body, c.botMarker) && n.Position != nil && changedSet[n.Position.NewPath] && !keep[n.ID] {
 					if err := c.DeleteNote(ctx, projectID, mrIID, n.ID); err != nil {
 						continue
 					}
@@ -524,6 +532,9 @@ func (c *Client) CleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 	}
 
 	for _, n := range notes {
+		if keep[n.ID] {
+			continue
+		}
 		if err := c.DeleteNote(ctx, projectID, mrIID, n.ID); err != nil {
 			// Non-fatal: may not have permission to delete all notes.
 			continue
@@ -601,7 +612,7 @@ func (c *Client) SubmitReview(ctx context.Context, projectID, mrIID string, req 
 			slog.Info(fmt.Sprintf("resolved %d previous bot discussion(s)", resolved))
 		}
 	} else {
-		deleted, err := c.CleanPreviousReviews(ctx, projectID, mrIID, req.ChangedFiles)
+		deleted, err := c.cleanPreviousReviews(ctx, projectID, mrIID, req.ChangedFiles, req.KeepFingerprints)
 		if err != nil {
 			slog.Warn("failed to clean previous reviews", "error", err)
 		} else if deleted > 0 {

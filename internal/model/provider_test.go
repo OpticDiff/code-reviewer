@@ -196,3 +196,14 @@ func TestTruncate(t *testing.T) {
 		})
 	}
 }
+
+func TestProvider_Temperature(t *testing.T) {
+	p := &Provider{}
+	if got := p.temperatureValue(); got != 0.2 {
+		t.Errorf("default temperature = %v, want 0.2", got)
+	}
+	p.SetTemperature(0)
+	if got := p.temperatureValue(); got != 0 {
+		t.Errorf("temperature after SetTemperature(0) = %v, want 0", got)
+	}
+}
