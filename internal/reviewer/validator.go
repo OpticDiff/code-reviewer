@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/model"
@@ -104,6 +105,7 @@ func ValidateFindings(findings []model.Finding, diffs []diff.FileDiff) []model.F
 	}
 
 	valid = sanitizeSuggestions(valid)
+	valid = dropMojibakeSuggestions(valid, diffs)
 
 	return valid
 }
@@ -169,6 +171,73 @@ func sanitizeSuggestions(findings []model.Finding) []model.Finding {
 		findings[i].Suggestion = s
 	}
 	return findings
+}
+
+// dropMojibakeSuggestions clears suggestions that re-emit the source lines
+// they replace with UTF-8 bytes decoded as Latin-1 (e.g. "ï¬\u0080" for "ﬀ").
+// Applying such a suggestion would corrupt the file, so the finding is kept
+// and only the suggestion is dropped.
+func dropMojibakeSuggestions(findings []model.Finding, diffs []diff.FileDiff) []model.Finding {
+	for i := range findings {
+		f := &findings[i]
+		if f.Suggestion == "" {
+			continue
+		}
+		source := sourceLines(diffs, f.File, f.Line, f.EndLine)
+		if hasMojibakeOf(f.Suggestion, source) {
+			slog.Warn("dropping suggestion: non-ASCII text does not match the source line",
+				"file", f.File,
+				"line", f.Line,
+				"title", f.Title,
+			)
+			f.Suggestion = ""
+		}
+	}
+	return findings
+}
+
+// sourceLines returns the new-side text of lines [line, endLine] of file as
+// present in the diff (added and context lines).
+func sourceLines(diffs []diff.FileDiff, file string, line, endLine int) string {
+	if endLine < line {
+		endLine = line
+	}
+	var sb strings.Builder
+	for _, d := range diffs {
+		if d.NewPath != file && (d.NewPath != "" || d.OldPath != file) {
+			continue
+		}
+		for _, h := range d.Hunks {
+			for _, l := range h.Lines {
+				if l.Type != diff.LineRemoved && l.NewLineNo >= line && l.NewLineNo <= endLine {
+					sb.WriteString(l.Content)
+					sb.WriteByte('\n')
+				}
+			}
+		}
+	}
+	return sb.String()
+}
+
+// hasMojibakeOf reports whether s contains a run of Latin-1-range characters
+// (U+0080-U+00FF) whose bytes form valid UTF-8 that appears in source, i.e.
+// source text that was decoded one byte per character.
+func hasMojibakeOf(s, source string) bool {
+	var run []byte
+	flush := func() bool {
+		defer func() { run = run[:0] }()
+		return len(run) > 0 && utf8.Valid(run) && strings.Contains(source, string(run))
+	}
+	for _, r := range s {
+		if r >= 0x80 && r <= 0xFF {
+			run = append(run, byte(r))
+			continue
+		}
+		if flush() {
+			return true
+		}
+	}
+	return flush()
 }
 
 // stripCodeFences removes markdown code fences from a string.
