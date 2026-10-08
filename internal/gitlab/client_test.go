@@ -1669,7 +1669,7 @@ func TestSubmitReview_InlinePositionLineNumbers(t *testing.T) {
 	tests := []struct {
 		name        string
 		comment     vcs.ReviewComment
-		wantNewLine float64
+		wantNewLine float64 // 0 means the key must be absent.
 		wantOldLine float64 // 0 means the key must be absent.
 		wantOldPath string
 	}{
@@ -1692,6 +1692,12 @@ func TestSubmitReview_InlinePositionLineNumbers(t *testing.T) {
 			wantNewLine: 27,
 			wantOldLine: 24,
 			wantOldPath: "old.go",
+		},
+		{
+			name:        "removed line sends old_line only",
+			comment:     vcs.ReviewComment{Path: "a.go", OldLine: 24, Body: "x"},
+			wantOldLine: 24,
+			wantOldPath: "a.go",
 		},
 	}
 
@@ -1742,8 +1748,12 @@ func TestSubmitReview_InlinePositionLineNumbers(t *testing.T) {
 				if got == nil {
 					t.Fatal("no inline position was sent")
 				}
-				if got["new_line"] != tt.wantNewLine {
-					t.Errorf("new_line = %v, want %v", got["new_line"], tt.wantNewLine)
+				newLine, hasNew := got["new_line"]
+				if tt.wantNewLine == 0 && hasNew {
+					t.Errorf("new_line = %v, want it omitted", newLine)
+				}
+				if tt.wantNewLine != 0 && newLine != tt.wantNewLine {
+					t.Errorf("new_line = %v, want %v", newLine, tt.wantNewLine)
 				}
 				oldLine, hasOld := got["old_line"]
 				if tt.wantOldLine == 0 && hasOld {
@@ -1879,6 +1889,74 @@ func TestGetMRChanges_MissingFiles(t *testing.T) {
 			}
 			if got.MissingFiles != tt.want {
 				t.Errorf("MissingFiles = %d, want %d", got.MissingFiles, tt.want)
+			}
+		})
+	}
+}
+
+func TestSubmitReview_RemovedLineFallbackNoteNamesOldLine(t *testing.T) {
+	// When GitLab rejects the old-side position, the finding is not lost: it is
+	// posted as a merge request note naming the file and the old line.
+	for _, path := range []string{"draft_notes", "individual_comments"} {
+		t.Run(path, func(t *testing.T) {
+			var notes []string
+			var mu sync.Mutex
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				body, _ := io.ReadAll(r.Body)
+				switch {
+				case r.Method == http.MethodGet:
+					_, _ = w.Write([]byte(`[]`))
+				case strings.Contains(r.URL.Path, "/draft_notes") && !strings.Contains(r.URL.Path, "bulk_publish"):
+					if path == "individual_comments" {
+						w.WriteHeader(http.StatusNotFound)
+						return
+					}
+					if positionOf(t, body) != nil {
+						w.WriteHeader(http.StatusBadRequest)
+						_, _ = w.Write([]byte(`{"message":"invalid position"}`))
+						return
+					}
+					_, _ = w.Write([]byte(`{"id":1}`))
+				case strings.Contains(r.URL.Path, "/discussions"):
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"message":"invalid position"}`))
+				case strings.HasSuffix(r.URL.Path, "/notes"):
+					var payload struct {
+						Body string `json:"body"`
+					}
+					_ = json.Unmarshal(body, &payload)
+					notes = append(notes, payload.Body)
+					_, _ = w.Write([]byte(`{"id":1}`))
+				default:
+					_, _ = w.Write([]byte(`{"id":1}`))
+				}
+			}))
+			defer srv.Close()
+
+			client := NewClient(srv.URL, "token")
+			req := vcs.SubmitReviewRequest{
+				Summary:  "Review",
+				Version:  &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"},
+				Comments: []vcs.ReviewComment{{Path: "a.go", OldLine: 24, Body: "guard removed"}},
+			}
+			if err := client.SubmitReview(context.Background(), "proj", "1", req); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			mu.Lock()
+			defer mu.Unlock()
+			found := false
+			for _, n := range notes {
+				if strings.Contains(n, "a.go") && strings.Contains(n, "old line 24") && strings.Contains(n, "guard removed") {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("no fallback note naming a.go and old line 24; notes = %q", notes)
 			}
 		})
 	}

@@ -649,7 +649,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("context cancelled during draft creation: %w", err)
 			}
-			if comment.Path == "" || comment.Line <= 0 {
+			if comment.Path == "" || (comment.Line <= 0 && comment.OldLine <= 0) {
 				slog.Warn("dropping invalid review comment",
 					"path", comment.Path,
 					"line", comment.Line,
@@ -657,9 +657,8 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 				continue
 			}
 
-			newLine := comment.Line
 			noteBody := comment.Body
-			if comment.Suggestion != "" {
+			if comment.Suggestion != "" && comment.Line > 0 {
 				if comment.EndLine > comment.Line {
 					offset := comment.EndLine - comment.Line
 					noteBody += fmt.Sprintf("\n\n```suggestion:-%d+0\n%s\n```", offset, comment.Suggestion)
@@ -677,10 +676,10 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 					NewPath:      comment.Path,
 					OldPath:      oldPathOf(comment),
 					OldLine:      oldLinePtr(comment),
-					NewLine:      &newLine,
+					NewLine:      newLinePtr(comment),
 				},
 			}
-			if comment.EndLine > comment.Line {
+			if comment.Line > 0 && comment.EndLine > comment.Line {
 				draftReq.Position.LineRange = &DiscussionLineRange{
 					Start: DiscussionLineRef{NewLine: comment.Line, Type: "new"},
 					End:   DiscussionLineRef{NewLine: comment.EndLine, Type: "new"},
@@ -693,7 +692,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 					"line", comment.Line,
 					"error", err,
 				)
-				noteBodyStr := fmt.Sprintf("**%s:%d** — %s", comment.Path, comment.Line, noteBody)
+				noteBodyStr := fmt.Sprintf("**%s** — %s", commentLocation(comment), noteBody)
 				if _, noteErr := c.PostNote(ctx, projectID, mrIID, noteBodyStr); noteErr != nil {
 					slog.Error("note fallback also failed", "error", noteErr)
 				}
@@ -722,6 +721,24 @@ func oldPathOf(comment vcs.ReviewComment) string {
 		return comment.OldPath
 	}
 	return comment.Path
+}
+
+// newLinePtr returns the comment's new-side line number, or nil for a comment
+// on a removed line, which GitLab anchors by old_line alone.
+func newLinePtr(comment vcs.ReviewComment) *int {
+	if comment.Line <= 0 {
+		return nil
+	}
+	return &comment.Line
+}
+
+// commentLocation names where a comment belongs, for the merge request note
+// that replaces an inline comment GitLab refused to anchor.
+func commentLocation(comment vcs.ReviewComment) string {
+	if comment.Line <= 0 {
+		return fmt.Sprintf("%s (removed, old line %d)", comment.Path, comment.OldLine)
+	}
+	return fmt.Sprintf("%s:%d", comment.Path, comment.Line)
 }
 
 // oldLinePtr returns the comment's pre-change line number, or nil for an added
@@ -753,9 +770,8 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 				slog.Warn("context canceled, stopping inline comment posting", "error", err)
 				break
 			}
-			newLine := comment.Line
 			noteBody := comment.Body
-			if comment.Suggestion != "" {
+			if comment.Suggestion != "" && comment.Line > 0 {
 				if comment.EndLine > comment.Line {
 					offset := comment.EndLine - comment.Line
 					noteBody += fmt.Sprintf("\n\n```suggestion:-%d+0\n%s\n```", offset, comment.Suggestion)
@@ -772,10 +788,10 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 					NewPath:  comment.Path,
 					OldPath:  oldPathOf(comment),
 					OldLine:  oldLinePtr(comment),
-					NewLine:  &newLine,
+					NewLine:  newLinePtr(comment),
 				},
 			}
-			if comment.EndLine > comment.Line {
+			if comment.Line > 0 && comment.EndLine > comment.Line {
 				endLine := comment.EndLine
 				inlineReq.Position.EndLine = &endLine
 			}
@@ -787,7 +803,7 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 					"error", err,
 				)
 				// Fallback: post as a regular note.
-				noteBodyStr := fmt.Sprintf("**%s:%d** — %s", comment.Path, comment.Line, noteBody)
+				noteBodyStr := fmt.Sprintf("**%s** — %s", commentLocation(comment), noteBody)
 				if _, err := c.PostNote(ctx, projectID, mrIID, noteBodyStr); err != nil {
 					slog.Error("failed to post fallback note", "error", err)
 				} else {
