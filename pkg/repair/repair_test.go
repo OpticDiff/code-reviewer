@@ -147,3 +147,14 @@ func TestRepairJSON_TripleEncoded(t *testing.T) {
 		t.Errorf("got %q, want %q", repaired, expected)
 	}
 }
+
+func TestRepairJSON_PreservesMultibyteUTF8(t *testing.T) {
+	const text = "ﬀﬁﬂﬃﬄﬅﬆ soft\u00adhyphen 🚀 日本語 café"
+	// The bare newline forces the string-rewriting path.
+	input := "{\"suggestion\": \"" + text + "\nnext\"}"
+	got, _ := RepairJSON(input)
+	want := "{\"suggestion\": \"" + text + "\\nnext\"}"
+	if got != want {
+		t.Errorf("RepairJSON mangled non-ASCII text:\n got: %q\nwant: %q", got, want)
+	}
+}

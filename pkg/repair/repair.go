@@ -51,6 +51,8 @@ func fixJSONStrings(s string) string {
 	inString := false
 	var prev rune
 
+	// Iterate bytes and copy them verbatim: converting a byte to a rune would
+	// re-encode every byte of a multi-byte UTF-8 sequence as Latin-1.
 	for i := 0; i < len(s); i++ {
 		r := rune(s[i])
 		if r == '"' && prev != '\\' {
@@ -105,10 +107,10 @@ func fixJSONStrings(s string) string {
 			case '\t':
 				sb.WriteString(`\t`)
 			default:
-				sb.WriteRune(r)
+				sb.WriteByte(s[i])
 			}
 		} else {
-			sb.WriteRune(r)
+			sb.WriteByte(s[i])
 		}
 		prev = r
 	}

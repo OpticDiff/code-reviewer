@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -139,3 +140,22 @@ func TestParseReviewJSON_WhitespaceWrapped(t *testing.T) {
 	}
 }
 
+
+func TestParseReviewJSON_PreservesNonASCIISuggestion(t *testing.T) {
+	const line = `const LIGATURES = "ﬀﬁﬂﬃﬄﬅﬆ"; // soft­hyphen 🚀 日本語`
+	raw, err := json.Marshal(map[string]any{
+		"findings": []map[string]any{{"file": "a.go", "line": 1, "suggestion": line}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range []string{string(raw), "```json\n" + string(raw) + "\n```"} {
+		res, err := parseReviewJSON(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := res.Findings[0].Suggestion; got != line {
+			t.Errorf("suggestion corrupted:\n got: %q\nwant: %q", got, line)
+		}
+	}
+}
