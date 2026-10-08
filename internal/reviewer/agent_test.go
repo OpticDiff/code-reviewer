@@ -3,6 +3,7 @@ package reviewer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/OpticDiff/code-reviewer/pkg/model"
@@ -137,5 +138,26 @@ func TestRunScopedAgentLoop_NoCandidatesSkipsModel(t *testing.T) {
 	}
 	if chatter.calls != 0 || res != nil || len(merged) != 1 {
 		t.Errorf("calls=%d res=%v merged=%v; want no model call and findings unchanged", chatter.calls, res, merged)
+	}
+}
+
+type failingChatter struct{}
+
+func (failingChatter) Chat(context.Context, []*genai.Content, *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	return nil, errors.New("backend unavailable")
+}
+
+func TestRunScopedAgentLoop_ChatErrorLeavesFindingsUnverified(t *testing.T) {
+	findings := []model.Finding{{File: "a.go", Line: 1, Severity: "HIGH", Title: "t"}}
+
+	merged, res, err := runScopedAgentLoop(context.Background(), failingChatter{}, AgentConfig{RepoRoot: t.TempDir()}, findings, AgentScopeHighSeverityOnly)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if len(merged) != 1 {
+		t.Errorf("merged = %+v, want original findings", merged)
+	}
+	if res == nil || len(res.Verdicts) != 1 || res.Verdicts[0].Status != VerdictUnverified {
+		t.Fatalf("result = %+v, want one unverified verdict", res)
 	}
 }

@@ -1291,7 +1291,6 @@ func TestLoad_TokenLimitPrecedence(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 func TestLoad_ContextFilesPrecedenceAndValidation(t *testing.T) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()

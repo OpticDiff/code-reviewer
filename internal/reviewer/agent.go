@@ -225,6 +225,7 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 		if err != nil {
 			result.StopReason = "error"
 			result.Usage = totalUsage // Preserve usage accumulated so far.
+			result.Verdicts = buildVerdicts(initialFindings, result.Findings, false)
 			return result, fmt.Errorf("agent iteration %d: %w", i+1, err)
 		}
 		result.Iterations = i + 1
