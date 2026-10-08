@@ -11,15 +11,23 @@ import (
 // large diffs.
 const maxListedFiles = 200
 
+// changedFilesBudgetDivisor sets the share of the token limit the overview may
+// use (1/20). It comes out of the 20% the chunker reserves for the system
+// prompt and response.
+const changedFilesBudgetDivisor = 20
+
 // buildChangedFilesSection lists every changed file with its added and removed
 // line counts. Chunks are reviewed independently, so this gives each one the
-// shape of the whole change.
-func buildChangedFilesSection(diffs []diff.FileDiff) string {
+// shape of the whole change. The listing is cut short once it would exceed
+// maxTokens (estimated at 4 characters per token); it returns "" if not even
+// the first entry fits.
+func buildChangedFilesSection(diffs []diff.FileDiff, maxTokens int) string {
+	const header = "=== All changed files (some are in other chunks) ===\n"
 	var sb strings.Builder
-	sb.WriteString("=== All files changed in this review (some are in other chunks) ===\n")
+	sb.WriteString(header)
+	listed := 0
 	for i, d := range diffs {
 		if i == maxListedFiles {
-			fmt.Fprintf(&sb, "... and %d more\n", len(diffs)-maxListedFiles)
 			break
 		}
 		path := d.NewPath
@@ -37,7 +45,18 @@ func buildChangedFilesSection(diffs []diff.FileDiff) string {
 				}
 			}
 		}
-		fmt.Fprintf(&sb, "%s (+%d -%d)\n", path, added, removed)
+		line := fmt.Sprintf("%s (+%d -%d)\n", path, added, removed)
+		if (sb.Len()+len(line)+len("... and 999 more\n"))/4 > maxTokens {
+			break
+		}
+		sb.WriteString(line)
+		listed++
+	}
+	if listed == 0 {
+		return ""
+	}
+	if listed < len(diffs) {
+		fmt.Fprintf(&sb, "... and %d more\n", len(diffs)-listed)
 	}
 	sb.WriteString("\n")
 	return sb.String()

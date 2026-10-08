@@ -401,7 +401,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 		numberedDiff := buildNumberedDiff(chunk)
 		if len(chunks) > 1 {
-			numberedDiff = buildChangedFilesSection(diffs) + numberedDiff
+			numberedDiff = buildChangedFilesSection(auditDiffs, tokenLimit/changedFilesBudgetDivisor) + numberedDiff
 		}
 		userPrompt := model.BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff, contextSnippets)
 
