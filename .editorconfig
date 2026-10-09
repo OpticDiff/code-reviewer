@@ -1,0 +1,40 @@
+root = true
+
+[*]
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+charset = utf-8
+
+[*.{go,go.tmpl}]
+indent_style = tab
+indent_size = 4
+
+[*.{ts,tsx,js,jsx,json,yaml,yml,toml}]
+indent_style = space
+indent_size = 2
+
+[*.proto]
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.sql]
+indent_style = space
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+
+[Dockerfile]
+indent_style = space
+indent_size = 4
+
+# A markdown hard line break is two trailing spaces, and a continuation line
+# is indented to the width of its list marker rather than to a fixed step.
+[*.md]
+trim_trailing_whitespace = false
+indent_size = unset
