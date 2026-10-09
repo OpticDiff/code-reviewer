@@ -29,6 +29,29 @@ func newSideLines(file string, diffs []diff.FileDiff) map[int]string {
 	return lines
 }
 
+// oldSideLines returns the trimmed old-side lines of file's diff, keyed by
+// line number. It covers deleted lines and context lines.
+func oldSideLines(file string, diffs []diff.FileDiff) map[int]string {
+	lines := make(map[int]string)
+	for _, d := range diffs {
+		path := d.NewPath
+		if path == "" {
+			path = d.OldPath
+		}
+		if path != file && d.OldPath != file {
+			continue
+		}
+		for _, h := range d.Hunks {
+			for _, l := range h.Lines {
+				if l.Type != diff.LineAdded && l.OldLineNo > 0 {
+					lines[l.OldLineNo] = strings.TrimSpace(l.Content)
+				}
+			}
+		}
+	}
+	return lines
+}
+
 // anchorHash hashes the file, the lines start..end and the lines directly
 // around them. Including the neighbours keeps identical one-line anchors in
 // different places (for example "return err") from sharing a hash. It returns
@@ -48,10 +71,10 @@ func anchorHash(file string, lines map[int]string, start, end int) (string, bool
 // findingSpan returns the finding's line range clamped to the lines the diff
 // shows for the file and to vcs.MaxAnchorLines, so a model-supplied end_line
 // cannot make hashing unbounded.
-func findingSpan(f model.Finding, lines map[int]string) (start, end int) {
-	end = f.EndLine
-	if end < f.Line {
-		end = f.Line
+func findingSpan(line, endLine int, lines map[int]string) (start, end int) {
+	end = endLine
+	if end < line {
+		end = line
 	}
 	last := 0
 	for n := range lines {
@@ -62,13 +85,13 @@ func findingSpan(f model.Finding, lines map[int]string) (start, end int) {
 	if end > last {
 		end = last
 	}
-	if end < f.Line {
-		end = f.Line
+	if end < line {
+		end = line
 	}
-	if end-f.Line+1 > vcs.MaxAnchorLines {
-		end = f.Line + vcs.MaxAnchorLines - 1
+	if end-line+1 > vcs.MaxAnchorLines {
+		end = line + vcs.MaxAnchorLines - 1
 	}
-	return f.Line, end
+	return line, end
 }
 
 // AssignFingerprints sets Fingerprint, Anchor and AnchorLines on every
@@ -78,15 +101,28 @@ func findingSpan(f model.Finding, lines map[int]string) (start, end int) {
 // anchored lines or their neighbours yields a new fingerprint. Findings that
 // cannot be anchored keep an empty fingerprint and are never suppressed.
 func AssignFingerprints(findings []model.Finding, diffs []diff.FileDiff) {
-	byFile := make(map[string]map[int]string)
+	byFileNew := make(map[string]map[int]string)
+	byFileOld := make(map[string]map[int]string)
 	for i := range findings {
 		f := &findings[i]
-		lines, ok := byFile[f.File]
-		if !ok {
-			lines = newSideLines(f.File, diffs)
-			byFile[f.File] = lines
+		var lines map[int]string
+		var startLine, endLine int
+		if f.Line <= 0 && f.OldLine > 0 {
+			lines = byFileOld[f.File]
+			if lines == nil {
+				lines = oldSideLines(f.File, diffs)
+				byFileOld[f.File] = lines
+			}
+			startLine, endLine = f.OldLine, f.OldLine
+		} else {
+			lines = byFileNew[f.File]
+			if lines == nil {
+				lines = newSideLines(f.File, diffs)
+				byFileNew[f.File] = lines
+			}
+			startLine, endLine = f.Line, f.EndLine
 		}
-		start, end := findingSpan(*f, lines)
+		start, end := findingSpan(startLine, endLine, lines)
 		anchor, ok := anchorHash(f.File, lines, start, end)
 		if !ok {
 			continue
@@ -155,6 +191,12 @@ func anchorUnchanged(d vcs.DismissedFinding, diffs []diff.FileDiff) bool {
 	lines := newSideLines(d.Path, diffs)
 	for start := range lines {
 		if h, ok := anchorHash(d.Path, lines, start, start+d.AnchorLines-1); ok && h == d.Anchor {
+			return true
+		}
+	}
+	oldLines := oldSideLines(d.Path, diffs)
+	for start := range oldLines {
+		if h, ok := anchorHash(d.Path, oldLines, start, start+d.AnchorLines-1); ok && h == d.Anchor {
 			return true
 		}
 	}

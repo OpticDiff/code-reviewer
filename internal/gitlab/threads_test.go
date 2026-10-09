@@ -165,3 +165,23 @@ func TestCleanPreviousReviews_KeepsOnlyRequestedThreads(t *testing.T) {
 		}
 	}
 }
+
+func TestDismissedThreads_RemovedLine(t *testing.T) {
+	note := Note{
+		ID: 10, Body: "🟠 **[HIGH]** Missing check\n\ndetails\n" + marker("ab12") + "\n" + testMarker,
+		Author: Author{Username: "review-bot"},
+		Position: &DiscussionPosition{OldPath: "deleted.go", OldLine: intPtr(42)},
+	}
+	discussions := []Discussion{
+		{ID: "removed-replied", Notes: []Note{note, reply("reviewer", 95)}},
+	}
+	got := dismissedThreads(discussions, testMarker, "review-bot", "mr-author")
+	if len(got) != 1 {
+		t.Fatalf("expected 1 dismissed thread, got %d", len(got))
+	}
+	f := got[0].finding
+	if f.Path != "deleted.go" || f.Line != 42 || f.Fingerprint != "ab12" {
+		t.Errorf("unexpected finding for removed line: %+v", f)
+	}
+}
+

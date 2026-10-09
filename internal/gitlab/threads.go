@@ -54,6 +54,12 @@ func dismissedThreads(discussions []Discussion, botMarker, botUser, mrAuthor str
 		line := 0
 		if first.Position.NewLine != nil {
 			line = *first.Position.NewLine
+		} else if first.Position.OldLine != nil {
+			line = *first.Position.OldLine
+		}
+		path := first.Position.NewPath
+		if path == "" {
+			path = first.Position.OldPath
 		}
 		out = append(out, dismissedThread{
 			noteID: first.ID,
@@ -61,7 +67,7 @@ func dismissedThreads(discussions []Discussion, botMarker, botUser, mrAuthor str
 				Fingerprint: fp.Fingerprint,
 				Anchor:      fp.Anchor,
 				AnchorLines: fp.AnchorLines,
-				Path:        first.Position.NewPath,
+				Path:        path,
 				Line:        line,
 				AuthorOnly:  authorOnly || mrAuthor == "",
 			},
