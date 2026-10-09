@@ -172,7 +172,7 @@ gh attestation verify checksums.txt \
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/OpticDiff/code-reviewer/\.github/workflows/release\.yml@refs/tags/v' \
-  ghcr.io/opticdiff/code-reviewer:v0.23.0
+  ghcr.io/opticdiff/code-reviewer:v0.24.0
 ```
 *(Or pin and verify by digest: `ghcr.io/opticdiff/code-reviewer@sha256:<digest>`)*
 

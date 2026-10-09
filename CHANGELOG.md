@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-10-09
+
 ### Added
-- Findings whose thread was replied to (GitHub, GitLab) or resolved (GitLab) by someone other than the tool are no longer re-posted while the code under them is unchanged. Only threads opened by the tool's own account count, author-only dismissals never silence HIGH/CRITICAL findings, and suppressed HIGH/CRITICAL findings still count toward the exit status when the model emits them. Inline comments carry a hidden fingerprint, also exported to SARIF `partialFingerprints`.
-- Optional `temperature` configuration field, `--temperature` CLI flag, and `REVIEW_TEMPERATURE` environment variable to set the sampling temperature of review calls. Unset keeps the built-in 0.2.
-- Findings on removed lines. The model can report a defect introduced by a deletion (a removed guard or check) with `old_line`; the comment is anchored on the old side only (`position.old_line` on GitLab, `side: LEFT` on GitHub), without suggestions or ranges, and falls back to a merge request note naming the file and old line when GitLab refuses the position. Removed-line findings are left out of the SARIF and GitLab SAST reports, which need a location in the new file. `agent_verdicts` audit entries carry an optional `old_line` for such findings.
+- Findings on removed lines: the model can report defects introduced by code deletions (such as removed guards, validation, or permission checks) with `old_line`. Comments anchor to the old side only (`position.old_line` on GitLab, `side: LEFT` on GitHub), without suggestions or ranges, and fall back to merge request notes naming the file and old line when GitLab refuses the position. Removed-line findings are excluded from SARIF and SAST reports which require new-file locations.
+- Suppression of dismissed findings: findings whose inline thread was replied to (GitHub, GitLab) or resolved (GitLab) by someone other than the tool are no longer re-posted while the code under them remains unchanged. Author-only dismissals never silence HIGH/CRITICAL findings, and suppressed HIGH/CRITICAL findings still count toward the exit status when the model emits them. Inline comments carry hidden fingerprints, also exported to SARIF `partialFingerprints`.
+- Dismissed finding support for removed lines: fingerprints and anchors are computed for deleted code using old-side diff hunks. Dismissed threads on deleted lines are preserved across runs while the hunk is unchanged, and advisory prompts explicitly label `(removed line <line>)`.
+- Optional `temperature` configuration field, `--temperature` CLI flag, and `REVIEW_TEMPERATURE` environment variable to set the sampling temperature of review calls (defaults to 0.2).
+- Comprehensive property-based testing suites using Go's `testing/quick` across `pkg/repair`, `internal/diff`, `internal/reviewer`, `pkg/model`, and `pkg/vcs`.
+- Repository `.editorconfig` aligning layout conventions with platform standards.
 
 ## [0.23.0] — 2026-10-08
 
