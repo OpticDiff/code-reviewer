@@ -89,6 +89,7 @@ func (c *Client) ListDismissedFindings(ctx context.Context, projectID, prNumber 
 			AnchorLines: fp.AnchorLines,
 			Path:        cm.Path,
 			Line:        cm.Line,
+			OldSide:     cm.Side == "LEFT",
 			AuthorOnly:  author == "" || (len(who) == 1 && who[author]),
 		})
 	}

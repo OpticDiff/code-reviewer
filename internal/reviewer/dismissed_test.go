@@ -129,9 +129,10 @@ func TestFormatDismissedPrompt_PathsOnly(t *testing.T) {
 	got := FormatDismissedPrompt([]vcs.DismissedFinding{
 		{Path: "main.go", Line: 2},
 		{Path: "outdated.go", Line: 0},
+		{Path: "deleted.go", Line: 5, OldSide: true},
 		{Path: "author.go", Line: 7, AuthorOnly: true},
 	})
-	for _, want := range []string{"- main.go:2\n", "- outdated.go\n"} {
+	for _, want := range []string{"- main.go:2\n", "- outdated.go\n", "- deleted.go (removed line 5)\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt section missing %q:\n%s", want, got)
 		}

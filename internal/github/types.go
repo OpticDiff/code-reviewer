@@ -166,6 +166,8 @@ type PullReviewComment struct {
 	Path string `json:"path"`
 	// Line is the line the comment is anchored to (0 when outdated).
 	Line int `json:"line"`
+	// Side indicates which side of the diff the comment is anchored to (LEFT or RIGHT).
+	Side string `json:"side,omitempty"`
 	// InReplyToID is the ID of the comment this one replies to, if any.
 	InReplyToID *int `json:"in_reply_to_id,omitempty"`
 	// User is the author of the comment.

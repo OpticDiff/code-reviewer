@@ -15,6 +15,7 @@ type DismissedFinding struct {
 	AnchorLines int    // Number of lines the anchor spans.
 	Path        string // File the thread is anchored to.
 	Line        int    // Line the thread is anchored to (0 if unknown).
+	OldSide     bool   // True when anchored to a removed line on the old side of the diff.
 
 	// AuthorOnly is true when the only people who engaged with the thread are
 	// the merge/pull request author. Such a dismissal must not silence
