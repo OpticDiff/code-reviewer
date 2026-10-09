@@ -188,19 +188,24 @@ func anchorUnchanged(d vcs.DismissedFinding, diffs []diff.FileDiff) bool {
 	if d.Anchor == "" || d.AnchorLines < 1 || d.AnchorLines > vcs.MaxAnchorLines {
 		return false
 	}
-	lines := newSideLines(d.Path, diffs)
-	for start := range lines {
-		if h, ok := anchorHash(d.Path, lines, start, start+d.AnchorLines-1); ok && h == d.Anchor {
+	check := func(lines map[int]string) bool {
+		for start := range lines {
+			if h, ok := anchorHash(d.Path, lines, start, start+d.AnchorLines-1); ok && h == d.Anchor {
+				return true
+			}
+		}
+		return false
+	}
+	if d.OldSide {
+		if check(oldSideLines(d.Path, diffs)) {
 			return true
 		}
+		return check(newSideLines(d.Path, diffs))
 	}
-	oldLines := oldSideLines(d.Path, diffs)
-	for start := range oldLines {
-		if h, ok := anchorHash(d.Path, oldLines, start, start+d.AnchorLines-1); ok && h == d.Anchor {
-			return true
-		}
+	if check(newSideLines(d.Path, diffs)) {
+		return true
 	}
-	return false
+	return check(oldSideLines(d.Path, diffs))
 }
 
 // KeepFingerprints returns the fingerprints of dismissed threads that cleanup
@@ -230,7 +235,9 @@ func FormatDismissedPrompt(dismissed []vcs.DismissedFinding) string {
 		if d.AuthorOnly || d.Path == "" {
 			continue
 		}
-		if d.Line > 0 {
+		if d.OldSide && d.Line > 0 {
+			fmt.Fprintf(&sb, "- %s (removed line %d)\n", d.Path, d.Line)
+		} else if d.Line > 0 {
 			fmt.Fprintf(&sb, "- %s:%d\n", d.Path, d.Line)
 		} else {
 			fmt.Fprintf(&sb, "- %s\n", d.Path)

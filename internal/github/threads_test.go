@@ -79,3 +79,25 @@ func TestListDismissedFindings_FailsClosedWithoutIdentity(t *testing.T) {
 		t.Error("want an error when the authenticated user cannot be determined")
 	}
 }
+
+func TestListDismissedFindings_RemovedLine(t *testing.T) {
+	bot := User{Login: "review-bot"}
+	comments := []PullReviewComment{
+		{ID: 1, Path: "deleted.go", Line: 42, Side: "LEFT", Body: commentBody("dd"), User: bot},
+		{ID: 2, Path: "deleted.go", Line: 42, Body: "noted", InReplyToID: intPtr(1), User: User{Login: "reviewer"}},
+	}
+	srv := threadServer(t, comments, 0)
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "tok").ListDismissedFindings(context.Background(), "acme/app", "7")
+	if err != nil {
+		t.Fatalf("ListDismissedFindings: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d findings, want 1", len(got))
+	}
+	if !got[0].OldSide || got[0].Line != 42 || got[0].Path != "deleted.go" {
+		t.Errorf("expected OldSide=true line=42 on deleted.go, got %+v", got[0])
+	}
+}
+

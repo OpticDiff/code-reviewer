@@ -52,10 +52,12 @@ func dismissedThreads(discussions []Discussion, botMarker, botUser, mrAuthor str
 		}
 		authorOnly := mrAuthor != "" && len(participants) == 1 && participants[mrAuthor]
 		line := 0
+		oldSide := false
 		if first.Position.NewLine != nil {
 			line = *first.Position.NewLine
 		} else if first.Position.OldLine != nil {
 			line = *first.Position.OldLine
+			oldSide = true
 		}
 		path := first.Position.NewPath
 		if path == "" {
@@ -69,6 +71,7 @@ func dismissedThreads(discussions []Discussion, botMarker, botUser, mrAuthor str
 				AnchorLines: fp.AnchorLines,
 				Path:        path,
 				Line:        line,
+				OldSide:     oldSide,
 				AuthorOnly:  authorOnly || mrAuthor == "",
 			},
 		})

@@ -180,7 +180,7 @@ func TestDismissedThreads_RemovedLine(t *testing.T) {
 		t.Fatalf("expected 1 dismissed thread, got %d", len(got))
 	}
 	f := got[0].finding
-	if f.Path != "deleted.go" || f.Line != 42 || f.Fingerprint != "ab12" {
+	if f.Path != "deleted.go" || f.Line != 42 || f.Fingerprint != "ab12" || !f.OldSide {
 		t.Errorf("unexpected finding for removed line: %+v", f)
 	}
 }
