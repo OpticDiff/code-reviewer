@@ -280,3 +280,47 @@ func TestAssignFingerprints_RemovedLineFindingsDoNotPanic(t *testing.T) {
 		}
 	}
 }
+
+func TestAssignFingerprints_RemovedLineFinding(t *testing.T) {
+	d := removedLineDiffs()
+	f := model.Finding{File: "internal/auth.go", Line: 0, OldLine: 21, Category: "Security", Title: "Removed guard"}
+	fp := fingerprinted(f, d)
+	if fp.Fingerprint == "" {
+		t.Fatal("expected removed-line finding to receive fingerprint")
+	}
+	if fp.Anchor == "" || fp.AnchorLines != 1 {
+		t.Fatalf("expected anchor to be set with 1 line, got anchor=%q lines=%d", fp.Anchor, fp.AnchorLines)
+	}
+
+	// Stable across rewording
+	f2 := model.Finding{File: "internal/auth.go", Line: 0, OldLine: 21, Category: "security", Title: "Different title"}
+	fp2 := fingerprinted(f2, d)
+	if fp.Fingerprint != fp2.Fingerprint {
+		t.Errorf("fingerprints differ: %s vs %s", fp.Fingerprint, fp2.Fingerprint)
+	}
+
+	// Suppression works
+	kept, suppressed := FilterDismissed([]model.Finding{fp}, []vcs.DismissedFinding{{Fingerprint: fp.Fingerprint}})
+	if len(suppressed) != 1 || len(kept) != 0 {
+		t.Errorf("expected removed-line finding to be suppressed, kept=%d suppressed=%d", len(kept), len(suppressed))
+	}
+
+	// KeepFingerprints preserves thread while removed lines unchanged
+	dis := vcs.DismissedFinding{
+		Fingerprint: fp.Fingerprint,
+		Anchor:      fp.Anchor,
+		AnchorLines: fp.AnchorLines,
+		Path:        "internal/auth.go",
+		Line:        21,
+	}
+	if got := KeepFingerprints([]vcs.DismissedFinding{dis}, nil, d); len(got) != 1 {
+		t.Errorf("expected dismissed thread on removed line to be kept: %v", got)
+	}
+
+	// KeepFingerprints releases thread when anchor no longer exists
+	differentDiff := dismissedTestDiffs("x := 1")
+	if got := KeepFingerprints([]vcs.DismissedFinding{dis}, nil, differentDiff); len(got) != 0 {
+		t.Errorf("expected dismissed thread released when anchor changed: %v", got)
+	}
+}
+
