@@ -52,7 +52,6 @@ func oldSideLines(file string, diffs []diff.FileDiff) map[int]string {
 }
 
 var anchorHash = vcs.AnchorHash
-var findingSpan = vcs.FindingSpan
 
 // AssignFingerprints sets Fingerprint, Anchor and AnchorLines on every
 // finding that is anchored inside the diff. The fingerprint combines the
