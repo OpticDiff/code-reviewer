@@ -90,26 +90,22 @@ func AnchorHash(file string, lines map[int]string, start, end int) (string, bool
 
 // FindingSpan returns the finding's line range clamped to the lines the diff
 // shows for the file and to MaxAnchorLines, so a model-supplied end_line
-// cannot make hashing unbounded.
+// cannot make hashing unbounded. It avoids iterating over the lines map so
+// callers inside deterministic workflow engines (e.g. Temporal workflowcheck)
+// pass static determinism analysis.
 func FindingSpan(line, endLine int, lines map[int]string) (start, end int) {
 	end = endLine
 	if end < line {
 		end = line
 	}
-	last := 0
-	for n := range lines {
-		if n > last {
-			last = n
-		}
-	}
-	if end > last {
-		end = last
-	}
-	if end < line {
-		end = line
-	}
 	if end-line+1 > MaxAnchorLines {
 		end = line + MaxAnchorLines - 1
+	}
+	for end > line {
+		if _, ok := lines[end]; ok {
+			break
+		}
+		end--
 	}
 	return line, end
 }
