@@ -13,6 +13,9 @@ type ThreadReader = vcs.ThreadReader
 
 var FingerprintMarker = vcs.FingerprintMarker
 var ParseFingerprint = vcs.ParseFingerprint
+var AnchorHash = vcs.AnchorHash
+var FindingSpan = vcs.FindingSpan
+var ComputeFingerprint = vcs.ComputeFingerprint
 
 type FingerprintInfo = vcs.FingerprintInfo
 
