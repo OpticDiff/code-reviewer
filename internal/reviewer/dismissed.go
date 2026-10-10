@@ -1,7 +1,6 @@
 package reviewer
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"strings"
 
@@ -52,47 +51,7 @@ func oldSideLines(file string, diffs []diff.FileDiff) map[int]string {
 	return lines
 }
 
-// anchorHash hashes the file, the lines start..end and the lines directly
-// around them. Including the neighbours keeps identical one-line anchors in
-// different places (for example "return err") from sharing a hash. It returns
-// false when the first anchored line is not part of the diff.
-func anchorHash(file string, lines map[int]string, start, end int) (string, bool) {
-	if _, ok := lines[start]; !ok {
-		return "", false
-	}
-	var body []string
-	for n := start; n <= end; n++ {
-		body = append(body, lines[n])
-	}
-	sum := sha256.Sum256([]byte(file + "\x00" + lines[start-1] + "\x1f" + strings.Join(body, "\n") + "\x1f" + lines[end+1]))
-	return fmt.Sprintf("%x", sum)[:16], true
-}
-
-// findingSpan returns the finding's line range clamped to the lines the diff
-// shows for the file and to vcs.MaxAnchorLines, so a model-supplied end_line
-// cannot make hashing unbounded.
-func findingSpan(line, endLine int, lines map[int]string) (start, end int) {
-	end = endLine
-	if end < line {
-		end = line
-	}
-	last := 0
-	for n := range lines {
-		if n > last {
-			last = n
-		}
-	}
-	if end > last {
-		end = last
-	}
-	if end < line {
-		end = line
-	}
-	if end-line+1 > vcs.MaxAnchorLines {
-		end = line + vcs.MaxAnchorLines - 1
-	}
-	return line, end
-}
+var anchorHash = vcs.AnchorHash
 
 // AssignFingerprints sets Fingerprint, Anchor and AnchorLines on every
 // finding that is anchored inside the diff. The fingerprint combines the
@@ -122,16 +81,13 @@ func AssignFingerprints(findings []model.Finding, diffs []diff.FileDiff) {
 			}
 			startLine, endLine = f.Line, f.EndLine
 		}
-		start, end := findingSpan(startLine, endLine, lines)
-		anchor, ok := anchorHash(f.File, lines, start, end)
+		info, ok := vcs.ComputeFingerprint(f.File, f.Category, startLine, endLine, lines)
 		if !ok {
 			continue
 		}
-		category := strings.ToLower(strings.TrimSpace(f.Category))
-		sum := sha256.Sum256([]byte(anchor + "\x00" + category))
-		f.Fingerprint = fmt.Sprintf("%x", sum)[:16]
-		f.Anchor = anchor
-		f.AnchorLines = end - start + 1
+		f.Fingerprint = info.Fingerprint
+		f.Anchor = info.Anchor
+		f.AnchorLines = info.AnchorLines
 	}
 }
 

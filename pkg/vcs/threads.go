@@ -2,9 +2,11 @@ package vcs
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 // DismissedFinding describes a finding posted by this tool whose review
@@ -69,3 +71,63 @@ func ParseFingerprint(body string) (FingerprintInfo, bool) {
 	}
 	return FingerprintInfo{Fingerprint: m[1], Anchor: m[2], AnchorLines: n}, true
 }
+
+// AnchorHash hashes the file, the lines start..end and the lines directly
+// around them. Including the neighbours keeps identical one-line anchors in
+// different places from sharing a hash. It returns false when the first
+// anchored line is not part of the diff.
+func AnchorHash(file string, lines map[int]string, start, end int) (string, bool) {
+	if _, ok := lines[start]; !ok {
+		return "", false
+	}
+	var body []string
+	for n := start; n <= end; n++ {
+		body = append(body, lines[n])
+	}
+	sum := sha256.Sum256([]byte(file + "\x00" + lines[start-1] + "\x1f" + strings.Join(body, "\n") + "\x1f" + lines[end+1]))
+	return fmt.Sprintf("%x", sum)[:16], true
+}
+
+// FindingSpan returns the finding's line range clamped to the lines the diff
+// shows for the file and to MaxAnchorLines, so a model-supplied end_line
+// cannot make hashing unbounded.
+func FindingSpan(line, endLine int, lines map[int]string) (start, end int) {
+	end = endLine
+	if end < line {
+		end = line
+	}
+	last := 0
+	for n := range lines {
+		if n > last {
+			last = n
+		}
+	}
+	if end > last {
+		end = last
+	}
+	if end < line {
+		end = line
+	}
+	if end-line+1 > MaxAnchorLines {
+		end = line + MaxAnchorLines - 1
+	}
+	return line, end
+}
+
+// ComputeFingerprint computes the anchor hash and fingerprint for a finding
+// anchored to lines of a diff (keyed by line number, trimmed of whitespace).
+func ComputeFingerprint(file, category string, line, endLine int, lines map[int]string) (FingerprintInfo, bool) {
+	start, end := FindingSpan(line, endLine, lines)
+	anchor, ok := AnchorHash(file, lines, start, end)
+	if !ok {
+		return FingerprintInfo{}, false
+	}
+	cat := strings.ToLower(strings.TrimSpace(category))
+	sum := sha256.Sum256([]byte(anchor + "\x00" + cat))
+	return FingerprintInfo{
+		Fingerprint: fmt.Sprintf("%x", sum)[:16],
+		Anchor:      anchor,
+		AnchorLines: end - start + 1,
+	}, true
+}
+
