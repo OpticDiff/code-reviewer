@@ -547,10 +547,18 @@ func (c *Client) cleanPreviousReviews(ctx context.Context, projectID, mrIID stri
 
 // ResolvePreviousReviews resolves all bot-tagged discussions on an MR.
 func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID string, changedFiles []string) (int, error) {
+	return c.resolvePreviousReviews(ctx, projectID, mrIID, changedFiles, nil)
+}
+
+// resolvePreviousReviews is ResolvePreviousReviews that leaves the dismissed
+// threads identified by keepFingerprints as they are: a person's reply or
+// resolution is their state to keep, not the tool's to overwrite.
+func (c *Client) resolvePreviousReviews(ctx context.Context, projectID, mrIID string, changedFiles []string, keepFingerprints []string) (int, error) {
 	discussions, err := c.ListDiscussions(ctx, projectID, mrIID)
 	if err != nil {
 		return 0, err
 	}
+	keep := c.keptNoteIDs(ctx, projectID, mrIID, keepFingerprints)
 
 	changedSet := make(map[string]bool, len(changedFiles))
 	for _, f := range changedFiles {
@@ -559,6 +567,9 @@ func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID st
 
 	resolved := 0
 	for _, d := range discussions {
+		if len(d.Notes) > 0 && keep[d.Notes[0].ID] {
+			continue
+		}
 		isBotDiscussion := false
 		hasMatchingPosition := false
 		isNonPositioned := true
@@ -605,7 +616,7 @@ func (c *Client) ResolvePreviousReviews(ctx context.Context, projectID, mrIID st
 func (c *Client) SubmitReview(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
 	// 1. Clean previous bot comments.
 	if req.CleanupMode == "resolve" {
-		resolved, err := c.ResolvePreviousReviews(ctx, projectID, mrIID, req.ChangedFiles)
+		resolved, err := c.resolvePreviousReviews(ctx, projectID, mrIID, req.ChangedFiles, req.KeepFingerprints)
 		if err != nil {
 			slog.Warn("failed to resolve previous reviews", "error", err)
 		} else if resolved > 0 {

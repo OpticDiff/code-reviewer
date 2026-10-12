@@ -188,3 +188,75 @@ func TestDismissedThreads_RemovedLine(t *testing.T) {
 	}
 }
 
+
+func TestResolvePreviousReviews_LeavesKeptDismissedThreadsAlone(t *testing.T) {
+	dismissed := botNote(1, "aa", 10)
+	stale := botNote(2, "bb", 11)
+	untouched := botNote(3, "cc", 12)
+	discussions := []Discussion{
+		{ID: "d1", Notes: []Note{dismissed, reply("reviewer", 9)}},
+		{ID: "d2", Notes: []Note{stale, reply("reviewer", 10)}},
+		{ID: "d3", Notes: []Note{untouched}},
+	}
+
+	for _, changed := range [][]string{nil, {"main.go"}} {
+		var resolved []string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p := r.URL.Path
+			switch {
+			case r.Method == http.MethodPut:
+				resolved = append(resolved, p[strings.LastIndex(p, "/")+1:])
+				_, _ = w.Write([]byte(`{}`))
+			case strings.HasSuffix(p, "/api/v4/user"):
+				_, _ = w.Write([]byte(`{"username":"review-bot"}`))
+			case strings.HasSuffix(p, "/discussions"):
+				_ = json.NewEncoder(w).Encode(discussions)
+			case strings.Contains(p, "/merge_requests/7"):
+				_, _ = w.Write([]byte(`{"author":{"username":"mr-author"}}`))
+			default:
+				t.Errorf("unexpected request %s %s", r.Method, p)
+			}
+		}))
+		c := NewClient(srv.URL, "tok")
+
+		// Only "aa" is still anchored to unchanged code and matched this run.
+		if _, err := c.resolvePreviousReviews(context.Background(), "proj", "7", changed, []string{"aa"}); err != nil {
+			t.Fatalf("resolvePreviousReviews(%v): %v", changed, err)
+		}
+		srv.Close()
+		if got := fmt.Sprint(resolved); got != "[d2 d3]" {
+			t.Errorf("changedFiles=%v: resolved %v, want d2 and d3 only; the kept thread must stay as the person left it", changed, resolved)
+		}
+	}
+}
+
+func TestSubmitReview_ResolveModePassesKeepFingerprints(t *testing.T) {
+	dismissed := botNote(1, "aa", 10)
+	discussions := []Discussion{{ID: "d1", Notes: []Note{dismissed, reply("reviewer", 9)}}}
+	var resolved []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		switch {
+		case r.Method == http.MethodPut && strings.Contains(p, "/discussions/"):
+			resolved = append(resolved, p)
+			_, _ = w.Write([]byte(`{}`))
+		case strings.HasSuffix(p, "/api/v4/user"):
+			_, _ = w.Write([]byte(`{"username":"review-bot"}`))
+		case strings.HasSuffix(p, "/discussions"):
+			_ = json.NewEncoder(w).Encode(discussions)
+		case strings.HasSuffix(p, "/draft_notes") || strings.Contains(p, "/draft_notes/"):
+			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(p, "/notes") && r.Method == http.MethodPost:
+			_, _ = w.Write([]byte(`{}`))
+		case strings.Contains(p, "/merge_requests/7"):
+			_, _ = w.Write([]byte(`{"author":{"username":"mr-author"}}`))
+		}
+	}))
+	defer srv.Close()
+
+	req := vcs.SubmitReviewRequest{Summary: "s", CleanupMode: "resolve", KeepFingerprints: []string{"aa"}}
+	_ = NewClient(srv.URL, "tok").SubmitReview(context.Background(), "proj", "7", req)
+	if len(resolved) != 0 {
+		t.Errorf("resolve mode resolved %v, want the kept dismissed thread left alone", resolved)
+	}
+}
