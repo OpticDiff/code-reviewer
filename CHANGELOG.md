@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fingerprints of findings attributed to a rule are built from the rule name instead of the rule's category, because rules often share a category such as `custom`. Threads dismissed before this change can be raised once more.
 
 ### Fixed
-- Findings that are still true are no longer re-posted on every push. In CI mode the run reads the tool's own unresolved, unanswered inline threads and leaves a thread open, with `cleanup_mode` skipping it, when this run reports the same finding (same fingerprint, or same category over the same unchanged lines with a different line span). Such findings stay in the summary and in the exit status. Threads whose finding disappeared or whose code changed are resolved or deleted as before.
+- Findings that are still true are no longer re-posted on every push. In CI mode the run reads the tool's own unresolved, unanswered inline threads and leaves a thread open, with `cleanup_mode` skipping it, when this run reports the same finding. The finding counts as the same when the fingerprint matches, or when it is in the same file and on the same side of the diff with its start line within three lines of the thread's unchanged anchored code, whatever category and end line the model chose this time (rule findings must also come from the same rule). A finding that is more severe than its thread's badge is posted again as a new thread and the old one is cleaned up. Such findings stay in the summary and in the exit status. Threads whose finding disappeared or whose code changed are resolved or deleted as before. Suppression of dismissed findings still requires an exact fingerprint.
 
 ## [0.25.1] — 2026-10-10
 
