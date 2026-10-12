@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1] — 2026-10-10
+
+### Fixed
+- `pkg/vcs.FindingSpan` now clamps `endLine` using a bounded backward lookup instead of iterating over the `lines` map, so callers inside deterministic workflow engines (such as Temporal `workflowcheck`) pass static determinism analysis (#140).
+
+## [0.25.0] — 2026-10-10
+
+### Added
+- Exported `AnchorHash`, `FindingSpan`, and `ComputeFingerprint` in `pkg/vcs` for deterministic anchor-based finding fingerprinting by external review services (#139).
+
 ## [0.24.0] — 2026-10-09
 
 ### Added
