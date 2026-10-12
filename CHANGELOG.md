@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The default review temperature (0.2) is no longer sent to Gemini 3.x models, for which Google deprecates `temperature`; the model default applies instead. An explicit `temperature` / `--temperature` / `REVIEW_TEMPERATURE` is still honoured and logs a warning on Gemini 3.x. Other models keep 0.2.
+
 ## [0.25.1] — 2026-10-10
 
 ### Fixed
