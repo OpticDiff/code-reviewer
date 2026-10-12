@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Fingerprints of findings attributed to a rule are built from the rule name instead of the rule's category, because rules often share a category such as `custom`. Threads dismissed before this change can be raised once more.
+
+### Fixed
+- Findings that are still true are no longer re-posted on every push. In CI mode the run reads the tool's own unresolved, unanswered inline threads and leaves a thread open, with `cleanup_mode` skipping it, when this run reports the same finding (same fingerprint, or same category over the same unchanged lines with a different line span). Such findings stay in the summary and in the exit status. Threads whose finding disappeared or whose code changed are resolved or deleted as before.
+
 ## [0.25.1] — 2026-10-10
 
 ### Fixed

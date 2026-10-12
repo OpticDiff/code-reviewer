@@ -58,3 +58,17 @@ func TestComputeFingerprint(t *testing.T) {
 		t.Error("expected ComputeFingerprint to fail for lines not in diff")
 	}
 }
+
+func TestFingerprintForMatchesComputeFingerprint(t *testing.T) {
+	lines := map[int]string{1: "a()", 2: "x := compute()", 3: "b()"}
+	info, ok := ComputeFingerprint("main.go", "Bug", 2, 2, lines)
+	if !ok {
+		t.Fatal("ComputeFingerprint: not anchored")
+	}
+	if got := FingerprintFor(info.Anchor, " bug "); got != info.Fingerprint {
+		t.Errorf("FingerprintFor = %q, want %q", got, info.Fingerprint)
+	}
+	if FingerprintFor(info.Anchor, "security") == info.Fingerprint {
+		t.Error("another category must give another fingerprint")
+	}
+}

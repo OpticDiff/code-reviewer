@@ -512,7 +512,11 @@ code-reviewer --diff --api-url http://candela:8080/v1 --model gemini-3.8-flash
 
 ### Dismissed Findings
 
-Each inline comment carries a hidden fingerprint: the file, the lowercased category and a hash of the commented lines plus the lines directly around them. In CI mode the next run stops re-posting a finding when its thread was dismissed and the code under it is unchanged, and lists those locations (path and line only, never comment text) in the prompt so the model does not rediscover them. Editing the lines, or the lines next to them, produces a new fingerprint and the finding can be raised again. On GitLab, `cleanup_mode` leaves a dismissed thread in place only while its code is unchanged; once the code changes, the thread is cleaned up as usual.
+Each inline comment carries a hidden fingerprint: the file, the lowercased category (or the rule, for findings attributed to one) and a hash of the commented lines plus the lines directly around them. In CI mode the next run stops re-posting a finding when its thread was dismissed and the code under it is unchanged, and lists those locations (path and line only, never comment text) in the prompt so the model does not rediscover them. Editing the lines, or the lines next to them, produces a new fingerprint and the finding can be raised again. On GitLab, `cleanup_mode` leaves a dismissed thread in place only while its code is unchanged; once the code changes, the thread is cleaned up as usual.
+
+### Open Findings
+
+A finding that is still true on the next push is not posted again. In CI mode the run reads the tool's own unresolved threads that nobody has replied to; a finding with the same fingerprint, or one of the same category whose line span touches the same unchanged lines, leaves its thread open, and `cleanup_mode` skips that thread. The summary still lists the finding and it still counts toward the exit status, so a HIGH finding keeps failing the gate. Threads whose finding is gone, or whose code changed, are resolved or deleted as before and the changed code gets a new thread. Reading threads needs the same account lookup as dismissed findings (see below); without it every finding is posted. On GitHub the tool does not delete old inline comments yet, so this stops duplicates from accumulating but does not remove threads for fixed findings.
 
 Rules for who may dismiss:
 
