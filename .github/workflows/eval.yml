@@ -20,33 +20,33 @@ jobs:
     # Only run in the main repo, not forks
     if: github.repository == 'OpticDiff/code-reviewer'
     env:
-      GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      HAS_GCP_SA_KEY: ${{ secrets.GCP_SA_KEY != '' }}
       GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
     steps:
       - name: Check GCP credentials
-        if: env.GCP_SA_KEY == ''
-        run: echo "Skipping persona evaluation: GCP_SA_KEY secret is not configured."
+        if: env.HAS_GCP_SA_KEY != 'true'
+        run: 'echo "Skipping persona evaluation: GCP_SA_KEY secret is not configured."'
 
       - uses: actions/checkout@v4
-        if: env.GCP_SA_KEY != ''
+        if: env.HAS_GCP_SA_KEY == 'true'
 
       - uses: actions/setup-go@v5
-        if: env.GCP_SA_KEY != ''
+        if: env.HAS_GCP_SA_KEY == 'true'
         with:
           go-version: '1.26'
 
       - name: Authenticate to Google Cloud
-        if: env.GCP_SA_KEY != ''
+        if: env.HAS_GCP_SA_KEY == 'true'
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Run persona evaluation suite
-        if: env.GCP_SA_KEY != ''
+        if: env.HAS_GCP_SA_KEY == 'true'
         run: go test -tags=eval ./eval/ -v -timeout=600s -count=1
 
       - name: Upload eval results
-        if: always() && env.GCP_SA_KEY != ''
+        if: always() && env.HAS_GCP_SA_KEY == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: eval-results
