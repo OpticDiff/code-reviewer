@@ -51,29 +51,9 @@ func (c *Client) ListDismissedFindings(ctx context.Context, projectID, prNumber 
 	if err != nil {
 		return nil, err
 	}
-
-	initialURL := fmt.Sprintf("%s/repos/%s/pulls/%s/comments?per_page=100", c.baseURL, projectID, prNumber)
-	var all []PullReviewComment
-	if err := c.getPaginated(ctx, initialURL, func(raw json.RawMessage) error {
-		var page []PullReviewComment
-		if err := json.Unmarshal(raw, &page); err != nil {
-			return err
-		}
-		all = append(all, page...)
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("listing review comments: %w", err)
-	}
-
-	repliers := make(map[int]map[string]bool)
-	for _, cm := range all {
-		if cm.InReplyToID == nil || cm.User.Login == botUser {
-			continue
-		}
-		if repliers[*cm.InReplyToID] == nil {
-			repliers[*cm.InReplyToID] = map[string]bool{}
-		}
-		repliers[*cm.InReplyToID][cm.User.Login] = true
+	all, repliers, err := c.reviewComments(ctx, projectID, prNumber, botUser)
+	if err != nil {
+		return nil, err
 	}
 
 	var out []vcs.DismissedFinding
@@ -94,4 +74,60 @@ func (c *Client) ListDismissedFindings(ctx context.Context, projectID, prNumber 
 		})
 	}
 	return out, nil
+}
+
+// ListOpenFindings returns this tool's inline review comments on a pull
+// request that nobody has replied to and that are still anchored to a line of
+// the current diff. The root comment must have been written by the tool's own
+// authenticated account, as for ListDismissedFindings. Resolution of a review
+// thread is only exposed by the GraphQL API, so a thread resolved without a
+// reply still counts as open.
+func (c *Client) ListOpenFindings(ctx context.Context, projectID, prNumber string) ([]vcs.OpenFinding, error) {
+	botUser, err := c.currentUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all, repliers, err := c.reviewComments(ctx, projectID, prNumber, botUser)
+	if err != nil {
+		return nil, err
+	}
+
+	var out []vcs.OpenFinding
+	for _, cm := range all {
+		fp, ok := vcs.ParseFingerprint(cm.Body)
+		if cm.InReplyToID != nil || cm.User.Login != botUser || !ok || len(repliers[cm.ID]) > 0 || cm.Line <= 0 {
+			continue
+		}
+		out = append(out, vcs.OpenFinding{FingerprintInfo: fp, Path: cm.Path, Line: cm.Line, OldSide: cm.Side == "LEFT"})
+	}
+	return out, nil
+}
+
+// reviewComments lists a pull request's inline review comments together with,
+// per root comment, the people other than botUser who replied to it.
+func (c *Client) reviewComments(ctx context.Context, projectID, prNumber, botUser string) ([]PullReviewComment, map[int]map[string]bool, error) {
+	initialURL := fmt.Sprintf("%s/repos/%s/pulls/%s/comments?per_page=100", c.baseURL, projectID, prNumber)
+	var all []PullReviewComment
+	if err := c.getPaginated(ctx, initialURL, func(raw json.RawMessage) error {
+		var page []PullReviewComment
+		if err := json.Unmarshal(raw, &page); err != nil {
+			return err
+		}
+		all = append(all, page...)
+		return nil
+	}); err != nil {
+		return nil, nil, fmt.Errorf("listing review comments: %w", err)
+	}
+
+	repliers := make(map[int]map[string]bool)
+	for _, cm := range all {
+		if cm.InReplyToID == nil || cm.User.Login == botUser {
+			continue
+		}
+		if repliers[*cm.InReplyToID] == nil {
+			repliers[*cm.InReplyToID] = map[string]bool{}
+		}
+		repliers[*cm.InReplyToID][cm.User.Login] = true
+	}
+	return all, repliers, nil
 }

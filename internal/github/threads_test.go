@@ -101,3 +101,46 @@ func TestListDismissedFindings_RemovedLine(t *testing.T) {
 	}
 }
 
+
+func TestListOpenFindings(t *testing.T) {
+	bot := User{Login: "review-bot"}
+	comments := []PullReviewComment{
+		{ID: 1, Path: "main.go", Line: 10, Body: commentBody("aa"), User: bot},
+		// Answered by a person: a dismissal, not an open finding.
+		{ID: 2, Path: "main.go", Line: 11, Body: commentBody("bb"), User: bot},
+		{ID: 3, Path: "main.go", Line: 11, Body: "this is intended", InReplyToID: intPtr(2), User: User{Login: "reviewer"}},
+		// Outdated: the commented line changed, so the finding is not carried over.
+		{ID: 4, Path: "main.go", Line: 0, Body: commentBody("cc"), User: bot},
+		// Forged marker from a person.
+		{ID: 5, Path: "main.go", Line: 20, Body: commentBody("99"), User: User{Login: "pr-author"}},
+		// Removed line.
+		{ID: 6, Path: "gone.go", Line: 5, Side: "LEFT", Body: commentBody("dd"), User: bot},
+		// No marker at all, such as a summary.
+		{ID: 7, Path: "main.go", Line: 40, Body: "plain", User: bot},
+	}
+	srv := threadServer(t, comments, 0)
+	defer srv.Close()
+
+	got, err := NewClient(srv.URL, "tok").ListOpenFindings(context.Background(), "acme/app", "7")
+	if err != nil {
+		t.Fatalf("ListOpenFindings: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %+v, want threads aa and dd only", got)
+	}
+	want := vcs.OpenFinding{FingerprintInfo: vcs.FingerprintInfo{Fingerprint: "aa", Anchor: "aaa", AnchorLines: 2}, Path: "main.go", Line: 10}
+	if got[0] != want {
+		t.Errorf("got %+v, want %+v", got[0], want)
+	}
+	if got[1].Fingerprint != "dd" || !got[1].OldSide {
+		t.Errorf("got %+v, want dd on the old side", got[1])
+	}
+}
+
+func TestListOpenFindings_FailsClosedWithoutIdentity(t *testing.T) {
+	srv := threadServer(t, nil, http.StatusForbidden)
+	defer srv.Close()
+	if _, err := NewClient(srv.URL, "tok").ListOpenFindings(context.Background(), "acme/app", "7"); err == nil {
+		t.Error("want an error when the authenticated user cannot be determined")
+	}
+}
