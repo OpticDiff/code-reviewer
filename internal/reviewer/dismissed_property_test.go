@@ -71,7 +71,9 @@ func TestProperty_AssignFingerprints_CategoryInsensitive(t *testing.T) {
 		}
 		// A few runes (U+1C88, for example) do not survive an upper-then-lower round trip, so
 		// their upper-case form is a different category, not a different casing of the same one.
-		if strings.ToLower(strings.ToUpper(trimmed)) != strings.ToLower(trimmed) {
+		// strings.EqualFold is not a substitute: it folds U+1C88 and U+A64A together.
+		roundTripped := strings.ToLower(strings.ToUpper(trimmed))
+		if roundTripped != strings.ToLower(trimmed) {
 			return true
 		}
 		fLower := model.Finding{File: "main.go", Line: 3, Category: strings.ToLower(trimmed)}
