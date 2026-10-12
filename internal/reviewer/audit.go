@@ -37,6 +37,8 @@ type AuditEntry struct {
 
 	// AgentVerdicts records the agent loop's outcome per examined finding.
 	AgentVerdicts []FindingVerdict `json:"agent_verdicts,omitempty"`
+	// Agent summarises the agent loop run; nil when the loop did not run.
+	Agent *AgentAudit `json:"agent,omitempty"`
 }
 
 // buildAuditEntry constructs an AuditEntry from the review run data.

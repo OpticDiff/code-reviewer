@@ -1,0 +1,65 @@
+package reviewer
+
+import "google.golang.org/genai"
+
+// agentResponseSchema constrains the refinement model to the JSON protocol
+// described in the system prompt. The prompt alone is not enough: Gemini 3
+// reads the tool descriptions as function signatures, attempts a native
+// function call and returns finish reason MALFORMED_FUNCTION_CALL with no
+// content. ResponseMIMEType and ToolConfig mode NONE do not prevent this;
+// constrained decoding against a schema does.
+//
+// The root must be a bare AnyOf: Vertex rejects any other field beside it.
+func agentResponseSchema() *genai.Schema {
+	str := &genai.Schema{Type: genai.TypeString}
+	num := &genai.Schema{Type: genai.TypeInteger}
+
+	toolBranch := func(name string, required []string, args map[string]*genai.Schema) *genai.Schema {
+		return &genai.Schema{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"action": {Type: genai.TypeString, Enum: []string{"tool"}},
+				"tool":   {Type: genai.TypeString, Enum: []string{name}},
+				"args":   {Type: genai.TypeObject, Properties: args, Required: required},
+			},
+			Required:         []string{"action", "tool", "args"},
+			PropertyOrdering: []string{"action", "tool", "args"},
+		}
+	}
+
+	return &genai.Schema{AnyOf: []*genai.Schema{
+		toolBranch("read_file", []string{"path"}, map[string]*genai.Schema{"path": str, "start_line": num, "end_line": num}),
+		toolBranch("find_definition", []string{"symbol"}, map[string]*genai.Schema{"symbol": str}),
+		toolBranch("list_directory", []string{"path"}, map[string]*genai.Schema{"path": str}),
+		{
+			Type: genai.TypeObject,
+			Properties: map[string]*genai.Schema{
+				"action":   {Type: genai.TypeString, Enum: []string{"findings"}},
+				"findings": {Type: genai.TypeArray, Items: findingSchema(str, num)},
+			},
+			Required:         []string{"action", "findings"},
+			PropertyOrdering: []string{"action", "findings"},
+		},
+		{
+			Type:       genai.TypeObject,
+			Properties: map[string]*genai.Schema{"action": {Type: genai.TypeString, Enum: []string{"done"}}},
+			Required:   []string{"action"},
+		},
+	}}
+}
+
+// findingSchema mirrors model.Finding's JSON fields. A refined finding replaces
+// the initial one, so a field missing here would be dropped from the result.
+func findingSchema(str, num *genai.Schema) *genai.Schema {
+	return &genai.Schema{
+		Type: genai.TypeObject,
+		Properties: map[string]*genai.Schema{
+			"file": str, "line": num, "old_line": num, "end_line": num,
+			"severity": str, "category": str, "title": str, "body": str,
+			"suggestion": str, "code_snippet": str, "existing_code": str,
+			"rule_name": str, "rule_source": str, "rule_file": str, "rule_url": str,
+			"fingerprint": str, "anchor": str, "anchor_lines": num,
+		},
+		Required: []string{"file", "severity", "title"},
+	}
+}

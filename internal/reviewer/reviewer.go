@@ -94,6 +94,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var dedupedCount int
 	var cacheHits int
 	var agentVerdicts []FindingVerdict
+	var agentAudit *AgentAudit
 
 	start := time.Now()
 
@@ -115,6 +116,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		entry.ProfileFilteredCount = r.profileFilteredCount
 		entry.SuggestionsDropped = r.suggestionsDropped
 		entry.AgentVerdicts = agentVerdicts
+		entry.Agent = agentAudit
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -538,9 +540,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				totalUsage.TotalTokens += agentResult.Usage.TotalTokens
 				agentVerdicts = agentResult.Verdicts
 			}
+			agentAudit = newAgentAudit(agentResult, err, len(allFindings), len(scoped))
 			if err != nil {
 				slog.Warn("agent loop failed, using initial findings", "error", err)
 			} else if agentResult != nil {
+				if agentResult.StopReason == "error" {
+					slog.Warn("agent loop stopped on an error, findings left unverified", "iterations", agentResult.Iterations)
+				}
 				slog.Info("agent loop completed",
 					"iterations", agentResult.Iterations,
 					"stop_reason", agentResult.StopReason,

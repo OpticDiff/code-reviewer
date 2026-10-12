@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/OpticDiff/code-reviewer/pkg/model"
@@ -194,5 +196,161 @@ func TestBuildVerdicts_RemovedLinesAreDistinct(t *testing.T) {
 	}
 	if got[0].OldLine != 21 {
 		t.Errorf("verdict should carry old_line, got %+v", got[0])
+	}
+}
+
+// emptyChatter mimics Gemini 3 answering a text-protocol prompt with a native
+// function call it cannot complete: no content, finish reason set, tokens spent.
+type emptyChatter struct{ reason genai.FinishReason }
+
+func (e emptyChatter) Chat(_ context.Context, _ []*genai.Content, _ *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	return &genai.GenerateContentResponse{
+		Candidates:    []*genai.Candidate{{Content: &genai.Content{Role: genai.RoleModel}, FinishReason: e.reason}},
+		UsageMetadata: &genai.GenerateContentResponseUsageMetadata{PromptTokenCount: 420, CandidatesTokenCount: 27, TotalTokenCount: 508},
+	}, nil
+}
+
+func TestRunAgentLoop_EmptyResponseIsAnErrorNamingTheFinishReason(t *testing.T) {
+	initial := []model.Finding{{File: "a.go", Line: 1, Severity: "HIGH", Title: "t"}}
+
+	res, err := RunAgentLoop(context.Background(), emptyChatter{reason: genai.FinishReasonMalformedFunctionCall}, AgentConfig{RepoRoot: t.TempDir()}, initial)
+	if err == nil {
+		t.Fatal("want an error for an empty model response")
+	}
+	if !strings.Contains(err.Error(), "MALFORMED_FUNCTION_CALL") {
+		t.Errorf("error %q does not name the finish reason", err)
+	}
+	if res == nil {
+		t.Fatal("result must be returned with the error so usage and verdicts are kept")
+	}
+	if res.StopReason != "error" || res.Iterations != 1 || res.Usage.TotalTokens != 508 {
+		t.Errorf("result = %+v, want stop_reason error, 1 iteration, 508 tokens", res)
+	}
+	if len(res.Verdicts) != 1 || res.Verdicts[0].Status != VerdictUnverified {
+		t.Errorf("verdicts = %+v, want one unverified", res.Verdicts)
+	}
+}
+
+func TestRunScopedAgentLoop_EmptyResponseKeepsFindingsAndReports(t *testing.T) {
+	findings := []model.Finding{{File: "a.go", Line: 1, Severity: "HIGH", Title: "t"}}
+
+	merged, res, err := runScopedAgentLoop(context.Background(), emptyChatter{reason: genai.FinishReasonMalformedFunctionCall}, AgentConfig{RepoRoot: t.TempDir()}, findings, AgentScopeAll)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if len(merged) != 1 || res == nil {
+		t.Fatalf("merged = %+v, res = %+v; want original findings and a result", merged, res)
+	}
+}
+
+// captureChatter records the config of the first call and then ends the loop.
+type captureChatter struct{ config *genai.GenerateContentConfig }
+
+func (c *captureChatter) Chat(_ context.Context, _ []*genai.Content, cfg *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	c.config = cfg
+	return &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{Content: genai.NewContentFromText(`{"action":"done"}`, genai.RoleModel)}},
+	}, nil
+}
+
+func TestRunAgentLoop_RequestsSchemaConstrainedJSON(t *testing.T) {
+	chatter := &captureChatter{}
+	initial := []model.Finding{{File: "a.go", Line: 1, Severity: "HIGH", Title: "t"}}
+
+	if _, err := RunAgentLoop(context.Background(), chatter, AgentConfig{RepoRoot: t.TempDir()}, initial); err != nil {
+		t.Fatal(err)
+	}
+	cfg := chatter.config
+	if cfg.ResponseMIMEType != "application/json" {
+		t.Errorf("ResponseMIMEType = %q, want application/json", cfg.ResponseMIMEType)
+	}
+	if cfg.ResponseSchema == nil {
+		t.Error("ResponseSchema is nil: Gemini 3 answers the text protocol with a native function call unless decoding is constrained")
+	}
+}
+
+// Every shape the loop accepts must be expressible in the schema, and every
+// schema branch must be something the loop can execute.
+func TestAgentResponseSchema_MatchesLoopProtocol(t *testing.T) {
+	schema := agentResponseSchema()
+
+	actions := map[string]bool{}
+	tools := map[string]bool{}
+	var findingProps map[string]*genai.Schema
+	for _, branch := range schema.AnyOf {
+		act := branch.Properties["action"]
+		if act == nil || len(act.Enum) != 1 {
+			t.Fatalf("branch without a single-valued action: %+v", branch)
+		}
+		actions[act.Enum[0]] = true
+		if tool := branch.Properties["tool"]; tool != nil {
+			tools[tool.Enum[0]] = true
+			if len(branch.Required) == 0 || !contains(branch.Required, "args") {
+				t.Errorf("tool branch %v must require args", tool.Enum)
+			}
+		}
+		if f := branch.Properties["findings"]; f != nil {
+			findingProps = f.Items.Properties
+		}
+	}
+	for _, want := range []string{"tool", "findings", "done"} {
+		if !actions[want] {
+			t.Errorf("schema has no %q action", want)
+		}
+	}
+
+	reg := NewToolRegistry(t.TempDir())
+	for tool := range tools {
+		if res := reg.Execute(context.Background(), tool, map[string]any{}); strings.HasPrefix(res.Error, "unknown tool") {
+			t.Errorf("schema offers tool %q the registry does not implement", tool)
+		}
+	}
+	for _, tool := range []string{"read_file", "find_definition", "list_directory"} {
+		if !tools[tool] {
+			t.Errorf("schema does not offer tool %q", tool)
+		}
+	}
+
+	typ := reflect.TypeOf(model.Finding{})
+	for i := 0; i < typ.NumField(); i++ {
+		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		if findingProps[name] == nil {
+			t.Errorf("finding field %q is missing from the schema, so a refined finding could not carry it", name)
+		}
+	}
+}
+
+func contains(ss []string, s string) bool {
+	for _, v := range ss {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
+func TestNewAgentAudit_RecordsStopReasonAndError(t *testing.T) {
+	res := &AgentResult{Iterations: 1, StopReason: "error", ToolCalls: map[string]int{}}
+	got := newAgentAudit(res, errors.New("agent iteration 1: empty model response (finish reason MALFORMED_FUNCTION_CALL)"), 3, 3)
+
+	if got.StopReason != "error" || got.Iterations != 1 || got.FindingsBefore != 3 || got.FindingsAfter != 3 {
+		t.Errorf("audit = %+v", got)
+	}
+	if !strings.Contains(got.Error, "MALFORMED_FUNCTION_CALL") {
+		t.Errorf("error %q lost the cause", got.Error)
+	}
+
+	data, err := json.Marshal(AuditEntry{Agent: got})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"agent":{`) || !strings.Contains(string(data), `"stop_reason":"error"`) {
+		t.Errorf("audit JSON = %s", data)
+	}
+}
+
+func TestNewAgentAudit_NilWhenLoopDidNotRun(t *testing.T) {
+	if got := newAgentAudit(nil, nil, 2, 2); got != nil {
+		t.Errorf("audit = %+v, want nil when the loop never ran", got)
 	}
 }
