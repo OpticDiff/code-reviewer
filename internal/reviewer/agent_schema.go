@@ -10,7 +10,9 @@ import "google.golang.org/genai"
 // constrained decoding against a schema does.
 //
 // The root must be a bare AnyOf: Vertex rejects any other field beside it.
-func agentResponseSchema() *genai.Schema {
+// Without withTools the tool branches are left out, which forces the final
+// turn to answer instead of asking for more context.
+func agentResponseSchema(withTools bool) *genai.Schema {
 	str := &genai.Schema{Type: genai.TypeString}
 	num := &genai.Schema{Type: genai.TypeInteger}
 
@@ -27,11 +29,16 @@ func agentResponseSchema() *genai.Schema {
 		}
 	}
 
-	return &genai.Schema{AnyOf: []*genai.Schema{
-		toolBranch("read_file", []string{"path"}, map[string]*genai.Schema{"path": str, "start_line": num, "end_line": num}),
-		toolBranch("find_definition", []string{"symbol"}, map[string]*genai.Schema{"symbol": str}),
-		toolBranch("list_directory", []string{"path"}, map[string]*genai.Schema{"path": str}),
-		{
+	var branches []*genai.Schema
+	if withTools {
+		branches = append(branches,
+			toolBranch("read_file", []string{"path"}, map[string]*genai.Schema{"path": str, "start_line": num, "end_line": num}),
+			toolBranch("find_definition", []string{"symbol"}, map[string]*genai.Schema{"symbol": str}),
+			toolBranch("list_directory", []string{"path"}, map[string]*genai.Schema{"path": str}),
+		)
+	}
+	return &genai.Schema{AnyOf: append(branches,
+		&genai.Schema{
 			Type: genai.TypeObject,
 			Properties: map[string]*genai.Schema{
 				"action":   {Type: genai.TypeString, Enum: []string{"findings"}},
@@ -40,12 +47,12 @@ func agentResponseSchema() *genai.Schema {
 			Required:         []string{"action", "findings"},
 			PropertyOrdering: []string{"action", "findings"},
 		},
-		{
+		&genai.Schema{
 			Type:       genai.TypeObject,
 			Properties: map[string]*genai.Schema{"action": {Type: genai.TypeString, Enum: []string{"done"}}},
 			Required:   []string{"action"},
 		},
-	}}
+	)}
 }
 
 // findingSchema mirrors model.Finding's JSON fields. A refined finding replaces

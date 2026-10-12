@@ -272,7 +272,7 @@ func TestRunAgentLoop_RequestsSchemaConstrainedJSON(t *testing.T) {
 // Every shape the loop accepts must be expressible in the schema, and every
 // schema branch must be something the loop can execute.
 func TestAgentResponseSchema_MatchesLoopProtocol(t *testing.T) {
-	schema := agentResponseSchema()
+	schema := agentResponseSchema(true)
 
 	actions := map[string]bool{}
 	tools := map[string]bool{}
@@ -352,5 +352,60 @@ func TestNewAgentAudit_RecordsStopReasonAndError(t *testing.T) {
 func TestNewAgentAudit_NilWhenLoopDidNotRun(t *testing.T) {
 	if got := newAgentAudit(nil, nil, 2, 2); got != nil {
 		t.Errorf("audit = %+v, want nil when the loop never ran", got)
+	}
+}
+
+// recordingChatter replays scripted replies and keeps what each call was sent.
+type recordingChatter struct {
+	replies   []string
+	configs   []*genai.GenerateContentConfig
+	histories [][]*genai.Content
+}
+
+func (r *recordingChatter) Chat(_ context.Context, history []*genai.Content, cfg *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	r.configs = append(r.configs, cfg)
+	r.histories = append(r.histories, append([]*genai.Content(nil), history...))
+	text := r.replies[len(r.configs)-1]
+	return &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{{Content: genai.NewContentFromText(text, genai.RoleModel)}},
+	}, nil
+}
+
+func toolActions(cfg *genai.GenerateContentConfig) int {
+	n := 0
+	for _, b := range cfg.ResponseSchema.AnyOf {
+		if b.Properties["action"].Enum[0] == "tool" {
+			n++
+		}
+	}
+	return n
+}
+
+// A model that spends every turn on tools would exhaust the iterations without
+// ruling on a single finding, so the last turn may only answer.
+func TestRunAgentLoop_LastTurnCannotCallTools(t *testing.T) {
+	initial := []model.Finding{{File: "a.go", Line: 1, Severity: "HIGH", Title: "t"}}
+	tool := `{"action":"tool","tool":"list_directory","args":{"path":"."}}`
+	chatter := &recordingChatter{replies: []string{tool, tool, `{"action":"findings","findings":[]}`}}
+
+	res, err := RunAgentLoop(context.Background(), chatter, AgentConfig{RepoRoot: t.TempDir(), MaxIterations: 3}, initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StopReason != "done" || res.Verdicts[0].Status != VerdictDismissed {
+		t.Errorf("result = %+v, want the final answer applied", res)
+	}
+	for i, want := range []int{3, 3, 0} {
+		if got := toolActions(chatter.configs[i]); got != want {
+			t.Errorf("call %d offers %d tool branches, want %d", i+1, got, want)
+		}
+	}
+	last := chatter.histories[2]
+	notice := last[len(last)-1].Parts[0].Text
+	if !strings.Contains(notice, "last turn") {
+		t.Errorf("final request does not tell the model it is the last turn: %q", notice)
+	}
+	if strings.Contains(chatter.histories[1][len(chatter.histories[1])-1].Parts[0].Text, "last turn") {
+		t.Error("the notice must not be sent before the final turn")
 	}
 }

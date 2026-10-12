@@ -221,8 +221,10 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
 		Temperature:       genai.Ptr(float32(0.0)), // Deterministic for refinement (ML review).
 		ResponseMIMEType:  "application/json",
-		ResponseSchema:    agentResponseSchema(),
+		ResponseSchema:    agentResponseSchema(true),
 	}
+	finalConfig := *genConfig
+	finalConfig.ResponseSchema = agentResponseSchema(false)
 
 	// Build conversation history.
 	history := []*genai.Content{
@@ -251,7 +253,11 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 			break
 		}
 
-		resp, err := chatter.Chat(ctx, history, genConfig)
+		turnConfig := genConfig
+		if i == cfg.MaxIterations-1 {
+			turnConfig = &finalConfig
+		}
+		resp, err := chatter.Chat(ctx, history, turnConfig)
 		if err != nil {
 			result.StopReason = "error"
 			result.Usage = totalUsage // Preserve usage accumulated so far.
@@ -323,10 +329,11 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 
 			// Append tool result to history as user message.
 			toolJSON, _ := json.Marshal(toolResult) //nolint:errcheck
-			history = append(history, genai.NewContentFromText(
-				fmt.Sprintf("<tool_result>%s</tool_result>", string(toolJSON)),
-				genai.RoleUser,
-			))
+			resultText := fmt.Sprintf("<tool_result>%s</tool_result>", string(toolJSON))
+			if i+1 == cfg.MaxIterations-1 {
+				resultText += "\nThis is the last turn: no more tool calls. Return the refined findings or done."
+			}
+			history = append(history, genai.NewContentFromText(resultText, genai.RoleUser))
 
 		case "findings":
 			// Parse refined findings.
