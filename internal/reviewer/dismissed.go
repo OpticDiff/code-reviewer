@@ -53,9 +53,19 @@ func oldSideLines(file string, diffs []diff.FileDiff) map[int]string {
 
 var anchorHash = vcs.AnchorHash
 
+// fingerprintKey is the classification a fingerprint is built from: the rule
+// when the finding is attributed to one, because rule categories are coarse
+// and shared between rules, otherwise the model's category.
+func fingerprintKey(f model.Finding) string {
+	if name := strings.TrimSpace(f.RuleName); name != "" && f.RuleSource != "" {
+		return "rule:" + name
+	}
+	return f.Category
+}
+
 // AssignFingerprints sets Fingerprint, Anchor and AnchorLines on every
 // finding that is anchored inside the diff. The fingerprint combines the
-// anchor hash with the lowercased category, and deliberately ignores the
+// anchor hash with the lowercased rule or category, and deliberately ignores the
 // title, body and line number, which vary between model runs. Any edit to the
 // anchored lines or their neighbours yields a new fingerprint. Findings that
 // cannot be anchored keep an empty fingerprint and are never suppressed.
@@ -81,7 +91,7 @@ func AssignFingerprints(findings []model.Finding, diffs []diff.FileDiff) {
 			}
 			startLine, endLine = f.Line, f.EndLine
 		}
-		info, ok := vcs.ComputeFingerprint(f.File, f.Category, startLine, endLine, lines)
+		info, ok := vcs.ComputeFingerprint(f.File, fingerprintKey(*f), startLine, endLine, lines)
 		if !ok {
 			continue
 		}

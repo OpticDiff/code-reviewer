@@ -150,10 +150,15 @@ func TestFormatInlineComment_EmbedsFingerprint(t *testing.T) {
 	}
 }
 
-// threadVCS is a mockVCS that also reports dismissed threads.
+// threadVCS is a mockVCS that also reports dismissed and open threads.
 type threadVCS struct {
 	*mockVCS
 	dismissed []vcs.DismissedFinding
+	open      []vcs.OpenFinding
+}
+
+func (t *threadVCS) ListOpenFindings(context.Context, string, string) ([]vcs.OpenFinding, error) {
+	return t.open, nil
 }
 
 func (t *threadVCS) ListDismissedFindings(context.Context, string, string) ([]vcs.DismissedFinding, error) {

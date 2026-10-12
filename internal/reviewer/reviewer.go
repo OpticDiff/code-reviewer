@@ -621,6 +621,14 @@ skipAgent:
 	}
 	keepFingerprints := KeepFingerprints(dismissed, allFindings, auditDiffs)
 
+	// Findings an open thread of ours already covers are not posted again, and
+	// that thread is left open. They stay in allFindings: the summary, the
+	// audit log and the exit status still count them.
+	toPost, _, openFingerprints := FilterStanding(allFindings, r.listOpenFindings(ctx), auditDiffs)
+	if n := len(allFindings) - len(toPost); n > 0 {
+		slog.Info(fmt.Sprintf("leaving %d finding(s) on their open thread(s) instead of posting them again", n))
+	}
+
 	result := &model.ReviewResult{
 		Summary:  summary,
 		Findings: allFindings,
@@ -684,7 +692,11 @@ skipAgent:
 			result.Summary = FormatScopeMarkdown(scopeAssessment) + result.Summary
 		}
 
-		if err := postReview(ctx, r.cfg, r.glClient, result, auditDiffs, version, incrementalChangedFiles, r.cfg.Profile, keepFingerprints); err != nil {
+		if err := postReview(ctx, r.cfg, r.glClient, result, auditDiffs, version, incrementalChangedFiles, r.cfg.Profile, threadCarryOver{
+			dismissed: keepFingerprints,
+			open:      openFingerprints,
+			inline:    toPost,
+		}); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
 
@@ -793,6 +805,26 @@ func (r *Reviewer) listDismissedFindings(ctx context.Context) []vcs.DismissedFin
 		return nil
 	}
 	return dismissed
+}
+
+// listOpenFindings returns the tool's own unresolved, unanswered review
+// threads. It returns nil outside CI posting mode, when the platform client
+// cannot read threads, or on error: without them every finding is posted, as
+// before.
+func (r *Reviewer) listOpenFindings(ctx context.Context) []vcs.OpenFinding {
+	if !r.cfg.CIMode || r.cfg.DryRun || r.glClient == nil {
+		return nil
+	}
+	reader, ok := r.glClient.(vcs.OpenThreadReader)
+	if !ok {
+		return nil
+	}
+	open, err := reader.ListOpenFindings(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
+	if err != nil {
+		slog.Warn("could not read open review threads, posting every finding", "error", err)
+		return nil
+	}
+	return open
 }
 
 func (r *Reviewer) getDiffs(ctx context.Context) ([]diff.FileDiff, string, string, error) {
