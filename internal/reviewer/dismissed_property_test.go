@@ -69,6 +69,11 @@ func TestProperty_AssignFingerprints_CategoryInsensitive(t *testing.T) {
 		if trimmed == "" {
 			return true
 		}
+		// A few runes (U+1C88, for example) do not survive an upper-then-lower round trip, so
+		// their upper-case form is a different category, not a different casing of the same one.
+		if strings.ToLower(strings.ToUpper(trimmed)) != strings.ToLower(trimmed) {
+			return true
+		}
 		fLower := model.Finding{File: "main.go", Line: 3, Category: strings.ToLower(trimmed)}
 		fUpper := model.Finding{File: "main.go", Line: 3, Category: "  " + strings.ToUpper(trimmed) + "  "}
 
