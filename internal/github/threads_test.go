@@ -63,7 +63,7 @@ func TestListDismissedFindings(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %+v, want threads aa and cc only", got)
 	}
-	want := vcs.DismissedFinding{Fingerprint: "aa", Anchor: "aaa", AnchorLines: 2, Path: "main.go", Line: 10}
+	want := vcs.DismissedFinding{NoteID: 1, Fingerprint: "aa", Anchor: "aaa", AnchorLines: 2, Path: "main.go", Line: 10}
 	if got[0] != want {
 		t.Errorf("got %+v, want %+v", got[0], want)
 	}

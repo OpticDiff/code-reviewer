@@ -103,17 +103,7 @@ func FilterDismissed(findings []model.Finding, dismissed []vcs.DismissedFinding)
 	if len(dismissed) == 0 {
 		return findings, nil
 	}
-	known := make(map[string]vcs.DismissedFinding, len(dismissed))
-	for _, d := range dismissed {
-		if d.Fingerprint == "" {
-			continue
-		}
-		// Prefer the stronger dismissal when several threads share a fingerprint.
-		if prev, ok := known[d.Fingerprint]; ok && !prev.AuthorOnly {
-			continue
-		}
-		known[d.Fingerprint] = d
-	}
+	known := strongestDismissals(dismissed)
 	kept = make([]model.Finding, 0, len(findings))
 	for _, f := range findings {
 		d, ok := known[f.Fingerprint]
@@ -124,6 +114,22 @@ func FilterDismissed(findings []model.Finding, dismissed []vcs.DismissedFinding)
 		suppressed = append(suppressed, f)
 	}
 	return kept, suppressed
+}
+
+// strongestDismissals indexes dismissed threads by fingerprint. When several
+// threads share one, a dismissal by someone other than the author wins.
+func strongestDismissals(dismissed []vcs.DismissedFinding) map[string]vcs.DismissedFinding {
+	known := make(map[string]vcs.DismissedFinding, len(dismissed))
+	for _, d := range dismissed {
+		if d.Fingerprint == "" {
+			continue
+		}
+		if prev, ok := known[d.Fingerprint]; ok && !prev.AuthorOnly {
+			continue
+		}
+		known[d.Fingerprint] = d
+	}
+	return known
 }
 
 // BlockingCount returns how many of the findings are HIGH or CRITICAL, the

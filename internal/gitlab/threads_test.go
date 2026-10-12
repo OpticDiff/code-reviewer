@@ -72,6 +72,9 @@ func TestDismissedThreads(t *testing.T) {
 	if !byFP["ff"].AuthorOnly {
 		t.Error("engagement by the MR author alone must be flagged AuthorOnly")
 	}
+	if byFP["aa"].NoteID != 1 || byFP["cc"].NoteID != 3 || byFP["ff"].NoteID != 6 {
+		t.Errorf("NoteID must be the first note of the thread: aa=%d cc=%d ff=%d", byFP["aa"].NoteID, byFP["cc"].NoteID, byFP["ff"].NoteID)
+	}
 	if a := byFP["aa"]; a.Path != "main.go" || a.Line != 10 || a.Anchor != "aaa" || a.AnchorLines != 1 {
 		t.Errorf("unexpected finding: %+v", a)
 	}

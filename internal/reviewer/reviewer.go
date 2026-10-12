@@ -90,6 +90,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var unreviewable []SkippedFile
 	var inScope int
 	var allFindings []model.Finding
+	var dismissed []vcs.DismissedFinding
+	var suppressed []model.Finding
 	var totalUsage model.TokenUsage
 	var dedupedCount int
 	var cacheHits int
@@ -115,6 +117,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		entry.ProfileFilteredCount = r.profileFilteredCount
 		entry.SuggestionsDropped = r.suggestionsDropped
 		entry.AgentVerdicts = agentVerdicts
+		entry.Suppressed, entry.SuppressedSeverityCounts = auditSuppressed(suppressed, dismissed)
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -290,7 +293,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Threads a person already resolved or replied to must be read before
 	// posting, because cleanup of previous bot comments may remove the evidence.
-	dismissed := r.listDismissedFindings(ctx)
+	dismissed = r.listDismissedFindings(ctx)
 	if prompt := FormatDismissedPrompt(dismissed); prompt != "" {
 		if extraRules != "" {
 			extraRules += "\n\n"
@@ -613,7 +616,6 @@ skipAgent:
 	// output still see every finding.
 	AssignFingerprints(allFindings, auditDiffs)
 	reportable := allFindings
-	var suppressed []model.Finding
 	allFindings, suppressed = FilterDismissed(allFindings, dismissed)
 	suppressedBlocking := BlockingCount(suppressed)
 	if len(suppressed) > 0 {

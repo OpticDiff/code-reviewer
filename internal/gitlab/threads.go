@@ -66,6 +66,7 @@ func dismissedThreads(discussions []Discussion, botMarker, botUser, mrAuthor str
 		out = append(out, dismissedThread{
 			noteID: first.ID,
 			finding: vcs.DismissedFinding{
+				NoteID:      first.ID,
 				Fingerprint: fp.Fingerprint,
 				Anchor:      fp.Anchor,
 				AnchorLines: fp.AnchorLines,

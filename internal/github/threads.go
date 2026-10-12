@@ -84,6 +84,7 @@ func (c *Client) ListDismissedFindings(ctx context.Context, projectID, prNumber 
 		}
 		who := repliers[cm.ID]
 		out = append(out, vcs.DismissedFinding{
+			NoteID:      cm.ID,
 			Fingerprint: fp.Fingerprint,
 			Anchor:      fp.Anchor,
 			AnchorLines: fp.AnchorLines,

@@ -12,6 +12,7 @@ import (
 // DismissedFinding describes a finding posted by this tool whose review
 // thread other people have resolved or replied to.
 type DismissedFinding struct {
+	NoteID      int    // ID of the thread's first (tool-written) note or comment.
 	Fingerprint string // Finding fingerprint embedded in the original comment.
 	Anchor      string // Hash of the anchored lines (and neighbours) at post time.
 	AnchorLines int    // Number of lines the anchor spans.
