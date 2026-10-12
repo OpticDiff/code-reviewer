@@ -1600,7 +1600,7 @@ func TestSubmitReview_MultiLineDraftNote(t *testing.T) {
 	if !strings.Contains(gotDraft, `"line_range"`) {
 		t.Errorf("draft missing line_range: %s", gotDraft)
 	}
-	if !strings.Contains(gotDraft, "suggestion:-5+0") {
+	if !strings.Contains(gotDraft, "suggestion:-0+5") {
 		t.Errorf("draft missing suggestion format: %s", gotDraft)
 	}
 }
@@ -2016,5 +2016,173 @@ func TestGetMRChanges_NoSuspicionWhenFlagsPresent(t *testing.T) {
 	}
 	if got.Changes[0].Incomplete || m.rawCalls != 0 {
 		t.Errorf("flags say the empty diff is real; Incomplete=%v rawCalls=%d", got.Changes[0].Incomplete, m.rawCalls)
+	}
+}
+
+func TestSubmitReview_SuggestionFence(t *testing.T) {
+	// GitLab resolves a suggestion's range relative to the position's new_line
+	// (the note's anchor line): -A+B replaces new_line-A .. new_line+B. The
+	// anchor is the finding's first line, so the block must reach down to the
+	// last line and never up.
+	tests := []struct {
+		name         string
+		comment      vcs.ReviewComment
+		wantFence    string // Opening fence line; empty means no suggestion block.
+		wantNewLine  float64
+		wantOldLine  float64 // 0 means the key must be absent.
+		wantLineRang bool
+	}{
+		{
+			name:        "single added line",
+			comment:     vcs.ReviewComment{Path: "a.go", Line: 10, Body: "x", Suggestion: "new"},
+			wantFence:   "```suggestion:-0+0",
+			wantNewLine: 10,
+		},
+		{
+			name:        "end line equal to line is a single line",
+			comment:     vcs.ReviewComment{Path: "a.go", Line: 10, EndLine: 10, Body: "x", Suggestion: "new"},
+			wantFence:   "```suggestion:-0+0",
+			wantNewLine: 10,
+		},
+		{
+			name:         "multi-line range of added lines",
+			comment:      vcs.ReviewComment{Path: "a.go", Line: 10, EndLine: 15, Body: "x", Suggestion: "new"},
+			wantFence:    "```suggestion:-0+5",
+			wantNewLine:  10,
+			wantLineRang: true,
+		},
+		{
+			name:         "range starting on an unchanged context line",
+			comment:      vcs.ReviewComment{Path: "a.go", Line: 27, OldLine: 24, EndLine: 29, Body: "x", Suggestion: "new"},
+			wantFence:    "```suggestion:-0+2",
+			wantNewLine:  27,
+			wantOldLine:  24,
+			wantLineRang: true,
+		},
+		{
+			// Removed lines between the two ends have no new-side number, so
+			// they do not count toward the offset.
+			name:         "range whose diff interleaves deleted lines",
+			comment:      vcs.ReviewComment{Path: "a.go", Line: 40, EndLine: 42, Body: "x", Suggestion: "new"},
+			wantFence:    "```suggestion:-0+2",
+			wantNewLine:  40,
+			wantLineRang: true,
+		},
+		{
+			name:         "longest range GitLab accepts below the anchor",
+			comment:      vcs.ReviewComment{Path: "a.go", Line: 10, EndLine: 110, Body: "x", Suggestion: "new"},
+			wantFence:    "```suggestion:-0+100",
+			wantNewLine:  10,
+			wantLineRang: true,
+		},
+		{
+			// GitLab clamps offsets to 100 and would silently replace fewer
+			// lines than the finding spans.
+			name:         "range beyond what GitLab can express has no suggestion block",
+			comment:      vcs.ReviewComment{Path: "a.go", Line: 10, EndLine: 111, Body: "x", Suggestion: "new"},
+			wantNewLine:  10,
+			wantLineRang: true,
+		},
+		{
+			name:        "comment on a removed line takes no suggestion block",
+			comment:     vcs.ReviewComment{Path: "a.go", OldLine: 24, Body: "x", Suggestion: "new"},
+			wantOldLine: 24,
+		},
+	}
+
+	for _, tt := range tests {
+		for _, path := range []string{"draft_notes", "individual_comments"} {
+			t.Run(tt.name+"/"+path, func(t *testing.T) {
+				var gotBody []byte
+				var mu sync.Mutex
+
+				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					defer mu.Unlock()
+					w.Header().Set("Content-Type", "application/json")
+					body, _ := io.ReadAll(r.Body)
+					switch {
+					case r.Method == http.MethodGet:
+						_, _ = w.Write([]byte(`[]`))
+					case strings.Contains(r.URL.Path, "/draft_notes") && !strings.Contains(r.URL.Path, "bulk_publish"):
+						if path == "individual_comments" {
+							w.WriteHeader(http.StatusNotFound)
+							return
+						}
+						if positionOf(t, body) != nil {
+							gotBody = body
+						}
+						_, _ = w.Write([]byte(`{"id":1}`))
+					case strings.Contains(r.URL.Path, "/discussions"):
+						gotBody = body
+						_, _ = w.Write([]byte(`{}`))
+					default:
+						_, _ = w.Write([]byte(`{"id":1}`))
+					}
+				}))
+				defer srv.Close()
+
+				client := NewClient(srv.URL, "token")
+				req := vcs.SubmitReviewRequest{
+					Summary:  "Review",
+					Version:  &vcs.DiffVersion{HeadSHA: "h", BaseSHA: "b", StartSHA: "s"},
+					Comments: []vcs.ReviewComment{tt.comment},
+				}
+				if err := client.SubmitReview(context.Background(), "proj", "1", req); err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+
+				mu.Lock()
+				defer mu.Unlock()
+				if gotBody == nil {
+					t.Fatal("no inline comment was sent")
+				}
+				var payload struct {
+					Body     string `json:"body"`
+					Note     string `json:"note"`
+					Position struct {
+						NewLine   float64        `json:"new_line"`
+						OldLine   float64        `json:"old_line"`
+						LineRange map[string]any `json:"line_range"`
+					} `json:"position"`
+				}
+				if err := json.Unmarshal(gotBody, &payload); err != nil {
+					t.Fatalf("decoding %s: %v", gotBody, err)
+				}
+				text := payload.Body + payload.Note
+
+				var fence string
+				for _, l := range strings.Split(text, "\n") {
+					if strings.HasPrefix(l, "```suggestion") {
+						fence = l
+					}
+				}
+				if fence != tt.wantFence {
+					t.Errorf("suggestion fence = %q, want %q", fence, tt.wantFence)
+				}
+				if payload.Position.NewLine != tt.wantNewLine {
+					t.Errorf("position.new_line = %v, want %v", payload.Position.NewLine, tt.wantNewLine)
+				}
+				if payload.Position.OldLine != tt.wantOldLine {
+					t.Errorf("position.old_line = %v, want %v", payload.Position.OldLine, tt.wantOldLine)
+				}
+				if hasRange := payload.Position.LineRange != nil; hasRange != tt.wantLineRang {
+					t.Errorf("line_range present = %v, want %v", hasRange, tt.wantLineRang)
+				}
+
+				// The block must cover exactly Line..EndLine from the anchor.
+				if fence != "" && tt.comment.EndLine > tt.comment.Line {
+					var above, below int
+					if _, err := fmt.Sscanf(fence, "```suggestion:-%d+%d", &above, &below); err != nil {
+						t.Fatalf("parsing fence %q: %v", fence, err)
+					}
+					anchor := int(payload.Position.NewLine)
+					if anchor-above != tt.comment.Line || anchor+below != tt.comment.EndLine {
+						t.Errorf("fence replaces %d..%d, want %d..%d",
+							anchor-above, anchor+below, tt.comment.Line, tt.comment.EndLine)
+					}
+				}
+			})
+		}
 	}
 }
