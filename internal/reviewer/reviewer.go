@@ -293,8 +293,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Threads a person already resolved or replied to must be read before
 	// posting, because cleanup of previous bot comments may remove the evidence.
+	resolveOnly := r.cfg.DismissalMode == config.DismissalModeResolveOnly
 	dismissed = r.listDismissedFindings(ctx)
-	if prompt := FormatDismissedPrompt(dismissed); prompt != "" {
+	if prompt := FormatDismissedPrompt(dismissed, resolveOnly); prompt != "" {
 		if extraRules != "" {
 			extraRules += "\n\n"
 		}
@@ -343,7 +344,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cachedFindings []model.Finding
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
-		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil)+contextGuidance+FormatDismissedPrompt(dismissed))
+		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil)+contextGuidance+FormatDismissedPrompt(dismissed, resolveOnly))
 		if forceFullReview {
 			slog.Info("bypassing review cache due to commit trigger", "trigger", triggerMatched)
 			diffs, _, _, cacheKeys = cache.Partition(diffs, nil, cacheModelID, promptHash)
@@ -616,7 +617,7 @@ skipAgent:
 	// output still see every finding.
 	AssignFingerprints(allFindings, auditDiffs)
 	reportable := allFindings
-	allFindings, suppressed = FilterDismissed(allFindings, dismissed)
+	allFindings, suppressed = FilterDismissed(allFindings, dismissed, resolveOnly)
 	suppressedBlocking := BlockingCount(suppressed)
 	if len(suppressed) > 0 {
 		slog.Info(fmt.Sprintf("not re-posting %d finding(s) previously dismissed on unchanged code (%d high or critical still count toward the exit status)", len(suppressed), suppressedBlocking))

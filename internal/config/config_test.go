@@ -1520,3 +1520,60 @@ func TestLoad_Temperature(t *testing.T) {
 		}
 	})
 }
+
+func TestLoad_DismissalModePrecedenceDefaultAndValidation(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+	t.Setenv("REVIEW_DISMISSAL_MODE", "")
+
+	tmpDir := t.TempDir()
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	defer os.Chdir(oldDir) //nolint:errcheck
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	os.Args = []string{"code-reviewer", "--diff"}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.DismissalMode != DismissalModeAny {
+		t.Errorf("DismissalMode = %q, want %q by default", cfg.DismissalMode, DismissalModeAny)
+	}
+
+	if err := os.WriteFile(filepath.Join(tmpDir, ".code-reviewer.yaml"), []byte("dismissal_mode: resolve_only\n"), 0o644); err != nil {
+		t.Fatalf("writing yaml: %v", err)
+	}
+	if cfg, err = Load(); err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.DismissalMode != DismissalModeResolveOnly {
+		t.Errorf("DismissalMode = %q, want %q (from YAML)", cfg.DismissalMode, DismissalModeResolveOnly)
+	}
+
+	t.Setenv("REVIEW_DISMISSAL_MODE", "any")
+	if cfg, err = Load(); err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.DismissalMode != DismissalModeAny {
+		t.Errorf("DismissalMode = %q, want %q (env over YAML)", cfg.DismissalMode, DismissalModeAny)
+	}
+
+	os.Args = []string{"code-reviewer", "--diff", "--dismissal-mode", "resolve_only"}
+	if cfg, err = Load(); err != nil {
+		t.Fatalf("Load() err: %v", err)
+	}
+	if cfg.DismissalMode != DismissalModeResolveOnly {
+		t.Errorf("DismissalMode = %q, want %q (flag over env)", cfg.DismissalMode, DismissalModeResolveOnly)
+	}
+
+	os.Args = []string{"code-reviewer", "--diff", "--dismissal-mode", "reply"}
+	if _, err = Load(); err == nil || !containsStr(err.Error(), "invalid dismissal-mode") {
+		t.Errorf("err = %v, want mention of 'invalid dismissal-mode'", err)
+	}
+}

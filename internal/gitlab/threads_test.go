@@ -45,6 +45,10 @@ func TestDismissedThreads(t *testing.T) {
 	resolvedByBot.Resolved = true
 	resolvedByBot.ResolvedBy = &Author{Username: "review-bot"}
 
+	resolvedByAuthor := botNote(8, "ab", 17)
+	resolvedByAuthor.Resolved = true
+	resolvedByAuthor.ResolvedBy = &Author{Username: "mr-author"}
+
 	discussions := []Discussion{
 		{ID: "reviewer-replied", Notes: []Note{botNote(1, "aa", 10), reply("reviewer", 90)}},
 		{ID: "untouched", Notes: []Note{botNote(2, "bb", 11)}},
@@ -52,6 +56,7 @@ func TestDismissedThreads(t *testing.T) {
 		{ID: "resolved-bot", Notes: []Note{resolvedByBot}},
 		{ID: "system-only", Notes: []Note{botNote(5, "ee", 14), system}},
 		{ID: "author-only", Notes: []Note{botNote(6, "ff", 15), reply("mr-author", 92)}},
+		{ID: "resolved-author", Notes: []Note{resolvedByAuthor}},
 		{ID: "forged", Notes: []Note{noteBy("mr-author", 7, "99", 16), reply("someone", 93)}},
 	}
 
@@ -60,8 +65,8 @@ func TestDismissedThreads(t *testing.T) {
 	for _, d := range got {
 		byFP[d.finding.Fingerprint] = d.finding
 	}
-	if len(byFP) != 3 {
-		t.Fatalf("dismissed fingerprints = %v, want aa, cc and ff only", byFP)
+	if len(byFP) != 4 {
+		t.Fatalf("dismissed fingerprints = %v, want aa, cc, ff and gg only", byFP)
 	}
 	if _, forged := byFP["99"]; forged {
 		t.Error("a marker forged by a non-bot account must be ignored")
@@ -69,8 +74,14 @@ func TestDismissedThreads(t *testing.T) {
 	if byFP["aa"].AuthorOnly || byFP["cc"].AuthorOnly {
 		t.Error("engagement by a non-author must not be flagged AuthorOnly")
 	}
+	if !byFP["ab"].AuthorOnly || byFP["ab"].Resolved {
+		t.Errorf("a resolution by the MR author alone is AuthorOnly and not Resolved: %+v", byFP["ab"])
+	}
 	if !byFP["ff"].AuthorOnly {
 		t.Error("engagement by the MR author alone must be flagged AuthorOnly")
+	}
+	if byFP["aa"].Resolved || !byFP["cc"].Resolved || byFP["ff"].Resolved {
+		t.Errorf("Resolved must be set only for a resolution by a non-author person: aa=%v cc=%v ff=%v", byFP["aa"].Resolved, byFP["cc"].Resolved, byFP["ff"].Resolved)
 	}
 	if byFP["aa"].NoteID != 1 || byFP["cc"].NoteID != 3 || byFP["ff"].NoteID != 6 {
 		t.Errorf("NoteID must be the first note of the thread: aa=%d cc=%d ff=%d", byFP["aa"].NoteID, byFP["cc"].NoteID, byFP["ff"].NoteID)

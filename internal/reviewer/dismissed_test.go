@@ -78,7 +78,7 @@ func TestFilterDismissed(t *testing.T) {
 	f := fingerprinted(model.Finding{File: "main.go", Line: 2, Category: "bug", Severity: "LOW"}, d)
 	other := fingerprinted(model.Finding{File: "main.go", Line: 2, Category: "security", Severity: "LOW"}, d)
 
-	kept, suppressed := FilterDismissed([]model.Finding{f, other}, []vcs.DismissedFinding{{Fingerprint: f.Fingerprint}})
+	kept, suppressed := FilterDismissed([]model.Finding{f, other}, []vcs.DismissedFinding{{Fingerprint: f.Fingerprint}}, false)
 	if len(suppressed) != 1 || len(kept) != 1 || kept[0].Category != "security" {
 		t.Errorf("kept %v suppressed %v, want only the security finding kept", kept, suppressed)
 	}
@@ -92,7 +92,7 @@ func TestFilterDismissed_AuthorOnlyDoesNotSilenceHighSeverity(t *testing.T) {
 		{Fingerprint: crit.Fingerprint, AuthorOnly: true},
 		{Fingerprint: low.Fingerprint, AuthorOnly: true},
 	}
-	kept, suppressed := FilterDismissed([]model.Finding{crit, low}, dis)
+	kept, suppressed := FilterDismissed([]model.Finding{crit, low}, dis, false)
 	if len(kept) != 1 || kept[0].Severity != "CRITICAL" || len(suppressed) != 1 {
 		t.Errorf("kept %v suppressed %v: author-only dismissal must keep CRITICAL and may suppress LOW", kept, suppressed)
 	}
@@ -100,7 +100,7 @@ func TestFilterDismissed_AuthorOnlyDoesNotSilenceHighSeverity(t *testing.T) {
 
 func TestFilterDismissed_KeepsUnfingerprinted(t *testing.T) {
 	f := model.Finding{File: "main.go", Line: 2}
-	kept, suppressed := FilterDismissed([]model.Finding{f}, []vcs.DismissedFinding{{Fingerprint: ""}})
+	kept, suppressed := FilterDismissed([]model.Finding{f}, []vcs.DismissedFinding{{Fingerprint: ""}}, false)
 	if len(suppressed) != 0 || len(kept) != 1 {
 		t.Errorf("unfingerprinted finding must never be suppressed, kept=%d suppressed=%d", len(kept), len(suppressed))
 	}
@@ -123,7 +123,7 @@ func TestKeepFingerprints_OnlyWhileAnchorUnchanged(t *testing.T) {
 }
 
 func TestFormatDismissedPrompt_PathsOnly(t *testing.T) {
-	if FormatDismissedPrompt(nil) != "" {
+	if FormatDismissedPrompt(nil, false) != "" {
 		t.Error("no dismissed findings should yield an empty prompt section")
 	}
 	got := FormatDismissedPrompt([]vcs.DismissedFinding{
@@ -131,7 +131,7 @@ func TestFormatDismissedPrompt_PathsOnly(t *testing.T) {
 		{Path: "outdated.go", Line: 0},
 		{Path: "deleted.go", Line: 5, OldSide: true},
 		{Path: "author.go", Line: 7, AuthorOnly: true},
-	})
+	}, false)
 	for _, want := range []string{"- main.go:2\n", "- outdated.go\n", "- deleted.go (removed line 5)\n"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("prompt section missing %q:\n%s", want, got)
@@ -301,7 +301,7 @@ func TestAssignFingerprints_RemovedLineFinding(t *testing.T) {
 	}
 
 	// Suppression works
-	kept, suppressed := FilterDismissed([]model.Finding{fp}, []vcs.DismissedFinding{{Fingerprint: fp.Fingerprint}})
+	kept, suppressed := FilterDismissed([]model.Finding{fp}, []vcs.DismissedFinding{{Fingerprint: fp.Fingerprint}}, false)
 	if len(suppressed) != 1 || len(kept) != 0 {
 		t.Errorf("expected removed-line finding to be suppressed, kept=%d suppressed=%d", len(kept), len(suppressed))
 	}
@@ -325,3 +325,78 @@ func TestAssignFingerprints_RemovedLineFinding(t *testing.T) {
 	}
 }
 
+
+func TestFilterDismissed_ResolveOnlyNeedsAResolutionForHighSeverity(t *testing.T) {
+	d := dismissedTestDiffs("x := compute()")
+	high := fingerprinted(model.Finding{File: "main.go", Line: 2, Category: "security", Severity: "HIGH"}, d)
+	low := fingerprinted(model.Finding{File: "main.go", Line: 2, Category: "bug", Severity: "LOW"}, d)
+	replied := []vcs.DismissedFinding{{Fingerprint: high.Fingerprint}, {Fingerprint: low.Fingerprint}}
+
+	kept, suppressed := FilterDismissed([]model.Finding{high, low}, replied, true)
+	if len(kept) != 1 || kept[0].Severity != "HIGH" || len(suppressed) != 1 || suppressed[0].Severity != "LOW" {
+		t.Errorf("reply only: kept=%v suppressed=%v, want the HIGH kept and the LOW suppressed", kept, suppressed)
+	}
+
+	resolved := []vcs.DismissedFinding{{Fingerprint: high.Fingerprint, Resolved: true}}
+	kept, suppressed = FilterDismissed([]model.Finding{high}, resolved, true)
+	if len(kept) != 0 || len(suppressed) != 1 {
+		t.Errorf("resolved: kept=%v suppressed=%v, want the HIGH suppressed", kept, suppressed)
+	}
+
+	kept, suppressed = FilterDismissed([]model.Finding{high}, replied[:1], false)
+	if len(kept) != 0 || len(suppressed) != 1 {
+		t.Errorf("default mode: kept=%v suppressed=%v, want a reply to keep suppressing HIGH", kept, suppressed)
+	}
+}
+
+func TestFilterDismissed_ResolveOnlyPrefersTheResolvedThread(t *testing.T) {
+	f := model.Finding{Severity: "CRITICAL", Fingerprint: "aa"}
+	dis := []vcs.DismissedFinding{{Fingerprint: "aa", NoteID: 1}, {Fingerprint: "aa", NoteID: 2, Resolved: true}}
+	if kept, suppressed := FilterDismissed([]model.Finding{f}, dis, true); len(kept) != 0 || len(suppressed) != 1 {
+		t.Errorf("kept=%v suppressed=%v, want the resolved thread to suppress the CRITICAL", kept, suppressed)
+	}
+}
+
+func TestFormatDismissedPrompt_ResolveOnlyListsOnlyResolvedThreads(t *testing.T) {
+	dis := []vcs.DismissedFinding{
+		{Path: "replied.go", Line: 3},
+		{Path: "resolved.go", Line: 4, Resolved: true},
+	}
+	got := FormatDismissedPrompt(dis, true)
+	if strings.Contains(got, "replied.go") || !strings.Contains(got, "resolved.go:4") {
+		t.Errorf("resolve_only prompt:\n%s", got)
+	}
+	if got := FormatDismissedPrompt(dis, false); !strings.Contains(got, "replied.go:3") {
+		t.Errorf("default prompt must keep listing replied threads:\n%s", got)
+	}
+}
+
+func TestRun_ResolveOnlyRepostsHighDismissedByReplyAndSuppressesItOnceResolved(t *testing.T) {
+	run := func(resolved bool) (int, *threadVCS) {
+		finding := model.Finding{File: "main.go", Line: 2, Severity: "HIGH", Category: "bug", Title: "Unchecked value", Body: "details"}
+		posted := fingerprinted(finding, dismissedTestDiffs("x := compute()"))
+		cfg := dismissedRunCfg()
+		cfg.DismissalMode = config.DismissalModeResolveOnly
+		dis := personDismissal(posted)
+		dis.Resolved = resolved
+		client := &threadVCS{
+			mockVCS:   &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "a", BaseSHA: "b", StartSHA: "c"}}},
+			dismissed: []vcs.DismissedFinding{dis},
+		}
+		mm := &mockModel{result: &model.ReviewResult{Summary: "s", Findings: []model.Finding{finding}}}
+		count, err := NewWithDiffSource(cfg, mm, client, &mockDiffSource{diffs: dismissedTestDiffs("x := compute()")}).Run(context.Background())
+		if err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		return count, client
+	}
+
+	count, client := run(false)
+	if count != 1 || len(client.submitReviewReq.Comments) != 1 {
+		t.Errorf("reply only: count=%d comments=%d, want the HIGH re-posted", count, len(client.submitReviewReq.Comments))
+	}
+	count, client = run(true)
+	if count != 1 || len(client.submitReviewReq.Comments) != 0 {
+		t.Errorf("resolved: count=%d comments=%d, want the HIGH suppressed (still counted)", count, len(client.submitReviewReq.Comments))
+	}
+}

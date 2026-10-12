@@ -80,6 +80,16 @@ const (
 	CleanupModeResolve CleanupMode = "resolve" // Resolve old discussions (GitLab only; GitHub falls back to delete).
 )
 
+// DismissalMode determines what counts as a person dismissing a HIGH or
+// CRITICAL finding's thread. Lower severities are dismissed by any reply or
+// resolution either way.
+type DismissalMode string
+
+const (
+	DismissalModeAny         DismissalMode = "any"          // A reply or a resolution by someone other than the author (default).
+	DismissalModeResolveOnly DismissalMode = "resolve_only" // Only a resolution by someone other than the author (GitLab only; GitHub never dismisses HIGH).
+)
+
 // ChunkStrategy determines how large diffs are handled.
 type ChunkStrategy string
 
@@ -141,6 +151,7 @@ type Config struct {
 	// Output settings.
 	CommentMode CommentMode
 	CleanupMode CleanupMode
+	DismissalMode DismissalMode
 	DryRun      bool
 	OutputJSON  bool
 	NoColor     bool   // Disable ANSI color output.
@@ -256,6 +267,7 @@ type repoConfig struct {
 	MinSeverity      string   `yaml:"min_severity"`
 	CommentMode      string   `yaml:"comment_mode"`
 	CleanupMode      string   `yaml:"cleanup_mode"`
+	DismissalMode    string   `yaml:"dismissal_mode"`
 	ChunkStrategy    string   `yaml:"chunk_strategy"`
 	CacheDir         string   `yaml:"cache_dir"`
 	NoCache          *bool    `yaml:"no_cache"`
@@ -308,6 +320,7 @@ func Load() (*Config, error) {
 		MinSeverity:      SeverityLow,
 		CommentMode:      CommentModeNotes,
 		CleanupMode:      CleanupModeDelete,
+		DismissalMode:    DismissalModeAny,
 		ChunkStrategy:    ChunkStrategyFail,
 		GitLabBaseURL:    "https://gitlab.com",
 		GitHubBaseURL:    "https://api.github.com",
@@ -505,6 +518,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.CleanupMode != "" {
 		c.CleanupMode = CleanupMode(rc.CleanupMode)
 	}
+	if rc.DismissalMode != "" {
+		c.DismissalMode = DismissalMode(rc.DismissalMode)
+	}
 	if rc.ChunkStrategy != "" {
 		c.ChunkStrategy = ChunkStrategy(rc.ChunkStrategy)
 	}
@@ -669,6 +685,9 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("CODE_REVIEWER_CLEANUP_MODE"); v != "" {
 		c.CleanupMode = CleanupMode(v)
 	}
+	if v := os.Getenv("REVIEW_DISMISSAL_MODE"); v != "" {
+		c.DismissalMode = DismissalMode(v)
+	}
 	if v := os.Getenv("CODE_REVIEWER_UPDATE_DESCRIPTION"); strings.EqualFold(v, "true") {
 		c.UpdateDescription = true
 	}
@@ -824,6 +843,7 @@ func (c *Config) loadFlags() error {
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")
 	cleanupMode := fs.String("cleanup-mode", "", "How to handle previous bot comments (delete or resolve)")
+	dismissalMode := fs.String("dismissal-mode", "", "What dismisses a HIGH/CRITICAL finding's thread: any (reply or resolution, default) or resolve_only")
 	chunkStrategy := fs.String("chunk-strategy", "", "How to handle large diffs: fail (default) or split")
 	extraRules := fs.String("extra-rules", "", "Additional review rules appended to prompt")
 	platformConfig := fs.String("platform-config", "", "Path, comma-separated paths, or glob for platform YAML rules/config")
@@ -911,6 +931,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *cleanupMode != "" {
 		c.CleanupMode = CleanupMode(*cleanupMode)
+	}
+	if *dismissalMode != "" {
+		c.DismissalMode = DismissalMode(*dismissalMode)
 	}
 	if *chunkStrategy != "" {
 		c.ChunkStrategy = ChunkStrategy(*chunkStrategy)
@@ -1291,6 +1314,11 @@ func (c *Config) validate() error {
 	// Validate cleanup mode.
 	if c.CleanupMode != CleanupModeDelete && c.CleanupMode != CleanupModeResolve {
 		return fmt.Errorf("invalid cleanup-mode: %q (valid: delete, resolve)", c.CleanupMode)
+	}
+
+	// Validate dismissal mode.
+	if c.DismissalMode != "" && c.DismissalMode != DismissalModeAny && c.DismissalMode != DismissalModeResolveOnly {
+		return fmt.Errorf("invalid dismissal-mode: %q (valid: any, resolve_only)", c.DismissalMode)
 	}
 
 	// Validate chunk strategy.
