@@ -34,6 +34,23 @@ type ThreadReader interface {
 	ListDismissedFindings(ctx context.Context, projectID, mrIID string) ([]DismissedFinding, error)
 }
 
+// OpenFinding describes an unresolved inline thread the tool opened earlier
+// and nobody has engaged with since. A later run that reports the same finding
+// leaves it open instead of posting a second thread.
+type OpenFinding struct {
+	FingerprintInfo
+	Path    string // File the thread is anchored to.
+	Line    int    // Line the thread is anchored to (0 if unknown).
+	OldSide bool   // True when anchored to a removed line on the old side of the diff.
+}
+
+// OpenThreadReader is implemented by clients that can report the tool's own
+// unresolved, unanswered inline threads. Implementations must apply the same
+// author check as ThreadReader and fail closed when the account is unknown.
+type OpenThreadReader interface {
+	ListOpenFindings(ctx context.Context, projectID, mrIID string) ([]OpenFinding, error)
+}
+
 // FingerprintInfo is the payload embedded in an inline comment.
 type FingerprintInfo struct {
 	Fingerprint string
@@ -110,6 +127,15 @@ func FindingSpan(line, endLine int, lines map[int]string) (start, end int) {
 	return line, end
 }
 
+// FingerprintFor combines an anchor hash with the finding's category. It lets
+// a reader test whether a new finding of some category belongs to a thread
+// whose anchor and fingerprint are known, without knowing the thread's category.
+func FingerprintFor(anchor, category string) string {
+	cat := strings.ToLower(strings.TrimSpace(category))
+	sum := sha256.Sum256([]byte(anchor + "\x00" + cat))
+	return fmt.Sprintf("%x", sum)[:16]
+}
+
 // ComputeFingerprint computes the anchor hash and fingerprint for a finding
 // anchored to lines of a diff (keyed by line number, trimmed of whitespace).
 func ComputeFingerprint(file, category string, line, endLine int, lines map[int]string) (FingerprintInfo, bool) {
@@ -118,10 +144,8 @@ func ComputeFingerprint(file, category string, line, endLine int, lines map[int]
 	if !ok {
 		return FingerprintInfo{}, false
 	}
-	cat := strings.ToLower(strings.TrimSpace(category))
-	sum := sha256.Sum256([]byte(anchor + "\x00" + cat))
 	return FingerprintInfo{
-		Fingerprint: fmt.Sprintf("%x", sum)[:16],
+		Fingerprint: FingerprintFor(anchor, category),
 		Anchor:      anchor,
 		AnchorLines: end - start + 1,
 	}, true

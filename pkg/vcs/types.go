@@ -103,6 +103,7 @@ type SubmitReviewRequest struct {
 	CleanupMode  string          // "delete" or "resolve" — controls how old bot comments are handled.
 	ChangedFiles []string        // If set, only clean comments referencing these files (incremental mode).
 	KeepFingerprints []string    // Fingerprints of person-engaged threads that cleanup must leave in place.
+	OpenFingerprints []string    // Fingerprints of the tool's open threads that this review reports again, one entry per thread; cleanup must leave them open.
 	Profile      string
 }
 
