@@ -180,22 +180,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 	}
 	defer modelProvider.Close()
 
-	// Use interface type so nil remains an untyped nil (not a typed nil
-	// *gitlab.Client wrapped in an interface, which would pass nil checks).
-	var vcsClient reviewer.VCSClient
-	if cfg.CIMode && !cfg.DryRun {
-		switch cfg.Platform {
-		case "github":
-			vcsClient = gh.NewClient(cfg.GitHubBaseURL, cfg.GitHubToken)
-			slog.Info("using GitHub VCS client", "base_url", cfg.GitHubBaseURL)
-		default:
-			vcsClient = gitlab.NewClient(cfg.GitLabBaseURL, cfg.GitLabToken)
-		}
-		// Set profile for comment marker isolation.
-		if cfg.Profile != "all" {
-			vcsClient.SetProfile(cfg.Profile)
-		}
-	}
+	vcsClient := newVCSClient(cfg)
 
 	// Create context provider for repo-aware reviews.
 	var ctxProvider ctxpkg.Provider
@@ -378,4 +363,27 @@ func validateHTTPURL(rawURL, apiKey string) error {
 		}
 	}
 	return nil
+}
+
+// newVCSClient returns the platform client for CI mode, or nil outside it.
+// Dry-run needs the client too, to read the merge request; the reviewer gates
+// every write on !DryRun. It returns the interface type so nil stays an
+// untyped nil (not a typed nil *gitlab.Client, which would pass nil checks).
+func newVCSClient(cfg *config.Config) reviewer.VCSClient {
+	if !cfg.CIMode {
+		return nil
+	}
+	var client reviewer.VCSClient
+	switch cfg.Platform {
+	case "github":
+		client = gh.NewClient(cfg.GitHubBaseURL, cfg.GitHubToken)
+		slog.Info("using GitHub VCS client", "base_url", cfg.GitHubBaseURL)
+	default:
+		client = gitlab.NewClient(cfg.GitLabBaseURL, cfg.GitLabToken)
+	}
+	// Set profile for comment marker isolation.
+	if cfg.Profile != "all" {
+		client.SetProfile(cfg.Profile)
+	}
+	return client
 }

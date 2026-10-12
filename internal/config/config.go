@@ -878,9 +878,16 @@ func (c *Config) loadFlags() error {
 		c.Files = strings.Split(*files, ",")
 	}
 
-	// Remaining args after --diff are the ref.
-	if c.DiffMode && fs.NArg() > 0 {
-		c.DiffRef = fs.Arg(0)
+	// The only positional argument is the optional ref after --diff. Go's flag
+	// package stops at the first positional, so anything after the ref would
+	// otherwise be dropped silently (for example a trailing --dry-run).
+	args := fs.Args()
+	if c.DiffMode && len(args) > 0 {
+		c.DiffRef = args[0]
+		args = args[1:]
+	}
+	if len(args) > 0 {
+		return fmt.Errorf("unexpected argument %q: flags must come before the --diff ref (for example: --diff --dry-run origin/main)", args[0])
 	}
 
 	if *cacheDir != "" {

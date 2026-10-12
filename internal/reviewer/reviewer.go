@@ -777,10 +777,10 @@ skipAgent:
 }
 
 // listDismissedFindings returns the tool's own review threads that a person
-// resolved or replied to. It returns nil outside CI posting mode, when the
+// resolved or replied to. It returns nil outside CI mode, when the
 // platform client cannot read threads, or on error (dismissal is best effort).
 func (r *Reviewer) listDismissedFindings(ctx context.Context) []vcs.DismissedFinding {
-	if !r.cfg.CIMode || r.cfg.DryRun || r.glClient == nil {
+	if !r.cfg.CIMode || r.glClient == nil {
 		return nil
 	}
 	reader, ok := r.glClient.(vcs.ThreadReader)
@@ -809,6 +809,9 @@ func (r *Reviewer) getDiffs(ctx context.Context) ([]diff.FileDiff, string, strin
 }
 
 func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, string, error) {
+	if r.glClient == nil {
+		return nil, "", "", fmt.Errorf("CI mode requires a platform client to read the merge request")
+	}
 	mr, err := r.glClient.GetMRChanges(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
 	if err != nil {
 		return nil, "", "", err

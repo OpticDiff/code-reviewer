@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `--ci --dry-run` no longer panics with a nil pointer. Dry-run in CI mode reads the merge request (diff, title, description and dismissed threads) through the platform client and never writes; without a client the run now fails with a clear error.
+- Arguments after the `--diff` ref (for example `--diff origin/main --dry-run`) or positional arguments without `--diff` are now rejected with an "unexpected argument" error instead of being ignored silently.
+
 ## [0.25.1] — 2026-10-10
 
 ### Fixed

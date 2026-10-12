@@ -1520,3 +1520,40 @@ func TestLoad_Temperature(t *testing.T) {
 		}
 	})
 }
+
+func TestLoad_DiffRefAndStrayArguments(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantRef string
+		wantErr string // substring; empty = no error.
+	}{
+		{"flags before the ref", []string{"--diff", "--dry-run", "--json", "origin/main"}, "origin/main", ""},
+		{"no ref", []string{"--diff", "--json"}, "", ""},
+		{"flag after the ref", []string{"--diff", "origin/main", "--dry-run"}, "", `unexpected argument "--dry-run"`},
+		{"two refs", []string{"--diff", "origin/main", "HEAD~1"}, "", `unexpected argument "HEAD~1"`},
+		{"positional without --diff", []string{"--files", "a.go", "b.go"}, "", `unexpected argument "b.go"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			oldArgs := os.Args
+			defer func() { os.Args = oldArgs }()
+			os.Args = append([]string{"code-reviewer"}, tt.args...)
+			t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+			cfg, err := Load()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Load() error = %v, want it to contain %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() unexpected error: %v", err)
+			}
+			if cfg.DiffRef != tt.wantRef {
+				t.Errorf("DiffRef = %q, want %q", cfg.DiffRef, tt.wantRef)
+			}
+		})
+	}
+}
