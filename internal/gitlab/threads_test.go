@@ -171,7 +171,7 @@ func TestCleanPreviousReviews_KeepsOnlyRequestedThreads(t *testing.T) {
 func TestDismissedThreads_RemovedLine(t *testing.T) {
 	note := Note{
 		ID: 10, Body: "🟠 **[HIGH]** Missing check\n\ndetails\n" + marker("ab12") + "\n" + testMarker,
-		Author: Author{Username: "review-bot"},
+		Author:   Author{Username: "review-bot"},
 		Position: &DiscussionPosition{OldPath: "deleted.go", OldLine: intPtr(42)},
 	}
 	discussions := []Discussion{
@@ -186,7 +186,6 @@ func TestDismissedThreads_RemovedLine(t *testing.T) {
 		t.Errorf("unexpected finding for removed line: %+v", f)
 	}
 }
-
 
 func TestOpenThreads(t *testing.T) {
 	system := Note{ID: 91, Body: "changed this line", System: true, Author: Author{Username: "dev"}}
@@ -237,9 +236,12 @@ func TestOpenThreads(t *testing.T) {
 }
 
 func TestListOpenFindings(t *testing.T) {
+	ruled := botNote(3, "cc", 12)
+	ruled.Body = "🟡 **[MEDIUM]** 📋 **[Rule: no-compute]** Avoid compute\n\ndetails\n" + marker("cc") + "\n" + testMarker
 	discussions := []Discussion{
 		{ID: "d1", Notes: []Note{botNote(1, "aa", 10)}},
 		{ID: "d2", Notes: []Note{botNote(2, "bb", 11), reply("reviewer", 9)}},
+		{ID: "d3", Notes: []Note{ruled}},
 	}
 	var deleted []int
 	srv := threadServer(t, discussions, nil, &deleted, 0)
@@ -249,8 +251,14 @@ func TestListOpenFindings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListOpenFindings: %v", err)
 	}
-	if len(got) != 1 || got[0].Fingerprint != "aa" {
-		t.Errorf("got %+v, want only the untouched thread aa", got)
+	if len(got) != 2 || got[0].Fingerprint != "aa" || got[1].Fingerprint != "cc" {
+		t.Fatalf("got %+v, want only the untouched threads aa and cc", got)
+	}
+	if got[0].Severity != "HIGH" || got[0].RuleAttributed {
+		t.Errorf("plain thread header read as %q rule=%v, want HIGH, no rule", got[0].Severity, got[0].RuleAttributed)
+	}
+	if got[1].Severity != "MEDIUM" || !got[1].RuleAttributed {
+		t.Errorf("rule thread header read as %q rule=%v, want MEDIUM, rule", got[1].Severity, got[1].RuleAttributed)
 	}
 }
 

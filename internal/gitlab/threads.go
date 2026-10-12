@@ -78,6 +78,7 @@ func openThreads(discussions []Discussion, botMarker, botUser string) []openThre
 			continue
 		}
 		path, line, oldSide := threadLocation(first.Position)
+		header, _ := vcs.ParseFindingHeader(first.Body)
 		out = append(out, openThread{
 			discussionID: d.ID,
 			noteID:       first.ID,
@@ -86,6 +87,8 @@ func openThreads(discussions []Discussion, botMarker, botUser string) []openThre
 				Path:            path,
 				Line:            line,
 				OldSide:         oldSide,
+				Severity:        header.Severity,
+				RuleAttributed:  header.RuleAttributed,
 			},
 		})
 	}

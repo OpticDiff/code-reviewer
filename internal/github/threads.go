@@ -98,7 +98,15 @@ func (c *Client) ListOpenFindings(ctx context.Context, projectID, prNumber strin
 		if cm.InReplyToID != nil || cm.User.Login != botUser || !ok || len(repliers[cm.ID]) > 0 || cm.Line <= 0 {
 			continue
 		}
-		out = append(out, vcs.OpenFinding{FingerprintInfo: fp, Path: cm.Path, Line: cm.Line, OldSide: cm.Side == "LEFT"})
+		header, _ := vcs.ParseFindingHeader(cm.Body)
+		out = append(out, vcs.OpenFinding{
+			FingerprintInfo: fp,
+			Path:            cm.Path,
+			Line:            cm.Line,
+			OldSide:         cm.Side == "LEFT",
+			Severity:        header.Severity,
+			RuleAttributed:  header.RuleAttributed,
+		})
 	}
 	return out, nil
 }

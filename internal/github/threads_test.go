@@ -101,7 +101,6 @@ func TestListDismissedFindings_RemovedLine(t *testing.T) {
 	}
 }
 
-
 func TestListOpenFindings(t *testing.T) {
 	bot := User{Login: "review-bot"}
 	comments := []PullReviewComment{
@@ -128,7 +127,7 @@ func TestListOpenFindings(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %+v, want threads aa and dd only", got)
 	}
-	want := vcs.OpenFinding{FingerprintInfo: vcs.FingerprintInfo{Fingerprint: "aa", Anchor: "aaa", AnchorLines: 2}, Path: "main.go", Line: 10}
+	want := vcs.OpenFinding{FingerprintInfo: vcs.FingerprintInfo{Fingerprint: "aa", Anchor: "aaa", AnchorLines: 2}, Path: "main.go", Line: 10, Severity: "HIGH"}
 	if got[0] != want {
 		t.Errorf("got %+v, want %+v", got[0], want)
 	}

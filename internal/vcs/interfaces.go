@@ -15,11 +15,13 @@ type OpenThreadReader = vcs.OpenThreadReader
 
 var FingerprintMarker = vcs.FingerprintMarker
 var ParseFingerprint = vcs.ParseFingerprint
+var ParseFindingHeader = vcs.ParseFindingHeader
 var AnchorHash = vcs.AnchorHash
 var FindingSpan = vcs.FindingSpan
 var ComputeFingerprint = vcs.ComputeFingerprint
 var FingerprintFor = vcs.FingerprintFor
 
 type FingerprintInfo = vcs.FingerprintInfo
+type FindingHeader = vcs.FindingHeader
 
 const MaxAnchorLines = vcs.MaxAnchorLines
