@@ -352,7 +352,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--max-tokens` | Maximum total tokens per review (0 = unlimited) | `0` |
 | `--max-files` | Maximum files before scope enforcement (0 = unlimited) | `0` |
 | `--scope-action` | Action when scope exceeded: `warn` or `fail` | `warn` |
-| `--audit-log` | Write structured JSONL audit log to file (`files_skipped_detail` lists each unreviewed file with its reason; with `--agent`, includes `agent_verdicts`) | — |
+| `--audit-log` | Write structured JSONL audit log to file (`files_skipped_detail` lists each unreviewed file with its reason; with `--agent`, includes `agent_verdicts`; `suppressed` lists findings left out because their thread was [dismissed](#suppressed-findings-in-the-audit-log)) | — |
 | `--agent` | Enable the agent refinement loop that verifies findings with `read_file`, `find_definition` and `list_directory` | `false` |
 | `--agent-scope` | Findings the agent loop examines: `all` or `high_severity_only` (HIGH and CRITICAL only; also `agent_scope` in YAML) | `all` |
 | `--auto-approve` | Automatically approve MR/PR on clean review (CI mode only) | `false` |
@@ -369,6 +369,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--fix` | Apply suggested fixes to the working tree | `false` |
 | `--update-description` | Inject review summary into MR/PR description | `false` |
 | `--cleanup-mode` | How to handle previous reviews: `delete` or `resolve` | `delete` |
+| `--dismissal-mode` | What dismisses a HIGH/CRITICAL finding's thread: `any` (a reply or a resolution) or `resolve_only` (a resolution only). See [Dismissed Findings](#dismissed-findings). | `any` |
 | `--profile` | Review profile: `platform`, `product`, or `all` (default: `all`). See [Dual-Review Architecture](docs/PLATFORM-GOVERNANCE.md#dual-review-ci-architecture-platform-gate-vs-product-quality-review). |
 | `--platform-model` | Model override for `--profile=platform` (e.g. `gemini-3.1-pro-preview`) | — |
 | `--product-model` | Model override for `--profile=product` (e.g. `gemini-3.8-flash`) | — |
@@ -426,6 +427,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `GITHUB_TOKEN` | GitHub API token (auto-set in GitHub Actions) | Required for GitHub |
 | `CODE_REVIEWER_UPDATE_DESCRIPTION` | Update MR/PR description with summary | `false` |
 | `CODE_REVIEWER_CLEANUP_MODE` | Previous review cleanup mode | `delete` |
+| `REVIEW_DISMISSAL_MODE` | Dismissal mode for HIGH/CRITICAL findings (`any` or `resolve_only`) | `any` |
 
 ### Per-Repo Config
 
@@ -457,6 +459,7 @@ max_tokens: 50000  # Optional: cap total tokens per review
 api_url: http://localhost:11434/v1  # Optional: use a self-hosted model
 update_description: false  # Inject summary into MR/PR description
 cleanup_mode: delete       # delete or resolve
+dismissal_mode: any        # any or resolve_only (what dismisses a HIGH/CRITICAL finding)
 auto_approve: false     # Auto-approve MR/PR when zero findings (CI mode)
 audit_log: review.jsonl # Write audit trail
 max_files: 30           # Scope enforcement: warn when MR exceeds 30 files
@@ -512,7 +515,7 @@ code-reviewer --diff --api-url http://candela:8080/v1 --model gemini-3.8-flash
 
 ### Dismissed Findings
 
-Each inline comment carries a hidden fingerprint: the file, the lowercased category and a hash of the commented lines plus the lines directly around them. In CI mode the next run stops re-posting a finding when its thread was dismissed and the code under it is unchanged, and lists those locations (path and line only, never comment text) in the prompt so the model does not rediscover them. Editing the lines, or the lines next to them, produces a new fingerprint and the finding can be raised again. On GitLab, `cleanup_mode` leaves a dismissed thread in place only while its code is unchanged; once the code changes, the thread is cleaned up as usual.
+Each inline comment carries a hidden fingerprint: the file, the lowercased category and a hash of the commented lines plus the lines directly around them. In CI mode the next run stops re-posting a finding when its thread was dismissed and the code under it is unchanged, and lists those locations (path and line only, never comment text) in the prompt so the model does not rediscover them. Editing the lines, or the lines next to them, produces a new fingerprint and the finding can be raised again. On GitLab, both `cleanup_mode` values leave a dismissed thread as the person left it (not deleted, and with `resolve` not resolved by the tool) only while its code is unchanged; once the code changes, the thread is cleaned up as usual.
 
 Rules for who may dismiss:
 
@@ -520,7 +523,19 @@ Rules for who may dismiss:
 - A reply from, or (GitLab) resolution by, anyone other than the tool counts as engagement. GitHub review-thread resolution is not exposed over REST, so GitHub only looks at replies.
 - If the only person engaged is the merge/pull request author, the dismissal applies to findings below HIGH only. HIGH and CRITICAL findings need any account other than the author.
 - Dismissed HIGH and CRITICAL findings are never re-posted, but they still count toward the exit status whenever the model emits them again. Because dismissed locations are also listed in the prompt, the model will often not emit them, so do not rely on this to keep the CI gate red. Auto-approve and SARIF/SAST output include every finding the model emitted.
+- `dismissal_mode: resolve_only` (`--dismissal-mode`, `REVIEW_DISMISSAL_MODE`) makes a plain reply stop dismissing HIGH and CRITICAL findings: only a resolution by someone other than the author does. A reply-only thread is then left out of the dismissed locations in the prompt, so the model can raise the finding again and it is re-posted. Lower severities are unchanged. GitHub cannot read thread resolution, so there `resolve_only` never dismisses a HIGH or CRITICAL finding. The default, `any`, keeps the behavior described above.
 - The feature is on by default in CI mode and has no opt-out setting yet.
+
+#### Suppressed findings in the audit log
+
+A suppressed finding is not posted, so it is also absent from `severity_counts`, which counts posted findings only. To let a caller that gates on the audit log (`--audit-log`) see them, each entry adds, only when something was suppressed:
+
+- `suppressed`: one object per suppressed finding with `fingerprint`, `severity` (lower case), `category`, `file`, `line`, `old_line` (omitted when 0), `rule_name` (omitted when empty), `dismissed_note_id` and `author_only`. `dismissed_note_id` is the first note (GitLab) or comment (GitHub) id of the dismissed thread the finding matched, 0 if unknown, so a caller can look the thread up and apply its own rules. `author_only` is true when only the merge/pull request author engaged with that thread.
+- `suppressed_severity_counts`: counts of the suppressed findings, keyed like `severity_counts`.
+
+```json
+{"severity_counts":{"MEDIUM":1},"suppressed":[{"fingerprint":"3fa9c1d27b40e8aa","severity":"high","category":"security","file":"auth.go","line":42,"dismissed_note_id":1187,"author_only":false}],"suppressed_severity_counts":{"HIGH":1}}
+```
 
 For repeatable verdicts on unchanged code, `temperature: 0` (or `--temperature 0`) lowers sampling randomness. Google recommends leaving Gemini 3.x models at their default temperature, so on those prefer multi-model consensus.
 

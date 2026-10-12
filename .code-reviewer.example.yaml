@@ -46,6 +46,8 @@ comment_mode: notes
 
 # cleanup_mode: delete    # How to handle previous bot comments (delete or resolve)
 
+# dismissal_mode: any     # What dismisses a HIGH/CRITICAL finding's thread: any (a reply or a resolution) or resolve_only (a resolution only)
+
 # update_description: false  # Inject review summary into MR/PR description
 
 # output_json: false         # Output results as JSON instead of posting

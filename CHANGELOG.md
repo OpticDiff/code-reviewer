@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Audit log: `suppressed` and `suppressed_severity_counts` list the findings left out because a thread with the same fingerprint was dismissed, with the id of the dismissed thread's first note (`dismissed_note_id`) and whether only the author engaged (`author_only`). Both are omitted when nothing was suppressed; `severity_counts` still counts posted findings only.
+- `dismissal_mode` configuration field, `--dismissal-mode` CLI flag, and `REVIEW_DISMISSAL_MODE` environment variable. `resolve_only` makes only a resolution by someone other than the author (not a reply) dismiss HIGH and CRITICAL findings; the default `any` keeps today's behavior.
+
+### Fixed
+- GitLab `cleanup_mode: resolve` no longer resolves a thread that matched a dismissed finding this run, so the thread keeps the state the person left it in. `delete` mode already kept such threads.
+
 ## [0.25.1] — 2026-10-10
 
 ### Fixed
