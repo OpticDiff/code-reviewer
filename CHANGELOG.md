@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- GitLab multi-line suggestions replaced the lines above the comment instead of the finding's range. The suggestion block is now `suggestion:-0+N`, reaching from the comment's first line down to the last. Ranges longer than 100 lines below the first line, which GitLab silently clamps, post without a suggestion block.
+
 ## [0.25.1] — 2026-10-10
 
 ### Fixed

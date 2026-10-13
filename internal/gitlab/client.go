@@ -668,15 +668,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 				continue
 			}
 
-			noteBody := comment.Body
-			if comment.Suggestion != "" && comment.Line > 0 {
-				if comment.EndLine > comment.Line {
-					offset := comment.EndLine - comment.Line
-					noteBody += fmt.Sprintf("\n\n```suggestion:-%d+0\n%s\n```", offset, comment.Suggestion)
-				} else {
-					noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
-				}
-			}
+			noteBody := comment.Body + suggestionBlock(comment)
 			draftReq := CreateDraftNoteRequest{
 				Note: noteBody + "\n" + c.botMarker,
 				Position: &DiscussionPosition{
@@ -723,6 +715,34 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 		"drafts_failed", draftsFailed,
 	)
 	return nil
+}
+
+// maxSuggestionOffset is the furthest GitLab reaches above or below a note's
+// anchor line; it clamps larger offsets without error.
+const maxSuggestionOffset = 100
+
+// suggestionBlock renders the comment's suggestion as a GitLab suggestion
+// fence, or "" when there is none or GitLab cannot express its range.
+//
+// GitLab resolves -A+B relative to the position's new_line, which this client
+// sets to the comment's first line, so the block reaches down to EndLine.
+func suggestionBlock(comment vcs.ReviewComment) string {
+	if comment.Suggestion == "" || comment.Line <= 0 {
+		return ""
+	}
+	below := 0
+	if comment.EndLine > comment.Line {
+		below = comment.EndLine - comment.Line
+	}
+	if below > maxSuggestionOffset {
+		slog.Warn("omitting suggestion block: range exceeds GitLab's suggestion limit",
+			"file", comment.Path,
+			"line", comment.Line,
+			"end_line", comment.EndLine,
+		)
+		return ""
+	}
+	return fmt.Sprintf("\n\n```suggestion:-0+%d\n%s\n```", below, comment.Suggestion)
 }
 
 // oldPathOf returns the path the comment's file had before the change: the
@@ -781,15 +801,7 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 				slog.Warn("context canceled, stopping inline comment posting", "error", err)
 				break
 			}
-			noteBody := comment.Body
-			if comment.Suggestion != "" && comment.Line > 0 {
-				if comment.EndLine > comment.Line {
-					offset := comment.EndLine - comment.Line
-					noteBody += fmt.Sprintf("\n\n```suggestion:-%d+0\n%s\n```", offset, comment.Suggestion)
-				} else {
-					noteBody += fmt.Sprintf("\n\n```suggestion:-0+0\n%s\n```", comment.Suggestion)
-				}
-			}
+			noteBody := comment.Body + suggestionBlock(comment)
 			inlineReq := vcs.InlineCommentRequest{
 				Body: noteBody,
 				Position: &vcs.InlineCommentPosition{
