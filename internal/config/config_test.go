@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1519,4 +1520,81 @@ func TestLoad_Temperature(t *testing.T) {
 			t.Error("Load() error = nil, want out-of-range error")
 		}
 	})
+}
+
+// TestLoad_UseTemperature verifies use_temperature is on by default, can be
+// turned off from YAML, env and flag with the usual precedence, and cannot be
+// combined with an explicit temperature.
+func TestLoad_UseTemperature(t *testing.T) {
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	inRepo := func(t *testing.T, yaml string) {
+		t.Helper()
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, ".code-reviewer.yaml"), []byte(yaml), 0o644); err != nil {
+			t.Fatalf("writing yaml: %v", err)
+		}
+		oldDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Getwd: %v", err)
+		}
+		t.Cleanup(func() { os.Chdir(oldDir) }) //nolint:errcheck
+		if err := os.Chdir(dir); err != nil {
+			t.Fatalf("Chdir: %v", err)
+		}
+	}
+
+	tests := []struct {
+		name         string
+		yaml         string
+		env          string
+		tempEnv      string
+		args         []string
+		wantDisabled bool
+		wantErr      bool
+	}{
+		{name: "enabled by default", args: []string{"--diff"}},
+		{name: "yaml false disables", yaml: "use_temperature: false\n", args: []string{"--diff"}, wantDisabled: true},
+		{name: "yaml true keeps enabled", yaml: "use_temperature: true\n", args: []string{"--diff"}},
+		{name: "env false disables", env: "false", args: []string{"--diff"}, wantDisabled: true},
+		{name: "env 0 disables", env: "0", args: []string{"--diff"}, wantDisabled: true},
+		{name: "invalid env is ignored", env: "maybe", args: []string{"--diff"}},
+		{name: "flag false disables", args: []string{"--diff", "--use-temperature=false"}, wantDisabled: true},
+		{name: "flag true overrides env false", env: "false", args: []string{"--diff", "--use-temperature=true"}},
+		{name: "flag false overrides yaml true", yaml: "use_temperature: true\n", args: []string{"--diff", "--use-temperature=false"}, wantDisabled: true},
+		{name: "env true overrides yaml false", yaml: "use_temperature: false\n", env: "true", args: []string{"--diff"}},
+		{name: "false with flag temperature conflicts", args: []string{"--diff", "--use-temperature=false", "--temperature", "0"}, wantErr: true},
+		{name: "false with yaml temperature conflicts", yaml: "use_temperature: false\ntemperature: 0.3\n", args: []string{"--diff"}, wantErr: true},
+		{name: "false with env temperature conflicts", env: "false", tempEnv: "0.3", args: []string{"--diff"}, wantErr: true},
+		{name: "true with temperature is fine", args: []string{"--diff", "--use-temperature=true", "--temperature", "0.5"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.yaml != "" {
+				inRepo(t, tt.yaml)
+			} else {
+				inRepo(t, "model: some-model\n")
+			}
+			os.Args = append([]string{"code-reviewer"}, tt.args...)
+			t.Setenv("REVIEW_USE_TEMPERATURE", tt.env)
+			t.Setenv("REVIEW_TEMPERATURE", tt.tempEnv)
+
+			cfg, err := Load()
+			if tt.wantErr {
+				var ce *ConfigError
+				if !errors.As(err, &ce) {
+					t.Fatalf("Load() error = %v, want *ConfigError", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() unexpected error: %v", err)
+			}
+			if cfg.DisableTemperature != tt.wantDisabled {
+				t.Errorf("DisableTemperature = %v, want %v", cfg.DisableTemperature, tt.wantDisabled)
+			}
+		})
+	}
 }

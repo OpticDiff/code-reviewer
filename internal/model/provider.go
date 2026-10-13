@@ -23,6 +23,7 @@ type Provider struct {
 	client      *genai.Client
 	modelName   string
 	temperature *float32 // nil = defaultTemperature.
+	omitTemp    bool     // true = send no temperature; the model's own default applies.
 }
 
 // defaultTemperature is the sampling temperature used for review calls
@@ -32,11 +33,19 @@ const defaultTemperature float32 = 0.2
 // SetTemperature overrides the sampling temperature for review calls.
 func (p *Provider) SetTemperature(t float32) { p.temperature = &t }
 
-func (p *Provider) temperatureValue() float32 {
-	if p.temperature != nil {
-		return *p.temperature
+// OmitTemperature makes the provider send no temperature at all, leaving the
+// model's own default in effect. It takes precedence over SetTemperature.
+func (p *Provider) OmitTemperature() { p.omitTemp = true }
+
+// temperatureConfig returns the temperature to send, or nil to send none.
+func (p *Provider) temperatureConfig() *float32 {
+	if p.omitTemp {
+		return nil
 	}
-	return defaultTemperature
+	if p.temperature != nil {
+		return genai.Ptr(*p.temperature)
+	}
+	return genai.Ptr(defaultTemperature)
 }
 
 // GenaiClient returns the underlying genai.Client for multi-turn use (e.g., agent loop).
@@ -92,7 +101,7 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, bool, error) {
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
-		Temperature:       genai.Ptr(p.temperatureValue()),
+		Temperature:       p.temperatureConfig(),
 	}
 
 	// Gemini models support native JSON mode (without schema constraint for flexibility).

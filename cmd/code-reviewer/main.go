@@ -142,6 +142,9 @@ func run(ctx, initCtx context.Context) (int, error) {
 				if cfg.Temperature != nil {
 					p.SetTemperature(float32(*cfg.Temperature))
 				}
+				if cfg.DisableTemperature {
+					p.OmitTemperature()
+				}
 				providers = append(providers, p)
 			}
 			modelProvider = model.NewMultiProviderFromReviewers(providers, threshold)
@@ -150,6 +153,9 @@ func run(ctx, initCtx context.Context) (int, error) {
 			if cfg.Temperature != nil {
 				t := float32(*cfg.Temperature)
 				opts = append(opts, func(p *model.Provider) { p.SetTemperature(t) })
+			}
+			if cfg.DisableTemperature {
+				opts = append(opts, (*model.Provider).OmitTemperature)
 			}
 			mp, err := model.NewMultiProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Models, threshold, cfg.ProxyURL, opts...)
 			if err != nil {
@@ -167,6 +173,9 @@ func run(ctx, initCtx context.Context) (int, error) {
 		if cfg.Temperature != nil {
 			provider.SetTemperature(float32(*cfg.Temperature))
 		}
+		if cfg.DisableTemperature {
+			provider.OmitTemperature()
+		}
 		modelProvider = provider
 	} else {
 		provider, err := model.NewProvider(initCtx, cfg.GCPProject, cfg.GCPLocation, cfg.Model, cfg.ProxyURL)
@@ -175,6 +184,9 @@ func run(ctx, initCtx context.Context) (int, error) {
 		}
 		if cfg.Temperature != nil {
 			provider.SetTemperature(float32(*cfg.Temperature))
+		}
+		if cfg.DisableTemperature {
+			provider.OmitTemperature()
 		}
 		modelProvider = provider
 	}

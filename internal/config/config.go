@@ -122,6 +122,7 @@ type Config struct {
 	TokenLimit         int      // Context window limit override in tokens (0 = use model default).
 	ConfidenceFloor    int      // Minimum confidence percent (1-100) the model needs to report a finding (0 = built-in default of 80).
 	Temperature        *float64 // Sampling temperature override (nil = provider default).
+	DisableTemperature bool     // Send no temperature on any model call; the model's own default applies.
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
@@ -251,6 +252,7 @@ type repoConfig struct {
 	TokenLimit       int      `yaml:"token_limit"`
 	ConfidenceFloor  int      `yaml:"confidence_floor"`
 	Temperature      *float64 `yaml:"temperature"`
+	UseTemperature   *bool    `yaml:"use_temperature"`
 	Focus            []string `yaml:"focus"`
 	ContextFiles     []string `yaml:"context_files"`
 	MinSeverity      string   `yaml:"min_severity"`
@@ -486,6 +488,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.Temperature != nil {
 		c.Temperature = rc.Temperature
 	}
+	if rc.UseTemperature != nil {
+		c.DisableTemperature = !*rc.UseTemperature
+	}
 	if len(rc.Focus) > 0 {
 		c.Focus = rc.Focus
 	}
@@ -644,6 +649,14 @@ func (c *Config) loadEnv() {
 			slog.Warn("ignoring invalid REVIEW_TEMPERATURE", "value", v, "error", err)
 		} else {
 			c.Temperature = &t
+		}
+	}
+	if v := os.Getenv("REVIEW_USE_TEMPERATURE"); v != "" {
+		use, err := strconv.ParseBool(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_USE_TEMPERATURE", "value", v, "error", err)
+		} else {
+			c.DisableTemperature = !use
 		}
 	}
 	if v := os.Getenv("REVIEW_FOCUS"); v != "" {
@@ -820,6 +833,7 @@ func (c *Config) loadFlags() error {
 	confidenceFloor := fs.Int("confidence-floor", 0, "Minimum model confidence percent (1-100) required to report a finding (default 80)")
 	contextFiles := fs.String("context-files", "", "Directory-scoped guidance file names to include for changed directories, comma-separated (e.g. AGENTS.md)")
 	temperature := fs.Float64("temperature", 0, "Sampling temperature for review calls (0-2); unset keeps the provider default")
+	useTemperature := fs.Bool("use-temperature", true, "Send a sampling temperature with model calls; --use-temperature=false sends none, so the model's own default applies")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")
@@ -974,6 +988,9 @@ func (c *Config) loadFlags() error {
 		}
 		if f.Name == "temperature" {
 			c.Temperature = temperature
+		}
+		if f.Name == "use-temperature" {
+			c.DisableTemperature = !*useTemperature
 		}
 		if f.Name == "max-tokens" {
 			if *maxTokens < 0 {
@@ -1161,6 +1178,9 @@ func (c *Config) validate() error {
 	}
 	if c.Temperature != nil && (*c.Temperature < 0 || *c.Temperature > 2) {
 		return &ConfigError{Err: fmt.Errorf("invalid temperature %v: must be between 0 and 2", *c.Temperature)}
+	}
+	if c.DisableTemperature && c.Temperature != nil {
+		return &ConfigError{Err: fmt.Errorf("temperature %v conflicts with use_temperature: false; remove one of them", *c.Temperature)}
 	}
 
 	// Normalize and validate profile.

@@ -43,16 +43,26 @@ type HTTPProvider struct {
 	modelName   string
 	httpClient  *http.Client
 	temperature *float32 // nil = defaultTemperature.
+	omitTemp    bool     // true = send no temperature; the model's own default applies.
 }
 
 // SetTemperature overrides the sampling temperature for review calls.
 func (p *HTTPProvider) SetTemperature(t float32) { p.temperature = &t }
 
-func (p *HTTPProvider) temperatureValue() float32 {
-	if p.temperature != nil {
-		return *p.temperature
+// OmitTemperature makes the provider send no temperature at all, leaving the
+// model's own default in effect. It takes precedence over SetTemperature.
+func (p *HTTPProvider) OmitTemperature() { p.omitTemp = true }
+
+// temperatureConfig returns the temperature to send, or nil to omit the field.
+func (p *HTTPProvider) temperatureConfig() *float32 {
+	if p.omitTemp {
+		return nil
 	}
-	return defaultTemperature
+	t := defaultTemperature
+	if p.temperature != nil {
+		t = *p.temperature
+	}
+	return &t
 }
 
 // NewHTTPProvider creates a provider that talks to any OpenAI-compatible endpoint.
@@ -107,7 +117,7 @@ func NewHTTPProvider(baseURL, apiKey, modelName string) (*HTTPProvider, error) {
 type chatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []chatMessage `json:"messages"`
-	Temperature float32       `json:"temperature"`
+	Temperature *float32      `json:"temperature,omitempty"` // nil is omitted; a pointer to 0 is still sent.
 }
 
 type chatMessage struct {
@@ -156,7 +166,7 @@ func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt
 			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userPrompt},
 		},
-		Temperature: p.temperatureValue(),
+		Temperature: p.temperatureConfig(),
 	}
 
 	payload, err := json.Marshal(reqBody)

@@ -196,3 +196,53 @@ func TestBuildVerdicts_RemovedLinesAreDistinct(t *testing.T) {
 		t.Errorf("verdict should carry old_line, got %+v", got[0])
 	}
 }
+
+// configChatter records the GenerateContentConfig of every call and replies
+// with a fixed sequence of model texts.
+type configChatter struct {
+	scriptedChatter
+	configs []*genai.GenerateContentConfig
+}
+
+func (c *configChatter) Chat(ctx context.Context, history []*genai.Content, cfg *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
+	c.configs = append(c.configs, cfg)
+	return c.scriptedChatter.Chat(ctx, history, cfg)
+}
+
+func TestRunAgentLoop_Temperature(t *testing.T) {
+	initial := []model.Finding{{File: "a.go", Line: 1, Severity: "HIGH", Title: "kept"}}
+	refined, _ := json.Marshal(initial)
+
+	tests := []struct {
+		name string
+		omit bool
+		want *float32 // nil = not sent.
+	}{
+		{name: "default is deterministic", want: genai.Ptr(float32(0))},
+		{name: "omitted", omit: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chatter := &configChatter{scriptedChatter: scriptedChatter{replies: []string{
+				`{"action":"findings","findings":` + string(refined) + `}`,
+			}}}
+			_, err := RunAgentLoop(context.Background(), chatter, AgentConfig{RepoRoot: t.TempDir(), OmitTemperature: tt.omit}, initial)
+			if err != nil {
+				t.Fatalf("RunAgentLoop: %v", err)
+			}
+			if len(chatter.configs) == 0 {
+				t.Fatal("chatter was never called")
+			}
+			for i, cfg := range chatter.configs {
+				switch {
+				case tt.want == nil && cfg.Temperature != nil:
+					t.Errorf("call %d: Temperature = %v, want nil", i, *cfg.Temperature)
+				case tt.want != nil && cfg.Temperature == nil:
+					t.Errorf("call %d: Temperature = nil, want %v", i, *tt.want)
+				case tt.want != nil && *cfg.Temperature != *tt.want:
+					t.Errorf("call %d: Temperature = %v, want %v", i, *cfg.Temperature, *tt.want)
+				}
+			}
+		})
+	}
+}

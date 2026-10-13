@@ -60,6 +60,7 @@ type AgentConfig struct {
 	RemainingBudget int64         // Token budget remaining from initial review.
 	Timeout         time.Duration // Wall-clock timeout (default 3m).
 	RepoRoot        string        // Repository root for tool access.
+	OmitTemperature bool          // Send no temperature, leaving the model's own default (default false: 0.0).
 }
 
 // AgentResult holds the output of the agent refinement loop.
@@ -193,7 +194,9 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 	systemPrompt := buildRefinementSystemPrompt(string(findingsJSON))
 	genConfig := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
-		Temperature:       genai.Ptr(float32(0.0)), // Deterministic for refinement (ML review).
+	}
+	if !cfg.OmitTemperature {
+		genConfig.Temperature = genai.Ptr(float32(0.0)) // Deterministic for refinement (ML review).
 	}
 
 	// Build conversation history.

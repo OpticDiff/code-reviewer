@@ -529,6 +529,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				RemainingBudget: remainingBudget,
 				Timeout:         r.cfg.AgentTimeout,
 				RepoRoot:        findRepoRoot(),
+				OmitTemperature: r.cfg.DisableTemperature,
 			}
 			scoped, agentResult, err := runScopedAgentLoop(ctx, r.chatter, agentCfg, allFindings, r.cfg.AgentScope)
 			// Always aggregate usage, even on error (agent preserves accumulated tokens).
