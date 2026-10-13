@@ -70,12 +70,18 @@ func TerminalOutput(result *model.ReviewResult) string {
 // the pre-change line number, which GitLab requires alongside the new one.
 // If changedFiles is non-nil, only cleans previous comments on those files (incremental mode).
 func PostReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, result *model.ReviewResult, diffs []diff.FileDiff, version *vcs.DiffVersion, changedFiles []string, profile string) error {
-	return postReview(ctx, cfg, client, result, diffs, version, changedFiles, profile, nil)
+	return postReview(ctx, cfg, client, result, diffs, version, changedFiles, profile, threadCarryOver{inline: result.Findings})
 }
 
-// postReview is PostReview plus the fingerprints of dismissed threads that
-// cleanup of previous bot comments must leave in place.
-func postReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, result *model.ReviewResult, diffs []diff.FileDiff, version *vcs.DiffVersion, changedFiles []string, profile string, keepFingerprints []string) error {
+// threadCarryOver describes how a review relates to threads from earlier runs.
+type threadCarryOver struct {
+	dismissed []string        // Fingerprints of dismissed threads that cleanup must leave in place.
+	open      []string        // Fingerprints of open threads whose findings this review reports again; cleanup must leave them open.
+	inline    []model.Finding // Findings to post as inline comments; the summary lists all of result.Findings.
+}
+
+// postReview is PostReview plus the carry-over from earlier runs.
+func postReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, result *model.ReviewResult, diffs []diff.FileDiff, version *vcs.DiffVersion, changedFiles []string, profile string, carry threadCarryOver) error {
 	// When platform visibility is security-team-only, redact finding details
 	// from PR comments. Full details are preserved in SARIF and audit log.
 	redacted := cfg.PlatformVisibility == "security-team-only" && profile == "platform"
@@ -85,13 +91,14 @@ func postReview(ctx context.Context, cfg *config.Config, client vcs.NotePoster, 
 		Version:          version,
 		CleanupMode:      string(cfg.CleanupMode),
 		ChangedFiles:     changedFiles,
-		KeepFingerprints: keepFingerprints,
+		KeepFingerprints: carry.dismissed,
+		OpenFingerprints: carry.open,
 	}
 
 	// Suppress inline comments entirely when redacted — finding details
 	// are only available via SARIF (Security tab) and the audit log.
 	if !redacted && cfg.CommentMode == config.CommentModeDiscussions && version != nil {
-		for _, f := range result.Findings {
+		for _, f := range carry.inline {
 			if f.Line <= 0 && f.OldLine > 0 {
 				// A removed line has no new-side number and cannot take a
 				// suggestion or a new-side range.

@@ -53,9 +53,19 @@ func oldSideLines(file string, diffs []diff.FileDiff) map[int]string {
 
 var anchorHash = vcs.AnchorHash
 
+// fingerprintKey is the classification a fingerprint is built from: the rule
+// when the finding is attributed to one, because rule categories are coarse
+// and shared between rules, otherwise the model's category.
+func fingerprintKey(f model.Finding) string {
+	if name := strings.TrimSpace(f.RuleName); name != "" && f.RuleSource != "" {
+		return "rule:" + name
+	}
+	return f.Category
+}
+
 // AssignFingerprints sets Fingerprint, Anchor and AnchorLines on every
 // finding that is anchored inside the diff. The fingerprint combines the
-// anchor hash with the lowercased category, and deliberately ignores the
+// anchor hash with the lowercased rule or category, and deliberately ignores the
 // title, body and line number, which vary between model runs. Any edit to the
 // anchored lines or their neighbours yields a new fingerprint. Findings that
 // cannot be anchored keep an empty fingerprint and are never suppressed.
@@ -81,7 +91,7 @@ func AssignFingerprints(findings []model.Finding, diffs []diff.FileDiff) {
 			}
 			startLine, endLine = f.Line, f.EndLine
 		}
-		info, ok := vcs.ComputeFingerprint(f.File, f.Category, startLine, endLine, lines)
+		info, ok := vcs.ComputeFingerprint(f.File, fingerprintKey(*f), startLine, endLine, lines)
 		if !ok {
 			continue
 		}
@@ -97,33 +107,51 @@ const highSeverityRank = 3
 
 // FilterDismissed splits findings into those to keep and those suppressed
 // because a thread with the same fingerprint was dismissed. A dismissal that
-// came only from the MR/PR author never suppresses HIGH or CRITICAL findings.
+// came only from the MR/PR author never suppresses HIGH or CRITICAL findings,
+// and with resolveOnly neither does a thread that was only replied to.
 // Findings without a fingerprint are always kept.
-func FilterDismissed(findings []model.Finding, dismissed []vcs.DismissedFinding) (kept, suppressed []model.Finding) {
+func FilterDismissed(findings []model.Finding, dismissed []vcs.DismissedFinding, resolveOnly bool) (kept, suppressed []model.Finding) {
 	if len(dismissed) == 0 {
 		return findings, nil
 	}
-	known := make(map[string]vcs.DismissedFinding, len(dismissed))
-	for _, d := range dismissed {
-		if d.Fingerprint == "" {
-			continue
-		}
-		// Prefer the stronger dismissal when several threads share a fingerprint.
-		if prev, ok := known[d.Fingerprint]; ok && !prev.AuthorOnly {
-			continue
-		}
-		known[d.Fingerprint] = d
-	}
+	known := strongestDismissals(dismissed)
 	kept = make([]model.Finding, 0, len(findings))
 	for _, f := range findings {
 		d, ok := known[f.Fingerprint]
-		if f.Fingerprint == "" || !ok || (d.AuthorOnly && severityRank(f.Severity) >= highSeverityRank) {
+		if f.Fingerprint == "" || !ok || (!d.SilencesHighSeverity(resolveOnly) && severityRank(f.Severity) >= highSeverityRank) {
 			kept = append(kept, f)
 			continue
 		}
 		suppressed = append(suppressed, f)
 	}
 	return kept, suppressed
+}
+
+// strongestDismissals indexes dismissed threads by fingerprint. When several
+// threads share one, a resolution wins over a reply, and a reply by someone
+// other than the author over a dismissal by the author alone.
+func strongestDismissals(dismissed []vcs.DismissedFinding) map[string]vcs.DismissedFinding {
+	known := make(map[string]vcs.DismissedFinding, len(dismissed))
+	for _, d := range dismissed {
+		if d.Fingerprint == "" {
+			continue
+		}
+		if prev, ok := known[d.Fingerprint]; ok && dismissalStrength(prev) >= dismissalStrength(d) {
+			continue
+		}
+		known[d.Fingerprint] = d
+	}
+	return known
+}
+
+func dismissalStrength(d vcs.DismissedFinding) int {
+	switch {
+	case d.Resolved:
+		return 2
+	case !d.AuthorOnly:
+		return 1
+	}
+	return 0
 }
 
 // BlockingCount returns how many of the findings are HIGH or CRITICAL, the
@@ -184,11 +212,12 @@ func KeepFingerprints(dismissed []vcs.DismissedFinding, posted []model.Finding, 
 // FormatDismissedPrompt renders previously dismissed locations as a prompt
 // section. It carries only file paths and line numbers, never comment text:
 // everything else in a thread is untrusted input. Threads dismissed solely by
-// the MR/PR author are left out, because they may not silence serious findings.
-func FormatDismissedPrompt(dismissed []vcs.DismissedFinding) string {
+// the MR/PR author, and with resolveOnly threads that were only replied to,
+// are left out, because they may not silence serious findings.
+func FormatDismissedPrompt(dismissed []vcs.DismissedFinding, resolveOnly bool) string {
 	var sb strings.Builder
 	for _, d := range dismissed {
-		if d.AuthorOnly || d.Path == "" {
+		if !d.SilencesHighSeverity(resolveOnly) || d.Path == "" {
 			continue
 		}
 		if d.OldSide && d.Line > 0 {

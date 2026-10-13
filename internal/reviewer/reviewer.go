@@ -90,10 +90,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var unreviewable []SkippedFile
 	var inScope int
 	var allFindings []model.Finding
+	var dismissed []vcs.DismissedFinding
+	var suppressed []model.Finding
 	var totalUsage model.TokenUsage
 	var dedupedCount int
 	var cacheHits int
 	var agentVerdicts []FindingVerdict
+	var agentAudit *AgentAudit
 
 	start := time.Now()
 
@@ -115,6 +118,8 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		entry.ProfileFilteredCount = r.profileFilteredCount
 		entry.SuggestionsDropped = r.suggestionsDropped
 		entry.AgentVerdicts = agentVerdicts
+		entry.Agent = agentAudit
+		entry.Suppressed, entry.SuppressedSeverityCounts = auditSuppressed(suppressed, dismissed)
 		if err := WriteAuditLog(r.cfg.AuditLog, entry); err != nil {
 			slog.Warn("failed to write audit log", "error", err)
 		}
@@ -290,8 +295,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 
 	// Threads a person already resolved or replied to must be read before
 	// posting, because cleanup of previous bot comments may remove the evidence.
-	dismissed := r.listDismissedFindings(ctx)
-	if prompt := FormatDismissedPrompt(dismissed); prompt != "" {
+	resolveOnly := r.cfg.DismissalMode == config.DismissalModeResolveOnly
+	dismissed = r.listDismissedFindings(ctx)
+	if prompt := FormatDismissedPrompt(dismissed, resolveOnly); prompt != "" {
 		if extraRules != "" {
 			extraRules += "\n\n"
 		}
@@ -340,7 +346,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cachedFindings []model.Finding
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
-		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil)+contextGuidance+FormatDismissedPrompt(dismissed))
+		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil)+contextGuidance+FormatDismissedPrompt(dismissed, resolveOnly))
 		if forceFullReview {
 			slog.Info("bypassing review cache due to commit trigger", "trigger", triggerMatched)
 			diffs, _, _, cacheKeys = cache.Partition(diffs, nil, cacheModelID, promptHash)
@@ -529,6 +535,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				RemainingBudget: remainingBudget,
 				Timeout:         r.cfg.AgentTimeout,
 				RepoRoot:        findRepoRoot(),
+				OmitTemperature: r.cfg.DisableTemperature,
 			}
 			scoped, agentResult, err := runScopedAgentLoop(ctx, r.chatter, agentCfg, allFindings, r.cfg.AgentScope)
 			// Always aggregate usage, even on error (agent preserves accumulated tokens).
@@ -538,9 +545,13 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 				totalUsage.TotalTokens += agentResult.Usage.TotalTokens
 				agentVerdicts = agentResult.Verdicts
 			}
+			agentAudit = newAgentAudit(agentResult, err, len(allFindings), len(scoped))
 			if err != nil {
 				slog.Warn("agent loop failed, using initial findings", "error", err)
 			} else if agentResult != nil {
+				if agentResult.StopReason == "error" {
+					slog.Warn("agent loop stopped on an error, findings left unverified", "iterations", agentResult.Iterations)
+				}
 				slog.Info("agent loop completed",
 					"iterations", agentResult.Iterations,
 					"stop_reason", agentResult.StopReason,
@@ -613,13 +624,20 @@ skipAgent:
 	// output still see every finding.
 	AssignFingerprints(allFindings, auditDiffs)
 	reportable := allFindings
-	var suppressed []model.Finding
-	allFindings, suppressed = FilterDismissed(allFindings, dismissed)
+	allFindings, suppressed = FilterDismissed(allFindings, dismissed, resolveOnly)
 	suppressedBlocking := BlockingCount(suppressed)
 	if len(suppressed) > 0 {
 		slog.Info(fmt.Sprintf("not re-posting %d finding(s) previously dismissed on unchanged code (%d high or critical still count toward the exit status)", len(suppressed), suppressedBlocking))
 	}
 	keepFingerprints := KeepFingerprints(dismissed, allFindings, auditDiffs)
+
+	// Findings an open thread of ours already covers are not posted again, and
+	// that thread is left open. They stay in allFindings: the summary, the
+	// audit log and the exit status still count them.
+	toPost, _, openFingerprints := FilterStanding(allFindings, r.listOpenFindings(ctx), auditDiffs)
+	if n := len(allFindings) - len(toPost); n > 0 {
+		slog.Info(fmt.Sprintf("leaving %d finding(s) on their open thread(s) instead of posting them again", n))
+	}
 
 	result := &model.ReviewResult{
 		Summary:  summary,
@@ -684,7 +702,11 @@ skipAgent:
 			result.Summary = FormatScopeMarkdown(scopeAssessment) + result.Summary
 		}
 
-		if err := postReview(ctx, r.cfg, r.glClient, result, auditDiffs, version, incrementalChangedFiles, r.cfg.Profile, keepFingerprints); err != nil {
+		if err := postReview(ctx, r.cfg, r.glClient, result, auditDiffs, version, incrementalChangedFiles, r.cfg.Profile, threadCarryOver{
+			dismissed: keepFingerprints,
+			open:      openFingerprints,
+			inline:    toPost,
+		}); err != nil {
 			return len(allFindings), fmt.Errorf("posting review: %w", err)
 		}
 
@@ -777,10 +799,10 @@ skipAgent:
 }
 
 // listDismissedFindings returns the tool's own review threads that a person
-// resolved or replied to. It returns nil outside CI posting mode, when the
+// resolved or replied to. It returns nil outside CI mode, when the
 // platform client cannot read threads, or on error (dismissal is best effort).
 func (r *Reviewer) listDismissedFindings(ctx context.Context) []vcs.DismissedFinding {
-	if !r.cfg.CIMode || r.cfg.DryRun || r.glClient == nil {
+	if !r.cfg.CIMode || r.glClient == nil {
 		return nil
 	}
 	reader, ok := r.glClient.(vcs.ThreadReader)
@@ -793,6 +815,26 @@ func (r *Reviewer) listDismissedFindings(ctx context.Context) []vcs.DismissedFin
 		return nil
 	}
 	return dismissed
+}
+
+// listOpenFindings returns the tool's own unresolved, unanswered review
+// threads. It returns nil outside CI mode, when the platform client
+// cannot read threads, or on error: without them every finding is posted, as
+// before.
+func (r *Reviewer) listOpenFindings(ctx context.Context) []vcs.OpenFinding {
+	if !r.cfg.CIMode || r.glClient == nil {
+		return nil
+	}
+	reader, ok := r.glClient.(vcs.OpenThreadReader)
+	if !ok {
+		return nil
+	}
+	open, err := reader.ListOpenFindings(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
+	if err != nil {
+		slog.Warn("could not read open review threads, posting every finding", "error", err)
+		return nil
+	}
+	return open
 }
 
 func (r *Reviewer) getDiffs(ctx context.Context) ([]diff.FileDiff, string, string, error) {
@@ -809,6 +851,9 @@ func (r *Reviewer) getDiffs(ctx context.Context) ([]diff.FileDiff, string, strin
 }
 
 func (r *Reviewer) getCIDiffs(ctx context.Context) ([]diff.FileDiff, string, string, error) {
+	if r.glClient == nil {
+		return nil, "", "", fmt.Errorf("CI mode requires a platform client to read the merge request")
+	}
 	mr, err := r.glClient.GetMRChanges(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
 	if err != nil {
 		return nil, "", "", err

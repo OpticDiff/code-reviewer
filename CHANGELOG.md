@@ -7,8 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Audit log: `suppressed` and `suppressed_severity_counts` list the findings left out because a thread with the same fingerprint was dismissed, with the id of the dismissed thread's first note (`dismissed_note_id`) and whether only the author engaged (`author_only`). Both are omitted when nothing was suppressed; `severity_counts` still counts posted findings only.
+- `dismissal_mode` configuration field, `--dismissal-mode` CLI flag, and `REVIEW_DISMISSAL_MODE` environment variable. `resolve_only` makes only a resolution by someone other than the author (not a reply) dismiss HIGH and CRITICAL findings; the default `any` keeps today's behavior.
+- `use_temperature` configuration field, `--use-temperature` CLI flag, and `REVIEW_USE_TEMPERATURE` environment variable (default `true`). Set it to `false` to send no temperature on any model call (review, summary, explain, consensus and the agent loop), so the model's own default applies; useful for models that deprecate or reject sampling parameters. Combining `use_temperature: false` with an explicit `temperature` is a configuration error. Defaults are unchanged.
+
+### Changed
+- Fingerprints of findings attributed to a rule are built from the rule name instead of the rule's category, because rules often share a category such as `custom`. Threads dismissed before this change can be raised once more.
+
 ### Fixed
 - GitLab multi-line suggestions replaced the lines above the comment instead of the finding's range. The suggestion block is now `suggestion:-0+N`, reaching from the comment's first line down to the last. Ranges longer than 100 lines below the first line, which GitLab silently clamps, post without a suggestion block.
+- `--agent` on Vertex AI: the refinement loop could end on its first call when the model answered with a native function call the API rejects (`MALFORMED_FUNCTION_CALL`, empty response). Refinement turns now request schema-constrained JSON, and the last turn can only return findings or `done`, so the loop reaches a verdict.
+- An empty model response in the agent loop is now an error naming the finish reason instead of a silent stop, and the audit log gains an `agent` object (`iterations`, `stop_reason`, `tool_calls`, `findings_before`, `findings_after`, `error`).
+- Findings that are still true are no longer re-posted on every push. In CI mode the run reads the tool's own unresolved, unanswered inline threads and leaves a thread open, with `cleanup_mode` skipping it, when this run reports the same finding. The finding counts as the same when the fingerprint matches, or when it is in the same file and on the same side of the diff with its start line within three lines of the thread's unchanged anchored code, whatever category and end line the model chose this time (rule findings must also come from the same rule). A finding that is more severe than its thread's badge is posted again as a new thread and the old one is cleaned up. Such findings stay in the summary and in the exit status. Threads whose finding disappeared or whose code changed are resolved or deleted as before. Suppression of dismissed findings still requires an exact fingerprint.
+- GitLab `cleanup_mode: resolve` no longer resolves a thread that matched a dismissed finding this run, so the thread keeps the state the person left it in. `delete` mode already kept such threads.
+- `--ci --dry-run` no longer panics with a nil pointer. Dry-run in CI mode reads the merge request (diff, title, description and dismissed threads) through the platform client and never writes; without a client the run now fails with a clear error.
+- Arguments after the `--diff` ref (for example `--diff origin/main --dry-run`) or positional arguments without `--diff` are now rejected with an "unexpected argument" error instead of being ignored silently.
 
 ## [0.25.1] — 2026-10-10
 

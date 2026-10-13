@@ -3,11 +3,13 @@ package reviewer
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/diff"
 	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/internal/model"
+	"github.com/OpticDiff/code-reviewer/internal/vcs"
 )
 
 // AuditEntry is a single structured log record written after each review run.
@@ -35,8 +37,58 @@ type AuditEntry struct {
 	PlatformRuleHashes map[string]string `json:"platform_rule_hashes,omitempty"`
 	PlatformRulesCount int               `json:"platform_rules_count,omitempty"`
 
+	// Suppressed lists findings left out of this run's comments because a
+	// thread with the same fingerprint was dismissed. They are not part of
+	// SeverityCounts, which counts the findings that were posted.
+	Suppressed               []SuppressedEntry `json:"suppressed,omitempty"`
+	SuppressedSeverityCounts map[string]int    `json:"suppressed_severity_counts,omitempty"`
+
 	// AgentVerdicts records the agent loop's outcome per examined finding.
 	AgentVerdicts []FindingVerdict `json:"agent_verdicts,omitempty"`
+	// Agent summarises the agent loop run; nil when the loop did not run.
+	Agent *AgentAudit `json:"agent,omitempty"`
+}
+
+// SuppressedEntry records one finding that was not posted because a person
+// dismissed an earlier thread for it.
+type SuppressedEntry struct {
+	Fingerprint     string `json:"fingerprint"`
+	Severity        string `json:"severity"`
+	Category        string `json:"category"`
+	File            string `json:"file"`
+	Line            int    `json:"line"`
+	OldLine         int    `json:"old_line,omitempty"`
+	RuleName        string `json:"rule_name,omitempty"`
+	DismissedNoteID int    `json:"dismissed_note_id"` // First note of the dismissed thread; 0 if unknown.
+	AuthorOnly      bool   `json:"author_only"`
+}
+
+// auditSuppressed describes the suppressed findings and the thread each one
+// matched. Counts use the same keys as AuditEntry.SeverityCounts. Both results
+// are nil when nothing was suppressed, so the audit fields are omitted.
+func auditSuppressed(suppressed []model.Finding, dismissed []vcs.DismissedFinding) ([]SuppressedEntry, map[string]int) {
+	if len(suppressed) == 0 {
+		return nil, nil
+	}
+	known := strongestDismissals(dismissed)
+	entries := make([]SuppressedEntry, 0, len(suppressed))
+	counts := make(map[string]int)
+	for _, f := range suppressed {
+		d := known[f.Fingerprint]
+		entries = append(entries, SuppressedEntry{
+			Fingerprint:     f.Fingerprint,
+			Severity:        strings.ToLower(f.Severity),
+			Category:        f.Category,
+			File:            f.File,
+			Line:            f.Line,
+			OldLine:         f.OldLine,
+			RuleName:        f.RuleName,
+			DismissedNoteID: d.NoteID,
+			AuthorOnly:      d.AuthorOnly,
+		})
+		counts[f.Severity]++
+	}
+	return entries, counts
 }
 
 // buildAuditEntry constructs an AuditEntry from the review run data.
