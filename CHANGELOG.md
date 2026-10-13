@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] — 2026-10-13
+
 ### Added
 - Audit log: `suppressed` and `suppressed_severity_counts` list the findings left out because a thread with the same fingerprint was dismissed, with the id of the dismissed thread's first note (`dismissed_note_id`) and whether only the author engaged (`author_only`). Both are omitted when nothing was suppressed; `severity_counts` still counts posted findings only.
 - `dismissal_mode` configuration field, `--dismissal-mode` CLI flag, and `REVIEW_DISMISSAL_MODE` environment variable. `resolve_only` makes only a resolution by someone other than the author (not a reply) dismiss HIGH and CRITICAL findings; the default `any` keeps today's behavior.
