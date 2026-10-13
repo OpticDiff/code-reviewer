@@ -66,7 +66,7 @@ func TestDismissedThreads(t *testing.T) {
 		byFP[d.finding.Fingerprint] = d.finding
 	}
 	if len(byFP) != 4 {
-		t.Fatalf("dismissed fingerprints = %v, want aa, cc, ff and gg only", byFP)
+		t.Fatalf("dismissed fingerprints = %v, want aa, ab, cc and ff only", byFP)
 	}
 	if _, forged := byFP["99"]; forged {
 		t.Error("a marker forged by a non-bot account must be ignored")
@@ -245,6 +245,7 @@ func TestSubmitReview_ResolveModePassesKeepFingerprints(t *testing.T) {
 	dismissed := botNote(1, "aa", 10)
 	discussions := []Discussion{{ID: "d1", Notes: []Note{dismissed, reply("reviewer", 9)}}}
 	var resolved []string
+	listed := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		switch {
@@ -253,7 +254,8 @@ func TestSubmitReview_ResolveModePassesKeepFingerprints(t *testing.T) {
 			_, _ = w.Write([]byte(`{}`))
 		case strings.HasSuffix(p, "/api/v4/user"):
 			_, _ = w.Write([]byte(`{"username":"review-bot"}`))
-		case strings.HasSuffix(p, "/discussions"):
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/discussions"):
+			listed++
 			_ = json.NewEncoder(w).Encode(discussions)
 		case strings.HasSuffix(p, "/draft_notes") || strings.Contains(p, "/draft_notes/"):
 			_, _ = w.Write([]byte(`[]`))
@@ -266,7 +268,13 @@ func TestSubmitReview_ResolveModePassesKeepFingerprints(t *testing.T) {
 	defer srv.Close()
 
 	req := vcs.SubmitReviewRequest{Summary: "s", CleanupMode: "resolve", KeepFingerprints: []string{"aa"}}
-	_ = NewClient(srv.URL, "tok").SubmitReview(context.Background(), "proj", "7", req)
+	if err := NewClient(srv.URL, "tok").SubmitReview(context.Background(), "proj", "7", req); err != nil {
+		t.Fatalf("SubmitReview: %v", err)
+	}
+	// Cleanup only logs a failed listing, so without this a broken request would pass vacuously.
+	if listed == 0 {
+		t.Fatal("resolve cleanup never listed the discussions")
+	}
 	if len(resolved) != 0 {
 		t.Errorf("resolve mode resolved %v, want the kept dismissed thread left alone", resolved)
 	}
