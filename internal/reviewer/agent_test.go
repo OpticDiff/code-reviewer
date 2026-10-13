@@ -199,7 +199,7 @@ func TestBuildVerdicts_RemovedLinesAreDistinct(t *testing.T) {
 	}
 }
 
-// emptyChatter mimics Gemini 3 answering a text-protocol prompt with a native
+// emptyChatter mimics a model answering a text-protocol prompt with a native
 // function call it cannot complete: no content, finish reason set, tokens spent.
 type emptyChatter struct{ reason genai.FinishReason }
 
@@ -265,7 +265,7 @@ func TestRunAgentLoop_RequestsSchemaConstrainedJSON(t *testing.T) {
 		t.Errorf("ResponseMIMEType = %q, want application/json", cfg.ResponseMIMEType)
 	}
 	if cfg.ResponseSchema == nil {
-		t.Error("ResponseSchema is nil: Gemini 3 answers the text protocol with a native function call unless decoding is constrained")
+		t.Error("ResponseSchema is nil: a model may answer the text protocol with a native function call unless decoding is constrained")
 	}
 }
 

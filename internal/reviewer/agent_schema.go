@@ -3,13 +3,13 @@ package reviewer
 import "google.golang.org/genai"
 
 // agentResponseSchema constrains the refinement model to the JSON protocol
-// described in the system prompt. The prompt alone is not enough: Gemini 3
-// reads the tool descriptions as function signatures, attempts a native
-// function call and returns finish reason MALFORMED_FUNCTION_CALL with no
-// content. ResponseMIMEType and ToolConfig mode NONE do not prevent this;
-// constrained decoding against a schema does.
+// described in the system prompt. The prompt alone is not enough: a model may
+// read the tool descriptions as function signatures and attempt a native
+// function call, which the API answers with finish reason
+// MALFORMED_FUNCTION_CALL and no content. ResponseMIMEType and ToolConfig mode
+// NONE do not prevent this; constrained decoding against a schema does.
 //
-// The root must be a bare AnyOf: Vertex rejects any other field beside it.
+// The root must be a bare AnyOf: the API rejects any other field beside it.
 // Without withTools the tool branches are left out, which forces the final
 // turn to answer instead of asking for more context.
 func agentResponseSchema(withTools bool) *genai.Schema {
@@ -57,7 +57,7 @@ func agentResponseSchema(withTools bool) *genai.Schema {
 
 // findingSchema mirrors model.Finding's JSON fields. A refined finding replaces
 // the initial one, so a field missing here would be dropped from the result.
-// Location and content fields are required: Vertex treats any other field as
+// Location and content fields are required: the API treats any other field as
 // optional, and a refined finding without its line or old_line no longer
 // matches its initial finding, which would silently dismiss it.
 func findingSchema(str, num *genai.Schema) *genai.Schema {
