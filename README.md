@@ -339,6 +339,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--confidence-floor` | Minimum model confidence percent (1-100) required to report a finding | `80` |
 | `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
 | `--temperature` | Sampling temperature for review calls, 0-2 (unset = built-in 0.2) | — |
+| `--use-temperature` | Send a temperature with model calls; `--use-temperature=false` sends none so the model's own default applies (conflicts with `--temperature`) | `true` |
 | `--extra-rules` | Additional prompt rules | — |
 | `--custom-prompt` | Path to custom system prompt file | — |
 | `--dry-run` | Analyze without posting | `false` |
@@ -400,6 +401,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_CONFIDENCE_FLOOR` | Minimum model confidence percent (1-100) to report a finding | `80` |
 | `REVIEW_CONTEXT_FILES` | Directory-scoped guidance files, comma-separated | — |
 | `REVIEW_TEMPERATURE` | Sampling temperature for review calls (0-2) | — |
+| `REVIEW_USE_TEMPERATURE` | Set to `false` to send no temperature on any model call | `true` |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
 | `CODE_REVIEW_PLATFORM_REVIEW_MD` | Platform guidelines markdown path or glob | — |
@@ -436,6 +438,7 @@ model: gemini-3.8-flash
 token_limit: 1000000     # Optional: explicit context window token limit override
 confidence_floor: 80     # Optional: minimum model confidence percent (1-100) to report a finding
 temperature: 0           # Optional: sampling temperature (0-2); unset = built-in 0.2
+use_temperature: true    # Optional: false = send no temperature at all (model default applies)
 focus: [bugs, security]
 context_files: [AGENTS.md]   # Optional: include the nearest AGENTS.md for each changed directory
 min_severity: low
@@ -522,7 +525,9 @@ Rules for who may dismiss:
 - Dismissed HIGH and CRITICAL findings are never re-posted, but they still count toward the exit status whenever the model emits them again. Because dismissed locations are also listed in the prompt, the model will often not emit them, so do not rely on this to keep the CI gate red. Auto-approve and SARIF/SAST output include every finding the model emitted.
 - The feature is on by default in CI mode and has no opt-out setting yet.
 
-For repeatable verdicts on unchanged code, `temperature: 0` (or `--temperature 0`) lowers sampling randomness. Google recommends leaving Gemini 3.x models at their default temperature, so on those prefer multi-model consensus.
+For repeatable verdicts on unchanged code, `temperature: 0` (or `--temperature 0`) lowers sampling randomness.
+
+Some models deprecate or reject sampling parameters. Google's Gemini 3 documentation, for example, recommends keeping `temperature` at its default and lists it among the deprecated sampling parameters. For such models set `use_temperature: false` (or `--use-temperature=false`, or `REVIEW_USE_TEMPERATURE=false`): the tool then sends no temperature on any call (review, summary, explain, consensus and the agent loop, over Vertex AI or `--api-url`), and the model's own default applies. It cannot be combined with `temperature`. For repeatable verdicts on such models, prefer multi-model consensus (`--models`).
 
 ### Auto-Approve
 

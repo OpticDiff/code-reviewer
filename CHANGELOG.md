@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `use_temperature` configuration field, `--use-temperature` CLI flag, and `REVIEW_USE_TEMPERATURE` environment variable (default `true`). Set it to `false` to send no temperature on any model call (review, summary, explain, consensus and the agent loop), so the model's own default applies; useful for models that deprecate or reject sampling parameters. Combining `use_temperature: false` with an explicit `temperature` is a configuration error. Defaults are unchanged.
+
 ## [0.25.1] — 2026-10-10
 
 ### Fixed
