@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	pkgmodel "github.com/OpticDiff/code-reviewer/pkg/model"
@@ -27,32 +26,17 @@ type Provider struct {
 }
 
 // defaultTemperature is the sampling temperature used for review calls
-// unless overridden with SetTemperature. Gemini 3.x models are the exception:
-// see temperatureConfig.
+// unless overridden with SetTemperature.
 const defaultTemperature float32 = 0.2
 
-// SetTemperature overrides the sampling temperature for review calls. The
-// value is sent as given, including on Gemini 3.x, where it is discouraged.
-func (p *Provider) SetTemperature(t float32) {
-	p.temperature = &t
-	if isGemini3Model(p.modelName) {
-		slog.Warn("temperature is deprecated for Gemini 3.x models and may degrade results or be rejected by the API; leave it unset",
-			"model", p.modelName, "temperature", t)
-	}
-}
+// SetTemperature overrides the sampling temperature for review calls.
+func (p *Provider) SetTemperature(t float32) { p.temperature = &t }
 
-// temperatureConfig returns the temperature to send, or nil to let the model
-// use its own default. Google documents temperature, top_p and top_k as
-// deprecated for Gemini 3.x (ignored today, an error in future versions), so
-// they are only sent when explicitly configured.
-func (p *Provider) temperatureConfig() *float32 {
+func (p *Provider) temperatureValue() float32 {
 	if p.temperature != nil {
-		return genai.Ptr(*p.temperature)
+		return *p.temperature
 	}
-	if isGemini3Model(p.modelName) {
-		return nil
-	}
-	return genai.Ptr(defaultTemperature)
+	return defaultTemperature
 }
 
 // GenaiClient returns the underlying genai.Client for multi-turn use (e.g., agent loop).
@@ -108,7 +92,7 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, bool, error) {
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
-		Temperature:       p.temperatureConfig(),
+		Temperature:       genai.Ptr(p.temperatureValue()),
 	}
 
 	// Gemini models support native JSON mode (without schema constraint for flexibility).
@@ -169,13 +153,6 @@ func (p *Provider) Close() {
 
 func isGeminiModel(model string) bool {
 	return strings.HasPrefix(model, "gemini-")
-}
-
-// isGemini3Model reports whether model is a Gemini 3.x model (gemini-3,
-// gemini-3-flash, gemini-3.8-flash, ...).
-func isGemini3Model(model string) bool {
-	rest, ok := strings.CutPrefix(model, "gemini-3")
-	return ok && (rest == "" || rest[0] == '.' || rest[0] == '-')
 }
 
 

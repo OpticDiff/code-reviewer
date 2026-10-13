@@ -338,7 +338,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--token-limit` | Context window token limit override (0 = use model default) | — |
 | `--confidence-floor` | Minimum model confidence percent (1-100) required to report a finding | `80` |
 | `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
-| `--temperature` | Sampling temperature for review calls, 0-2 (unset = built-in 0.2; not sent to Gemini 3.x) | — |
+| `--temperature` | Sampling temperature for review calls, 0-2 (unset = built-in 0.2) | — |
 | `--extra-rules` | Additional prompt rules | — |
 | `--custom-prompt` | Path to custom system prompt file | — |
 | `--dry-run` | Analyze without posting | `false` |
@@ -435,7 +435,7 @@ Create `.code-reviewer.yaml` in your repo root:
 model: gemini-3.8-flash
 token_limit: 1000000     # Optional: explicit context window token limit override
 confidence_floor: 80     # Optional: minimum model confidence percent (1-100) to report a finding
-temperature: 0           # Optional: sampling temperature (0-2); unset = 0.2, not sent to Gemini 3.x
+temperature: 0           # Optional: sampling temperature (0-2); unset = built-in 0.2
 focus: [bugs, security]
 context_files: [AGENTS.md]   # Optional: include the nearest AGENTS.md for each changed directory
 min_severity: low
@@ -522,7 +522,7 @@ Rules for who may dismiss:
 - Dismissed HIGH and CRITICAL findings are never re-posted, but they still count toward the exit status whenever the model emits them again. Because dismissed locations are also listed in the prompt, the model will often not emit them, so do not rely on this to keep the CI gate red. Auto-approve and SARIF/SAST output include every finding the model emitted.
 - The feature is on by default in CI mode and has no opt-out setting yet.
 
-For repeatable verdicts on unchanged code, `temperature: 0` (or `--temperature 0`) lowers sampling randomness. Google documents `temperature` as deprecated for Gemini 3.x models, so the tool does not send it to them unless you set it (an explicit value is still sent, with a warning); on those models prefer multi-model consensus.
+For repeatable verdicts on unchanged code, `temperature: 0` (or `--temperature 0`) lowers sampling randomness. Google recommends leaving Gemini 3.x models at their default temperature, so on those prefer multi-model consensus.
 
 ### Auto-Approve
 

@@ -819,7 +819,7 @@ func (c *Config) loadFlags() error {
 	tokenLimit := fs.Int("token-limit", 0, "Explicit context window token limit (overrides model default)")
 	confidenceFloor := fs.Int("confidence-floor", 0, "Minimum model confidence percent (1-100) required to report a finding (default 80)")
 	contextFiles := fs.String("context-files", "", "Directory-scoped guidance file names to include for changed directories, comma-separated (e.g. AGENTS.md)")
-	temperature := fs.Float64("temperature", 0, "Sampling temperature for review calls (0-2); unset keeps the provider default (0.2; not sent to Gemini 3.x)")
+	temperature := fs.Float64("temperature", 0, "Sampling temperature for review calls (0-2); unset keeps the provider default")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")

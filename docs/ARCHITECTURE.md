@@ -204,7 +204,7 @@ classDiagram
 - Supports optional proxy URL (routed via `HTTPOptions.BaseURL`)
 - For Gemini models: uses native JSON response schema (`ResponseMIMEType: "application/json"`) to constrain output
 - For non-Gemini models (Claude, Mistral via Model Garden): relies on prompt-instructed JSON
-- Temperature defaults to 0.2 for consistent reviews; for Gemini 3.x models it is omitted unless configured
+- Temperature fixed at 0.2 for consistent reviews
 - Retries on 429, 502, 503, 504, and transient error strings
 
 ### HTTPProvider: OpenAI-Compatible
