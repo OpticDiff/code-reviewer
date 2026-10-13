@@ -257,8 +257,10 @@ func TestSubmitReview_ResolveModePassesKeepFingerprints(t *testing.T) {
 		case r.Method == http.MethodGet && strings.HasSuffix(p, "/discussions"):
 			listed++
 			_ = json.NewEncoder(w).Encode(discussions)
-		case strings.HasSuffix(p, "/draft_notes") || strings.Contains(p, "/draft_notes/"):
+		case r.Method == http.MethodGet && strings.HasSuffix(p, "/draft_notes"):
 			_, _ = w.Write([]byte(`[]`))
+		case strings.HasSuffix(p, "/draft_notes") || strings.Contains(p, "/draft_notes/"):
+			_, _ = w.Write([]byte(`{"id":1}`))
 		case strings.HasSuffix(p, "/notes") && r.Method == http.MethodPost:
 			_, _ = w.Write([]byte(`{}`))
 		case strings.Contains(p, "/merge_requests/7"):
