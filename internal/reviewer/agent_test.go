@@ -277,6 +277,7 @@ func TestAgentResponseSchema_MatchesLoopProtocol(t *testing.T) {
 	actions := map[string]bool{}
 	tools := map[string]bool{}
 	var findingProps map[string]*genai.Schema
+	var findingRequired []string
 	for _, branch := range schema.AnyOf {
 		act := branch.Properties["action"]
 		if act == nil || len(act.Enum) != 1 {
@@ -291,6 +292,7 @@ func TestAgentResponseSchema_MatchesLoopProtocol(t *testing.T) {
 		}
 		if f := branch.Properties["findings"]; f != nil {
 			findingProps = f.Items.Properties
+			findingRequired = f.Items.Required
 		}
 	}
 	for _, want := range []string{"tool", "findings", "done"} {
@@ -316,6 +318,15 @@ func TestAgentResponseSchema_MatchesLoopProtocol(t *testing.T) {
 		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
 		if findingProps[name] == nil {
 			t.Errorf("finding field %q is missing from the schema, so a refined finding could not carry it", name)
+		}
+	}
+
+	// A refined finding replaces the initial one and is matched to it by file, line and
+	// old_line, so a schema-valid answer that leaves one out would silently dismiss it.
+	for i := 0; i < typ.NumField(); i++ {
+		name, opts, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+		if (opts != "omitempty" || name == "old_line") && !contains(findingRequired, name) {
+			t.Errorf("finding field %q is not required by the schema", name)
 		}
 	}
 }

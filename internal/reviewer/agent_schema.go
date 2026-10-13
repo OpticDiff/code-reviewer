@@ -57,6 +57,9 @@ func agentResponseSchema(withTools bool) *genai.Schema {
 
 // findingSchema mirrors model.Finding's JSON fields. A refined finding replaces
 // the initial one, so a field missing here would be dropped from the result.
+// Location and content fields are required: Vertex treats any other field as
+// optional, and a refined finding without its line or old_line no longer
+// matches its initial finding, which would silently dismiss it.
 func findingSchema(str, num *genai.Schema) *genai.Schema {
 	return &genai.Schema{
 		Type: genai.TypeObject,
@@ -67,6 +70,6 @@ func findingSchema(str, num *genai.Schema) *genai.Schema {
 			"rule_name": str, "rule_source": str, "rule_file": str, "rule_url": str,
 			"fingerprint": str, "anchor": str, "anchor_lines": num,
 		},
-		Required: []string{"file", "severity", "title"},
+		Required: []string{"file", "line", "old_line", "severity", "category", "title", "body"},
 	}
 }
