@@ -30,42 +30,21 @@ func dismissedThreads(discussions []Discussion, botMarker, botUser, mrAuthor str
 	}
 	var out []dismissedThread
 	for _, d := range discussions {
-		if len(d.Notes) == 0 {
+		first, fp, ok := botThreadRoot(d, botMarker, botUser)
+		if !ok {
 			continue
 		}
-		first := d.Notes[0]
-		fp, ok := vcs.ParseFingerprint(first.Body)
-		if first.System || first.Author.Username != botUser || !strings.Contains(first.Body, botMarker) || first.Position == nil || !ok {
-			continue
-		}
-		participants := map[string]bool{}
-		for _, n := range d.Notes[1:] {
-			if !n.System && n.Author.Username != botUser {
-				participants[n.Author.Username] = true
-			}
-		}
-		if first.Resolved && first.ResolvedBy != nil && first.ResolvedBy.Username != botUser {
-			participants[first.ResolvedBy.Username] = true
-		}
+		participants := threadParticipants(d, botUser)
 		if len(participants) == 0 {
 			continue
 		}
+		resolvedByPerson := first.Resolved && first.ResolvedBy != nil && first.ResolvedBy.Username != botUser
 		authorOnly := mrAuthor != "" && len(participants) == 1 && participants[mrAuthor]
-		line := 0
-		oldSide := false
-		if first.Position.NewLine != nil {
-			line = *first.Position.NewLine
-		} else if first.Position.OldLine != nil {
-			line = *first.Position.OldLine
-			oldSide = true
-		}
-		path := first.Position.NewPath
-		if path == "" {
-			path = first.Position.OldPath
-		}
+		path, line, oldSide := threadLocation(first.Position)
 		out = append(out, dismissedThread{
 			noteID: first.ID,
 			finding: vcs.DismissedFinding{
+				NoteID:      first.ID,
 				Fingerprint: fp.Fingerprint,
 				Anchor:      fp.Anchor,
 				AnchorLines: fp.AnchorLines,
@@ -73,10 +52,95 @@ func dismissedThreads(discussions []Discussion, botMarker, botUser, mrAuthor str
 				Line:        line,
 				OldSide:     oldSide,
 				AuthorOnly:  authorOnly || mrAuthor == "",
+				Resolved:    resolvedByPerson && first.ResolvedBy.Username != mrAuthor && mrAuthor != "",
 			},
 		})
 	}
 	return out
+}
+
+// openThread pairs an open finding with the discussion and bot note that hold it.
+type openThread struct {
+	discussionID string
+	noteID       int
+	finding      vcs.OpenFinding
+}
+
+// openThreads returns the inline threads opened by this tool that are still
+// unresolved and that nobody but the tool has touched. The same authorship
+// rules as dismissedThreads apply. A thread people replied to belongs to
+// dismissedThreads, so the two never overlap.
+func openThreads(discussions []Discussion, botMarker, botUser string) []openThread {
+	if botUser == "" {
+		return nil
+	}
+	var out []openThread
+	for _, d := range discussions {
+		first, fp, ok := botThreadRoot(d, botMarker, botUser)
+		if !ok || first.Resolved || len(threadParticipants(d, botUser)) > 0 {
+			continue
+		}
+		path, line, oldSide := threadLocation(first.Position)
+		header, _ := vcs.ParseFindingHeader(first.Body)
+		out = append(out, openThread{
+			discussionID: d.ID,
+			noteID:       first.ID,
+			finding: vcs.OpenFinding{
+				FingerprintInfo: fp,
+				Path:            path,
+				Line:            line,
+				OldSide:         oldSide,
+				Severity:        header.Severity,
+				RuleAttributed:  header.RuleAttributed,
+			},
+		})
+	}
+	return out
+}
+
+// botThreadRoot returns the first note of d and its fingerprint when the thread
+// is an inline finding written by botUser. The marker is plain text that any
+// participant could forge, so the note's author must be the tool's account.
+func botThreadRoot(d Discussion, botMarker, botUser string) (Note, vcs.FingerprintInfo, bool) {
+	if len(d.Notes) == 0 {
+		return Note{}, vcs.FingerprintInfo{}, false
+	}
+	first := d.Notes[0]
+	fp, ok := vcs.ParseFingerprint(first.Body)
+	if first.System || first.Author.Username != botUser || !strings.Contains(first.Body, botMarker) || first.Position == nil || !ok {
+		return Note{}, vcs.FingerprintInfo{}, false
+	}
+	return first, fp, true
+}
+
+// threadParticipants returns the people other than botUser who replied to the
+// thread or resolved it. System notes do not count.
+func threadParticipants(d Discussion, botUser string) map[string]bool {
+	participants := map[string]bool{}
+	for _, n := range d.Notes[1:] {
+		if !n.System && n.Author.Username != botUser {
+			participants[n.Author.Username] = true
+		}
+	}
+	if first := d.Notes[0]; first.Resolved && first.ResolvedBy != nil && first.ResolvedBy.Username != botUser {
+		participants[first.ResolvedBy.Username] = true
+	}
+	return participants
+}
+
+// threadLocation returns the file, line and diff side a thread is anchored to.
+func threadLocation(pos *DiscussionPosition) (path string, line int, oldSide bool) {
+	if pos.NewLine != nil {
+		line = *pos.NewLine
+	} else if pos.OldLine != nil {
+		line = *pos.OldLine
+		oldSide = true
+	}
+	path = pos.NewPath
+	if path == "" {
+		path = pos.OldPath
+	}
+	return path, line, oldSide
 }
 
 // currentUser returns the username of the account the client authenticates as.
@@ -137,26 +201,82 @@ func (c *Client) ListDismissedFindings(ctx context.Context, projectID, mrIID str
 	return out, nil
 }
 
-// keptNoteIDs returns the IDs of bot notes that cleanup must not delete:
-// dismissed threads whose fingerprint is in keepFingerprints. A failed lookup
-// is logged and keeps nothing.
-func (c *Client) keptNoteIDs(ctx context.Context, projectID, mrIID string, keepFingerprints []string) map[int]bool {
-	if len(keepFingerprints) == 0 {
-		return nil
-	}
-	want := make(map[string]bool, len(keepFingerprints))
-	for _, fp := range keepFingerprints {
-		want[fp] = true
-	}
-	threads, err := c.threads(ctx, projectID, mrIID)
+// openThreadsOf lists the tool's open inline threads on a merge request. Like
+// threads, it fails closed when the tool's own account cannot be determined.
+func (c *Client) openThreadsOf(ctx context.Context, projectID, mrIID string) ([]openThread, error) {
+	botUser, err := c.currentUser(ctx)
 	if err != nil {
-		slog.Warn("could not read threads to preserve dismissed findings", "error", err)
-		return nil
+		return nil, err
 	}
-	keep := make(map[int]bool)
-	for _, t := range threads {
-		if want[t.finding.Fingerprint] {
-			keep[t.noteID] = true
+	discussions, err := c.ListDiscussions(ctx, projectID, mrIID)
+	if err != nil {
+		return nil, fmt.Errorf("listing discussions: %w", err)
+	}
+	return openThreads(discussions, c.botMarker, botUser), nil
+}
+
+// ListOpenFindings returns the tool's unresolved inline threads on a merge
+// request that nobody else has replied to or resolved.
+func (c *Client) ListOpenFindings(ctx context.Context, projectID, mrIID string) ([]vcs.OpenFinding, error) {
+	threads, err := c.openThreadsOf(ctx, projectID, mrIID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]vcs.OpenFinding, len(threads))
+	for i, t := range threads {
+		out[i] = t.finding
+	}
+	return out, nil
+}
+
+// preserved names the threads cleanup must leave in place.
+type preserved struct {
+	noteIDs         map[int]bool    // Bot notes that must not be deleted.
+	openDiscussions map[string]bool // Open discussions that must not be resolved.
+}
+
+// preservedThreads resolves the fingerprints cleanup must keep to concrete
+// threads: dismissed threads whose fingerprint is in dismissedFingerprints, and
+// open threads for openFingerprints, which lists one entry per thread to keep
+// so a duplicate beyond the listed count is cleaned. A failed lookup is logged
+// and keeps nothing.
+func (c *Client) preservedThreads(ctx context.Context, projectID, mrIID string, dismissedFingerprints, openFingerprints []string) preserved {
+	var keep preserved
+	if len(dismissedFingerprints) > 0 {
+		want := make(map[string]bool, len(dismissedFingerprints))
+		for _, fp := range dismissedFingerprints {
+			want[fp] = true
+		}
+		threads, err := c.threads(ctx, projectID, mrIID)
+		if err != nil {
+			slog.Warn("could not read threads to preserve dismissed findings", "error", err)
+		}
+		keep.noteIDs = make(map[int]bool)
+		for _, t := range threads {
+			if want[t.finding.Fingerprint] {
+				keep.noteIDs[t.noteID] = true
+			}
+		}
+	}
+	if len(openFingerprints) > 0 {
+		threads, err := c.openThreadsOf(ctx, projectID, mrIID)
+		if err != nil {
+			slog.Warn("could not read threads to preserve open findings", "error", err)
+		}
+		left := make(map[string]int, len(openFingerprints))
+		for _, fp := range openFingerprints {
+			left[fp]++
+		}
+		if keep.noteIDs == nil {
+			keep.noteIDs = make(map[int]bool)
+		}
+		keep.openDiscussions = make(map[string]bool)
+		for _, t := range threads {
+			if fp := t.finding.Fingerprint; left[fp] > 0 {
+				left[fp]--
+				keep.noteIDs[t.noteID] = true
+				keep.openDiscussions[t.discussionID] = true
+			}
 		}
 	}
 	return keep

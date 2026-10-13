@@ -20,10 +20,13 @@ model: gemini-3.8-flash
 # confidence_floor: 80
 
 # Sampling temperature for review calls (0-2). Unset keeps the built-in default (0.2).
-# Lower values make verdicts more repeatable on unchanged code. Note that Google
-# recommends leaving Gemini 3.x models at their default temperature; lowering it
-# can cause looping or degraded results, so prefer consensus (--models) there.
+# Lower values make verdicts more repeatable on unchanged code.
 # temperature: 0
+
+# Send a temperature at all (default: true). Set to false to send none on any model
+# call, so the model's own default applies. Some models deprecate or reject sampling
+# parameters. Cannot be combined with temperature.
+# use_temperature: false
 
 # Multiple models for consensus review (CLI-only: --models flag).
 # Runs all models in parallel and deduplicates findings.
@@ -45,6 +48,8 @@ min_severity: low
 comment_mode: notes
 
 # cleanup_mode: delete    # How to handle previous bot comments (delete or resolve)
+
+# dismissal_mode: any     # What dismisses a HIGH/CRITICAL finding's thread: any (a reply or a resolution) or resolve_only (a resolution only)
 
 # update_description: false  # Inject review summary into MR/PR description
 

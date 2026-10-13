@@ -1,6 +1,10 @@
 package model
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"google.golang.org/genai"
@@ -197,13 +201,113 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
-func TestProvider_Temperature(t *testing.T) {
-	p := &Provider{}
-	if got := p.temperatureValue(); got != 0.2 {
-		t.Errorf("default temperature = %v, want 0.2", got)
+func TestProvider_TemperatureConfig(t *testing.T) {
+	zero := float32(0)
+	tests := []struct {
+		name     string
+		explicit *float32
+		omit     bool
+		want     *float32 // nil = not sent.
+	}{
+		{name: "default is 0.2", want: genai.Ptr(float32(0.2))},
+		{name: "explicit zero is sent", explicit: &zero, want: genai.Ptr(float32(0))},
+		{name: "omit sends nothing", omit: true},
+		{name: "omit wins over explicit", explicit: &zero, omit: true},
 	}
-	p.SetTemperature(0)
-	if got := p.temperatureValue(); got != 0 {
-		t.Errorf("temperature after SetTemperature(0) = %v, want 0", got)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &Provider{}
+			if tt.explicit != nil {
+				p.SetTemperature(*tt.explicit)
+			}
+			if tt.omit {
+				p.OmitTemperature()
+			}
+			got := p.temperatureConfig()
+			switch {
+			case tt.want == nil && got != nil:
+				t.Errorf("temperatureConfig() = %v, want nil", *got)
+			case tt.want != nil && got == nil:
+				t.Errorf("temperatureConfig() = nil, want %v", *tt.want)
+			case tt.want != nil && *got != *tt.want:
+				t.Errorf("temperatureConfig() = %v, want %v", *got, *tt.want)
+			}
+		})
+	}
+}
+
+// TestProvider_RequestTemperature checks the generationConfig that reaches the
+// wire for each call type.
+func TestProvider_RequestTemperature(t *testing.T) {
+	zero := float32(0)
+	tests := []struct {
+		name     string
+		explicit *float32
+		omit     bool
+		want     any // nil = field absent.
+	}{
+		{name: "default", want: 0.2},
+		{name: "explicit zero", explicit: &zero, want: float64(0)},
+		{name: "omitted", omit: true},
+	}
+	calls := map[string]func(*Provider) error{
+		"review": func(p *Provider) error {
+			_, err := p.Review(context.Background(), "sys", "user")
+			return err
+		},
+		"summarize": func(p *Provider) error {
+			_, _ = p.Summarize(context.Background(), "sys", "user") // Only the request is under test, not the parsed summary.
+			return nil
+		},
+		"explain": func(p *Provider) error {
+			_, _, err := p.Explain(context.Background(), "sys", "user")
+			return err
+		},
+	}
+	for _, tt := range tests {
+		for callName, call := range calls {
+			t.Run(tt.name+"/"+callName, func(t *testing.T) {
+				var body map[string]any
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Errorf("decoding request: %v", err)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"{\"summary\":\"ok\",\"findings\":[]}"}]}}]}`))
+				}))
+				defer server.Close()
+
+				client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+					Backend:     genai.BackendGeminiAPI,
+					APIKey:      "k",
+					HTTPOptions: genai.HTTPOptions{BaseURL: server.URL},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := &Provider{client: client, modelName: "some-model"}
+				if tt.explicit != nil {
+					p.SetTemperature(*tt.explicit)
+				}
+				if tt.omit {
+					p.OmitTemperature()
+				}
+				if err := call(p); err != nil {
+					t.Fatalf("call: %v", err)
+				}
+
+				genCfg, _ := body["generationConfig"].(map[string]any)
+				got, present := genCfg["temperature"]
+				if tt.want == nil {
+					if present {
+						t.Errorf("temperature = %v, want it absent", got)
+					}
+					return
+				}
+				if got != tt.want {
+					t.Errorf("temperature = %v, want %v", got, tt.want)
+				}
+			})
+		}
 	}
 }

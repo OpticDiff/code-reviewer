@@ -153,7 +153,7 @@ func TestProperty_FilterDismissed_Partitioning(t *testing.T) {
 			})
 		}
 
-		kept, suppressed := FilterDismissed(findings, dismissed)
+		kept, suppressed := FilterDismissed(findings, dismissed, false)
 		if len(kept)+len(suppressed) != len(findings) {
 			return false
 		}

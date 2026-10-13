@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/OpticDiff/code-reviewer/internal/config"
 )
 
 func TestWrapProviderError_AuthErrors(t *testing.T) {
@@ -189,5 +191,25 @@ func TestValidateHTTPURL(t *testing.T) {
 		if (err != nil) != tt.wantErr {
 			t.Errorf("validateHTTPURL(%q, %q) err = %v, wantErr = %v", tt.url, tt.apiKey, err, tt.wantErr)
 		}
+	}
+}
+
+func TestNewVCSClient(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     config.Config
+		wantNil bool
+	}{
+		{"local mode has no client", config.Config{}, true},
+		{"ci posting", config.Config{CIMode: true, Profile: "all"}, false},
+		{"ci dry-run still reads the merge request", config.Config{CIMode: true, DryRun: true, Profile: "all"}, false},
+		{"ci dry-run on github", config.Config{CIMode: true, DryRun: true, Platform: "github", Profile: "all"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := newVCSClient(&tt.cfg); (got == nil) != tt.wantNil {
+				t.Errorf("newVCSClient() = %v, want nil=%v", got, tt.wantNil)
+			}
+		})
 	}
 }

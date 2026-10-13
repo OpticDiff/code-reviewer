@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"golang.org/x/oauth2"
+	"google.golang.org/genai"
 )
 
 func TestHTTPProvider_Review(t *testing.T) {
@@ -305,38 +306,116 @@ func (e *errorTokenSource) Token() (*oauth2.Token, error) {
 	return nil, e.err
 }
 
+// chatRequestBody captures the raw JSON body of the first request a handler
+// receives, so tests can assert which fields are present on the wire.
+func chatRequestBody(t *testing.T, body *map[string]any) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(body); err != nil {
+			t.Errorf("decoding request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"summary\":\"ok\",\"findings\":[]}"}}]}`))
+	}))
+}
+
 func TestHTTPProvider_Temperature(t *testing.T) {
 	tests := []struct {
 		name string
 		set  *float32
-		want float32
+		omit bool
+		want any // nil = field absent from the JSON body.
 	}{
 		{name: "default keeps 0.2", want: 0.2},
-		{name: "override to zero", set: float32Ptr(0), want: 0},
+		{name: "override to zero", set: float32Ptr(0), want: float64(0)},
+		{name: "omitted", omit: true},
+		{name: "omit wins over override", set: float32Ptr(0.7), omit: true},
+	}
+	calls := map[string]func(*HTTPProvider) error{
+		"review": func(p *HTTPProvider) error {
+			_, err := p.Review(context.Background(), "sys", "user")
+			return err
+		},
+		"summarize": func(p *HTTPProvider) error {
+			_, _ = p.Summarize(context.Background(), "sys", "user") // Only the request is under test, not the parsed summary.
+			return nil
+		},
+		"explain": func(p *HTTPProvider) error {
+			_, _, err := p.Explain(context.Background(), "sys", "user")
+			return err
+		},
+	}
+	for _, tc := range tests {
+		for callName, call := range calls {
+			t.Run(tc.name+"/"+callName, func(t *testing.T) {
+				var body map[string]any
+				server := chatRequestBody(t, &body)
+				defer server.Close()
+
+				p, err := NewHTTPProvider(server.URL+"/v1", "k", "m")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tc.set != nil {
+					p.SetTemperature(*tc.set)
+				}
+				if tc.omit {
+					p.OmitTemperature()
+				}
+				if err := call(p); err != nil {
+					t.Fatalf("call: %v", err)
+				}
+				got, present := body["temperature"]
+				if tc.want == nil {
+					if present {
+						t.Errorf("temperature = %v, want the field absent", got)
+					}
+					return
+				}
+				if got != tc.want {
+					t.Errorf("temperature = %v, want %v", got, tc.want)
+				}
+			})
+		}
+	}
+}
+
+func TestHTTPChatter_Temperature(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *genai.GenerateContentConfig
+		omit   bool
+		want   any // nil = field absent from the JSON body.
+	}{
+		{name: "nil config falls back to 0.2", config: nil, want: 0.2},
+		{name: "config without temperature falls back to 0.2", config: &genai.GenerateContentConfig{}, want: 0.2},
+		{name: "config temperature is sent", config: &genai.GenerateContentConfig{Temperature: float32Ptr(0)}, want: float64(0)},
+		{name: "omitted with nil config", config: nil, omit: true},
+		{name: "omitted with config temperature", config: &genai.GenerateContentConfig{Temperature: float32Ptr(0.5)}, omit: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var got float32 = -1
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				var req chatRequest
-				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-					t.Errorf("decoding request: %v", err)
-				}
-				got = req.Temperature
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"summary\":\"ok\",\"findings\":[]}"}}]}`))
-			}))
+			var body map[string]any
+			server := chatRequestBody(t, &body)
 			defer server.Close()
 
 			p, err := NewHTTPProvider(server.URL+"/v1", "k", "m")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if tc.set != nil {
-				p.SetTemperature(*tc.set)
+			if tc.omit {
+				p.OmitTemperature()
 			}
-			if _, err := p.Review(context.Background(), "sys", "user"); err != nil {
-				t.Fatalf("Review: %v", err)
+			history := []*genai.Content{genai.NewContentFromText("hi", genai.RoleUser)}
+			if _, err := NewHTTPChatter(p).Chat(context.Background(), history, tc.config); err != nil {
+				t.Fatalf("Chat: %v", err)
+			}
+			got, present := body["temperature"]
+			if tc.want == nil {
+				if present {
+					t.Errorf("temperature = %v, want the field absent", got)
+				}
+				return
 			}
 			if got != tc.want {
 				t.Errorf("temperature = %v, want %v", got, tc.want)

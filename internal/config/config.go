@@ -80,6 +80,16 @@ const (
 	CleanupModeResolve CleanupMode = "resolve" // Resolve old discussions (GitLab only; GitHub falls back to delete).
 )
 
+// DismissalMode determines what counts as a person dismissing a HIGH or
+// CRITICAL finding's thread. Lower severities are dismissed by any reply or
+// resolution either way.
+type DismissalMode string
+
+const (
+	DismissalModeAny         DismissalMode = "any"          // A reply or a resolution by someone other than the author (default).
+	DismissalModeResolveOnly DismissalMode = "resolve_only" // Only a resolution by someone other than the author (GitLab only; GitHub never dismisses HIGH).
+)
+
 // ChunkStrategy determines how large diffs are handled.
 type ChunkStrategy string
 
@@ -122,6 +132,7 @@ type Config struct {
 	TokenLimit         int      // Context window limit override in tokens (0 = use model default).
 	ConfidenceFloor    int      // Minimum confidence percent (1-100) the model needs to report a finding (0 = built-in default of 80).
 	Temperature        *float64 // Sampling temperature override (nil = provider default).
+	DisableTemperature bool     // Send no temperature on any model call; the model's own default applies.
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
@@ -139,9 +150,10 @@ type Config struct {
 	ReviewMD         string   // Contents of REVIEW.md (repo-level review instructions).
 
 	// Output settings.
-	CommentMode CommentMode
-	CleanupMode CleanupMode
-	DryRun      bool
+	CommentMode   CommentMode
+	CleanupMode   CleanupMode
+	DismissalMode DismissalMode
+	DryRun        bool
 	OutputJSON  bool
 	NoColor     bool   // Disable ANSI color output.
 	SARIFOutput string // Path to write SARIF 2.1.0 output file.
@@ -251,11 +263,13 @@ type repoConfig struct {
 	TokenLimit       int      `yaml:"token_limit"`
 	ConfidenceFloor  int      `yaml:"confidence_floor"`
 	Temperature      *float64 `yaml:"temperature"`
+	UseTemperature   *bool    `yaml:"use_temperature"`
 	Focus            []string `yaml:"focus"`
 	ContextFiles     []string `yaml:"context_files"`
 	MinSeverity      string   `yaml:"min_severity"`
 	CommentMode      string   `yaml:"comment_mode"`
 	CleanupMode      string   `yaml:"cleanup_mode"`
+	DismissalMode    string   `yaml:"dismissal_mode"`
 	ChunkStrategy    string   `yaml:"chunk_strategy"`
 	CacheDir         string   `yaml:"cache_dir"`
 	NoCache          *bool    `yaml:"no_cache"`
@@ -308,6 +322,7 @@ func Load() (*Config, error) {
 		MinSeverity:      SeverityLow,
 		CommentMode:      CommentModeNotes,
 		CleanupMode:      CleanupModeDelete,
+		DismissalMode:    DismissalModeAny,
 		ChunkStrategy:    ChunkStrategyFail,
 		GitLabBaseURL:    "https://gitlab.com",
 		GitHubBaseURL:    "https://api.github.com",
@@ -486,6 +501,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.Temperature != nil {
 		c.Temperature = rc.Temperature
 	}
+	if rc.UseTemperature != nil {
+		c.DisableTemperature = !*rc.UseTemperature
+	}
 	if len(rc.Focus) > 0 {
 		c.Focus = rc.Focus
 	}
@@ -504,6 +522,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	}
 	if rc.CleanupMode != "" {
 		c.CleanupMode = CleanupMode(rc.CleanupMode)
+	}
+	if rc.DismissalMode != "" {
+		c.DismissalMode = DismissalMode(rc.DismissalMode)
 	}
 	if rc.ChunkStrategy != "" {
 		c.ChunkStrategy = ChunkStrategy(rc.ChunkStrategy)
@@ -646,6 +667,14 @@ func (c *Config) loadEnv() {
 			c.Temperature = &t
 		}
 	}
+	if v := os.Getenv("REVIEW_USE_TEMPERATURE"); v != "" {
+		use, err := strconv.ParseBool(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_USE_TEMPERATURE", "value", v, "error", err)
+		} else {
+			c.DisableTemperature = !use
+		}
+	}
 	if v := os.Getenv("REVIEW_FOCUS"); v != "" {
 		c.Focus = strings.Split(v, ",")
 	}
@@ -668,6 +697,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("CODE_REVIEWER_CLEANUP_MODE"); v != "" {
 		c.CleanupMode = CleanupMode(v)
+	}
+	if v := os.Getenv("REVIEW_DISMISSAL_MODE"); v != "" {
+		c.DismissalMode = DismissalMode(v)
 	}
 	if v := os.Getenv("CODE_REVIEWER_UPDATE_DESCRIPTION"); strings.EqualFold(v, "true") {
 		c.UpdateDescription = true
@@ -820,10 +852,12 @@ func (c *Config) loadFlags() error {
 	confidenceFloor := fs.Int("confidence-floor", 0, "Minimum model confidence percent (1-100) required to report a finding (default 80)")
 	contextFiles := fs.String("context-files", "", "Directory-scoped guidance file names to include for changed directories, comma-separated (e.g. AGENTS.md)")
 	temperature := fs.Float64("temperature", 0, "Sampling temperature for review calls (0-2); unset keeps the provider default")
+	useTemperature := fs.Bool("use-temperature", true, "Send a sampling temperature with model calls; --use-temperature=false sends none, so the model's own default applies")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")
 	cleanupMode := fs.String("cleanup-mode", "", "How to handle previous bot comments (delete or resolve)")
+	dismissalMode := fs.String("dismissal-mode", "", "What dismisses a HIGH/CRITICAL finding's thread: any (reply or resolution, default) or resolve_only")
 	chunkStrategy := fs.String("chunk-strategy", "", "How to handle large diffs: fail (default) or split")
 	extraRules := fs.String("extra-rules", "", "Additional review rules appended to prompt")
 	platformConfig := fs.String("platform-config", "", "Path, comma-separated paths, or glob for platform YAML rules/config")
@@ -878,9 +912,16 @@ func (c *Config) loadFlags() error {
 		c.Files = strings.Split(*files, ",")
 	}
 
-	// Remaining args after --diff are the ref.
-	if c.DiffMode && fs.NArg() > 0 {
-		c.DiffRef = fs.Arg(0)
+	// The only positional argument is the optional ref after --diff. Go's flag
+	// package stops at the first positional, so anything after the ref would
+	// otherwise be dropped silently (for example a trailing --dry-run).
+	args := fs.Args()
+	if c.DiffMode && len(args) > 0 {
+		c.DiffRef = args[0]
+		args = args[1:]
+	}
+	if len(args) > 0 {
+		return fmt.Errorf("unexpected argument %q: flags must come before the --diff ref (for example: --diff --dry-run origin/main)", args[0])
 	}
 
 	if *cacheDir != "" {
@@ -911,6 +952,9 @@ func (c *Config) loadFlags() error {
 	}
 	if *cleanupMode != "" {
 		c.CleanupMode = CleanupMode(*cleanupMode)
+	}
+	if *dismissalMode != "" {
+		c.DismissalMode = DismissalMode(*dismissalMode)
 	}
 	if *chunkStrategy != "" {
 		c.ChunkStrategy = ChunkStrategy(*chunkStrategy)
@@ -974,6 +1018,9 @@ func (c *Config) loadFlags() error {
 		}
 		if f.Name == "temperature" {
 			c.Temperature = temperature
+		}
+		if f.Name == "use-temperature" {
+			c.DisableTemperature = !*useTemperature
 		}
 		if f.Name == "max-tokens" {
 			if *maxTokens < 0 {
@@ -1162,6 +1209,9 @@ func (c *Config) validate() error {
 	if c.Temperature != nil && (*c.Temperature < 0 || *c.Temperature > 2) {
 		return &ConfigError{Err: fmt.Errorf("invalid temperature %v: must be between 0 and 2", *c.Temperature)}
 	}
+	if c.DisableTemperature && c.Temperature != nil {
+		return &ConfigError{Err: fmt.Errorf("temperature %v conflicts with use_temperature: false; remove one of them", *c.Temperature)}
+	}
 
 	// Normalize and validate profile.
 	if c.Profile == "" {
@@ -1291,6 +1341,11 @@ func (c *Config) validate() error {
 	// Validate cleanup mode.
 	if c.CleanupMode != CleanupModeDelete && c.CleanupMode != CleanupModeResolve {
 		return fmt.Errorf("invalid cleanup-mode: %q (valid: delete, resolve)", c.CleanupMode)
+	}
+
+	// Validate dismissal mode.
+	if c.DismissalMode != "" && c.DismissalMode != DismissalModeAny && c.DismissalMode != DismissalModeResolveOnly {
+		return fmt.Errorf("invalid dismissal-mode: %q (valid: any, resolve_only)", c.DismissalMode)
 	}
 
 	// Validate chunk strategy.

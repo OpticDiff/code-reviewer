@@ -49,9 +49,13 @@ func (c *HTTPChatter) Chat(ctx context.Context, history []*genai.Content, config
 		}
 	}
 
-	temp := float32(0.2)
-	if config != nil && config.Temperature != nil {
-		temp = *config.Temperature
+	var temp *float32
+	if !c.provider.omitTemp {
+		t := float32(0.2)
+		if config != nil && config.Temperature != nil {
+			t = *config.Temperature
+		}
+		temp = &t
 	}
 
 	reqBody := chatRequest{
