@@ -1,0 +1,255 @@
+name: "OpticDiff AI Code Reviewer"
+description: "Local-first, noise-free AI code review for GitHub Pull Requests with multi-model consensus, AST context, and SARIF reporting."
+author: "OpticDiff"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  version:
+    description: "Release tag of OpticDiff/code-reviewer to install (e.g. v0.26.0 or latest)"
+    required: false
+    default: "v0.26.0"
+  project-id:
+    description: "Google Cloud project ID for Vertex AI (sets GOOGLE_CLOUD_PROJECT)"
+    required: false
+    default: ""
+  location:
+    description: "Google Cloud Vertex AI location (sets GOOGLE_CLOUD_LOCATION)"
+    required: false
+    default: "global"
+  model:
+    description: "Primary model ID (e.g. gemini-3.8-flash, gemini-3.1-pro-preview, claude-sonnet-5)"
+    required: false
+    default: ""
+  models:
+    description: "Comma-separated models for multi-model consensus (e.g. gemini-3.8-flash,claude-sonnet-5)"
+    required: false
+    default: ""
+  consensus-threshold:
+    description: "Minimum number of models that must agree on a finding in consensus mode"
+    required: false
+    default: ""
+  focus:
+    description: "Comma-separated review focus areas (all, bugs, security, performance, style, docs)"
+    required: false
+    default: ""
+  min-severity:
+    description: "Minimum severity to report (low, medium, high, critical)"
+    required: false
+    default: ""
+  comment-mode:
+    description: "Comment mode (notes or discussions)"
+    required: false
+    default: ""
+  cleanup-mode:
+    description: "How to handle previous reviews (delete or resolve)"
+    required: false
+    default: ""
+  dismissal-mode:
+    description: "What dismisses a HIGH/CRITICAL finding thread (any or resolve_only)"
+    required: false
+    default: ""
+  use-temperature:
+    description: "Whether to send sampling temperature on model calls (true or false)"
+    required: false
+    default: ""
+  agent:
+    description: "Enable the agent refinement loop to verify findings with repo tools (true or false)"
+    required: false
+    default: "false"
+  agent-scope:
+    description: "Findings the agent loop examines (all or high_severity_only)"
+    required: false
+    default: ""
+  incremental:
+    description: "Only review files changed in the latest push (true or false)"
+    required: false
+    default: "false"
+  auto-approve:
+    description: "Automatically approve the PR on a clean review (true or false)"
+    required: false
+    default: "false"
+  profile:
+    description: "Review governance profile (all, platform, or product)"
+    required: false
+    default: ""
+  platform-config:
+    description: "Platform rule config file, comma-separated paths, or glob"
+    required: false
+    default: ""
+  platform-review-md:
+    description: "Platform review guidelines markdown file or glob"
+    required: false
+    default: ""
+  sarif:
+    description: "Write SARIF 2.1.0 report to this file path"
+    required: false
+    default: ""
+  sast:
+    description: "Write GitLab SAST report to this file path"
+    required: false
+    default: ""
+  audit-log:
+    description: "Write structured JSONL audit log to this file path"
+    required: false
+    default: ""
+  api-url:
+    description: "OpenAI-compatible API endpoint URL (e.g. Ollama, vLLM, LiteLLM)"
+    required: false
+    default: ""
+  api-key:
+    description: "API key for OpenAI-compatible HTTP provider"
+    required: false
+    default: ""
+  extra-args:
+    description: "Additional CLI flags passed directly to code-reviewer"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install code-reviewer binary
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        GH_TOKEN: ${{ env.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+
+        OS_KERNEL="$(uname -s)"
+        case "${OS_KERNEL}" in
+          Linux*)  OS="linux" ;;
+          Darwin*) OS="darwin" ;;
+          *)
+            echo "::error::Unsupported OS: ${OS_KERNEL}"
+            exit 1
+            ;;
+        esac
+
+        MACHINE_ARCH="$(uname -m)"
+        case "${MACHINE_ARCH}" in
+          x86_64|amd64)  ARCH="amd64" ;;
+          aarch64|arm64) ARCH="arm64" ;;
+          *)
+            echo "::error::Unsupported architecture: ${MACHINE_ARCH}"
+            exit 1
+            ;;
+        esac
+
+        TAG="${INPUT_VERSION}"
+        if [ "${TAG}" = "latest" ]; then
+          AUTH_ARGS=()
+          if [ -n "${GH_TOKEN:-}" ]; then
+            AUTH_ARGS=(-H "Authorization: Bearer ${GH_TOKEN}")
+          fi
+          TAG="$(curl --proto '=https' -sSfL "${AUTH_ARGS[@]}" https://api.github.com/repos/OpticDiff/code-reviewer/releases/latest | grep -Eo '"tag_name":\s*"[^"]+"' | head -n1 | cut -d'"' -f4)"
+        fi
+
+        VERSION_NUM="${TAG#v}"
+        ARCHIVE="code-reviewer_${VERSION_NUM}_${OS}_${ARCH}.tar.gz"
+        BASE_URL="https://github.com/OpticDiff/code-reviewer/releases/download/${TAG}"
+
+        INSTALL_DIR="${RUNNER_TEMP}/code-reviewer-bin"
+        mkdir -p "${INSTALL_DIR}"
+
+        curl --proto '=https' -sSfL "${BASE_URL}/${ARCHIVE}" -o "${INSTALL_DIR}/${ARCHIVE}"
+        curl --proto '=https' -sSfL "${BASE_URL}/checksums.txt" -o "${INSTALL_DIR}/checksums.txt"
+
+        (
+          cd "${INSTALL_DIR}"
+          grep " ${ARCHIVE}\$" checksums.txt > "${ARCHIVE}.sha256"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum -c "${ARCHIVE}.sha256"
+          else
+            shasum -a 256 -c "${ARCHIVE}.sha256"
+          fi
+          tar -xzf "${ARCHIVE}" code-reviewer
+          chmod +x code-reviewer
+        )
+
+        echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+
+    - name: Run code-reviewer
+      shell: bash
+      env:
+        INPUT_PROJECT_ID: ${{ inputs.project-id }}
+        INPUT_LOCATION: ${{ inputs.location }}
+        INPUT_MODEL: ${{ inputs.model }}
+        INPUT_MODELS: ${{ inputs.models }}
+        INPUT_CONSENSUS_THRESHOLD: ${{ inputs.consensus-threshold }}
+        INPUT_FOCUS: ${{ inputs.focus }}
+        INPUT_MIN_SEVERITY: ${{ inputs.min-severity }}
+        INPUT_COMMENT_MODE: ${{ inputs.comment-mode }}
+        INPUT_CLEANUP_MODE: ${{ inputs.cleanup-mode }}
+        INPUT_DISMISSAL_MODE: ${{ inputs.dismissal-mode }}
+        INPUT_USE_TEMPERATURE: ${{ inputs.use-temperature }}
+        INPUT_AGENT: ${{ inputs.agent }}
+        INPUT_AGENT_SCOPE: ${{ inputs.agent-scope }}
+        INPUT_INCREMENTAL: ${{ inputs.incremental }}
+        INPUT_AUTO_APPROVE: ${{ inputs.auto-approve }}
+        INPUT_PROFILE: ${{ inputs.profile }}
+        INPUT_PLATFORM_CONFIG: ${{ inputs.platform-config }}
+        INPUT_PLATFORM_REVIEW_MD: ${{ inputs.platform-review-md }}
+        INPUT_SARIF: ${{ inputs.sarif }}
+        INPUT_SAST: ${{ inputs.sast }}
+        INPUT_AUDIT_LOG: ${{ inputs.audit-log }}
+        INPUT_API_URL: ${{ inputs.api-url }}
+        INPUT_API_KEY: ${{ inputs.api-key }}
+        INPUT_EXTRA_ARGS: ${{ inputs.extra-args }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "${INPUT_PROJECT_ID}" ]; then
+          export GOOGLE_CLOUD_PROJECT="${INPUT_PROJECT_ID}"
+        fi
+        if [ -n "${INPUT_LOCATION}" ]; then
+          export GOOGLE_CLOUD_LOCATION="${INPUT_LOCATION}"
+        fi
+        if [ -n "${INPUT_API_KEY}" ]; then
+          export REVIEW_API_KEY="${INPUT_API_KEY}"
+        fi
+
+        ARGS=(--ci)
+
+        [ -n "${INPUT_MODEL}" ] && ARGS+=(--model "${INPUT_MODEL}")
+        [ -n "${INPUT_MODELS}" ] && ARGS+=(--models "${INPUT_MODELS}")
+        [ -n "${INPUT_CONSENSUS_THRESHOLD}" ] && ARGS+=(--consensus-threshold "${INPUT_CONSENSUS_THRESHOLD}")
+        [ -n "${INPUT_FOCUS}" ] && ARGS+=(--focus "${INPUT_FOCUS}")
+        [ -n "${INPUT_MIN_SEVERITY}" ] && ARGS+=(--min-severity "${INPUT_MIN_SEVERITY}")
+        [ -n "${INPUT_COMMENT_MODE}" ] && ARGS+=(--comment-mode "${INPUT_COMMENT_MODE}")
+        [ -n "${INPUT_CLEANUP_MODE}" ] && ARGS+=(--cleanup-mode "${INPUT_CLEANUP_MODE}")
+        [ -n "${INPUT_DISMISSAL_MODE}" ] && ARGS+=(--dismissal-mode "${INPUT_DISMISSAL_MODE}")
+        [ -n "${INPUT_USE_TEMPERATURE}" ] && ARGS+=("--use-temperature=${INPUT_USE_TEMPERATURE}")
+        [ "${INPUT_AGENT}" = "true" ] && ARGS+=(--agent)
+        [ -n "${INPUT_AGENT_SCOPE}" ] && ARGS+=(--agent-scope "${INPUT_AGENT_SCOPE}")
+        [ "${INPUT_INCREMENTAL}" = "true" ] && ARGS+=(--incremental)
+        [ "${INPUT_AUTO_APPROVE}" = "true" ] && ARGS+=(--auto-approve)
+        [ -n "${INPUT_PROFILE}" ] && ARGS+=(--profile "${INPUT_PROFILE}")
+        [ -n "${INPUT_PLATFORM_CONFIG}" ] && ARGS+=(--platform-config "${INPUT_PLATFORM_CONFIG}")
+        [ -n "${INPUT_PLATFORM_REVIEW_MD}" ] && ARGS+=(--platform-review-md "${INPUT_PLATFORM_REVIEW_MD}")
+        [ -n "${INPUT_SARIF}" ] && ARGS+=(--sarif "${INPUT_SARIF}")
+        [ -n "${INPUT_SAST}" ] && ARGS+=(--sast "${INPUT_SAST}")
+        [ -n "${INPUT_AUDIT_LOG}" ] && ARGS+=(--audit-log "${INPUT_AUDIT_LOG}")
+        [ -n "${INPUT_API_URL}" ] && ARGS+=(--api-url "${INPUT_API_URL}")
+
+        if [ -n "${INPUT_EXTRA_ARGS}" ]; then
+          PARSED_ARGS="$(mktemp)"
+          trap 'rm -f "${PARSED_ARGS}"' EXIT
+          if ! printf '%s' "${INPUT_EXTRA_ARGS}" | xargs printf '%s\0' >"${PARSED_ARGS}"; then
+            echo "::error::Invalid quoting in extra-args"
+            exit 1
+          fi
+          EXTRA=()
+          while IFS= read -r -d '' arg; do
+            EXTRA+=("$arg")
+          done <"${PARSED_ARGS}"
+          ARGS+=("${EXTRA[@]}")
+          rm -f "${PARSED_ARGS}"
+          trap - EXIT
+        fi
+
+        exec code-reviewer "${ARGS[@]}"
+

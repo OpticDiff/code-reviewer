@@ -2,7 +2,7 @@
 # GitHub Actions workflow for Multi-Model Consensus Code Review
 #
 # Features:
-# - Executes Gemini 2.5 Flash and Claude Sonnet 4 in parallel on Vertex AI
+# - Executes Gemini 3.8 Flash and Claude Sonnet 5 in parallel on Vertex AI
 # - Findings are deduplicated and merged by file + category + line proximity
 # - Only findings with consensus threshold >= 2 are reported
 # - Dramatically minimizes false positive review comments
@@ -39,10 +39,17 @@ jobs:
           service_account: ${{ secrets.WIF_SA }}
 
       # Run code-reviewer with multi-model consensus flags
+      # Tip: Provide a PAT or GitHub App user token in secrets.CODE_REVIEWER_TOKEN
+      # so GET /user succeeds and dismissed/open review threads are deduplicated across pushes.
       - name: Run code-reviewer
-        uses: OpticDiff/code-reviewer-action@v1
+        uses: OpticDiff/code-reviewer@v0.26.0
         with:
           project-id: ${{ secrets.GCP_PROJECT }}
+          models: gemini-3.8-flash,claude-sonnet-5
+          consensus-threshold: "2"
+          agent: "true"
+          agent-scope: high_severity_only
+          audit-log: review.jsonl
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          extra-args: "--models gemini-3.8-flash,claude-sonnet-5 --consensus-threshold 2"
+          GITHUB_TOKEN: ${{ secrets.CODE_REVIEWER_TOKEN || secrets.GITHUB_TOKEN }}
+

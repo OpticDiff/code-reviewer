@@ -179,7 +179,7 @@ jobs:
           service_account: ${{ secrets.WIF_SA }}
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.7.0
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.26.0
 
       - name: Review PR
         env:
@@ -189,6 +189,7 @@ jobs:
 ```
 
 ### GitHub Code Scanning (SARIF)
+
 
 If you want findings to show up in the GitHub Security tab (Code Scanning alerts) in addition to PR comments, generate a SARIF file and upload it:
 
@@ -217,7 +218,8 @@ jobs:
           service_account: ${{ secrets.WIF_SA }}
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.7.0
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.26.0
+
 
       - name: Review PR
         env:

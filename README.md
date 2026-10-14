@@ -255,33 +255,40 @@ See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
 
 ### GitHub Actions
 
-Use the [reusable action](https://github.com/OpticDiff/code-reviewer-action) for the simplest setup:
+Use the composite action directly from [`OpticDiff/code-reviewer@v0.26.0`](action.yml) (or [`OpticDiff/code-reviewer-action@v1`](https://github.com/OpticDiff/code-reviewer-action)):
 
 ```yaml
 # Self-hosted (Ollama) — zero auth, no cloud
-- uses: OpticDiff/code-reviewer-action@v1
+- uses: OpticDiff/code-reviewer@v0.26.0
   with:
     model: qwen3:8b
-    extra-args: --api-url http://ollama:11434/v1
+    api-url: http://ollama:11434/v1
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ```yaml
-# Vertex AI with auto-approve & incremental review
+# Vertex AI with agent verification, auto-approve & incremental review
+# Tip: Use a PAT or GitHub App user token in secrets.CODE_REVIEWER_TOKEN so
+# GET /user succeeds and dismissed/open review threads are deduplicated across pushes.
 - uses: google-github-actions/auth@v2
   with:
     workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
     service_account: ${{ secrets.WIF_SA }}
-- uses: OpticDiff/code-reviewer-action@v1
+- uses: OpticDiff/code-reviewer@v0.26.0
   with:
-    extra-args: --incremental --auto-approve --audit-log review.jsonl
+    project-id: ${{ secrets.GCP_PROJECT }}
+    incremental: "true"
+    agent: "true"
+    agent-scope: high_severity_only
+    auto-approve: "true"
+    audit-log: review.jsonl
   env:
-    GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    GITHUB_TOKEN: ${{ secrets.CODE_REVIEWER_TOKEN || secrets.GITHUB_TOKEN }}
 ```
 
 See [`examples/github/`](examples/github/) for complete workflows: [basic](examples/github/basic.yml), [SARIF + Code Scanning](examples/github/sarif.yml), [self-hosted Ollama](examples/github/self-hosted.yml), [multi-model consensus](examples/github/consensus.yml), [AWS Bedrock](examples/github/bedrock.yml).
+
 
 ### ⚡ Incremental Reviews & Commit Triggers (GitHub PRs & GitLab MRs)
 
@@ -662,7 +669,7 @@ Also works with the [pre-commit](https://pre-commit.com) framework:
 ```yaml
 # .pre-commit-config.yaml
 - repo: https://github.com/OpticDiff/code-reviewer
-  rev: v0.7.0
+  rev: v0.26.0
   hooks:
     - id: code-review
       stages: [pre-push]
@@ -774,7 +781,7 @@ Merge request files are read from the paginated `/diffs` endpoint. GitLab 18.4 o
 | Token Type | Capabilities | Setup |
 |---|---|---|
 | `GITHUB_TOKEN` (Actions) | PR review comments, suggestions | Automatic in GitHub Actions |
-| Personal Access Token | PR reviews outside CI | `repo` scope required |
+| Personal Access Token / GitHub App User Token | PR reviews + `GET /user` identity for dismissed/open thread deduplication | `repo` / `pull_requests: write` scope |
 
 ## Context Window Handling
 
@@ -854,10 +861,11 @@ CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https
 Releases are automated via [GoReleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
 
 ```bash
-git tag -a v0.7.0 -m "v0.7.0"
-git push origin v0.7.0
+git tag -a v0.26.0 -m "v0.26.0"
+git push origin v0.26.0
 # → GitHub Actions: test → build 6 binaries → publish to Releases
 ```
+
 
 ## Inline Suppressions
 

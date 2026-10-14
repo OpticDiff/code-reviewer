@@ -22,9 +22,11 @@ code-review:
 
 # Security gate (GitLab Ultimate) — blocks MR on high/critical findings.
 # SARIF output appears in GitLab's Security tab (requires Ultimate).
+# Uses --dismissal-mode resolve_only so plain replies do not dismiss HIGH/CRITICAL findings,
+# and --agent --agent-scope high_severity_only to verify blocking findings against repo files.
 security-review-ultimate:
   stage: review
-  image: gcr.io/$PROJECT/code-reviewer:latest
+  image: ghcr.io/opticdiff/code-reviewer:v0.26.0
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
@@ -33,11 +35,15 @@ security-review-ultimate:
     REVIEW_FOCUS: "security"
     REVIEW_MIN_SEVERITY: "high"
     REVIEW_COMMENT_MODE: "discussions"
+    CODE_REVIEWER_CLEANUP_MODE: "resolve"
+    REVIEW_DISMISSAL_MODE: "resolve_only"
     SARIF_OUTPUT: "results.sarif"
   script:
-    - code-reviewer --ci --incremental
+    - code-reviewer --ci --incremental --agent --agent-scope high_severity_only --audit-log review.jsonl
   allow_failure: false
   artifacts:
+    paths:
+      - review.jsonl
     reports:
       sarif: results.sarif
     when: always
@@ -46,7 +52,7 @@ security-review-ultimate:
 # SAST output appears in GitLab's Security tab (works in Free/Premium).
 security-review-free:
   stage: review
-  image: gcr.io/$PROJECT/code-reviewer:latest
+  image: ghcr.io/opticdiff/code-reviewer:v0.26.0
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
@@ -55,24 +61,34 @@ security-review-free:
     REVIEW_FOCUS: "security"
     REVIEW_MIN_SEVERITY: "high"
     REVIEW_COMMENT_MODE: "discussions"
+    CODE_REVIEWER_CLEANUP_MODE: "resolve"
+    REVIEW_DISMISSAL_MODE: "resolve_only"
     SAST_OUTPUT: "gl-sast-report.json"
   script:
-    - code-reviewer --ci --incremental
+    - code-reviewer --ci --incremental --agent --agent-scope high_severity_only --audit-log review.jsonl
   allow_failure: false
   artifacts:
+    paths:
+      - review.jsonl
     reports:
       sast: gl-sast-report.json
     when: always
 
-# General review — advisory, non-blocking.
+# General review — advisory, non-blocking, preserves thread history with cleanup-mode=resolve.
 code-review-full:
   stage: review
-  image: gcr.io/$PROJECT/code-reviewer:latest
+  image: ghcr.io/opticdiff/code-reviewer:v0.26.0
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:
     GITLAB_TOKEN: $CODE_REVIEWER_TOKEN
     REVIEW_COMMENT_MODE: "discussions"
+    CODE_REVIEWER_CLEANUP_MODE: "resolve"
   script:
-    - code-reviewer --ci --incremental
+    - code-reviewer --ci --incremental --audit-log review.jsonl
   allow_failure: true
+  artifacts:
+    paths:
+      - review.jsonl
+    when: always
+

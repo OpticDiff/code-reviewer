@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-**code-reviewer** is an AI-powered code review tool that analyses unified diffs from Git or GitLab merge requests and produces structured, actionable findings. It runs locally against `git diff` or inside GitLab CI pipelines, supports multiple AI backends (Vertex AI Gemini, any OpenAI-compatible endpoint), and can output results as colored terminal text, JSON, SARIF 2.1.0, or as GitLab MR comments. A tree-sitter–based context pipeline discovers cross-file regressions, and a multi-model consensus mode reduces false positives by requiring agreement across independently queried models.
+**code-reviewer** is an AI-powered code review CLI and library that analyses unified diffs from local Git, GitHub Pull Requests, or GitLab Merge Requests and produces structured, actionable findings. It runs locally against `git diff` or inside GitHub Actions / GitLab CI pipelines, supports multiple AI backends (Vertex AI Gemini/Claude/Mistral, AWS Bedrock via LiteLLM, or any OpenAI-compatible endpoint), and outputs results as colored terminal text, JSON, SARIF 2.1.0, GitLab SAST reports, or inline PR/MR comments with one-click suggestions. A pure-Go tree-sitter context pipeline discovers cross-file regressions, a schema-constrained agent refinement loop (`--agent`) verifies findings against repository source files, and a multi-model consensus mode reduces false positives by requiring agreement across independently queried models.
 
 ---
 
@@ -12,21 +12,24 @@ The following diagram shows the full review pipeline from CLI invocation to outp
 
 ```mermaid
 sequenceDiagram
-    participant CLI as cmd/main.go
+    participant CLI as cmd/code-reviewer
     participant Cfg as config.Load()
     participant Prov as Provider Setup
+    participant VCS as GitHub / GitLab Client
     participant Diff as getDiffs()
     participant Filt as Filter / Priority / Budget
     participant Chunk as Chunker
     participant Ctx as Context Provider
     participant Prompt as BuildPrompt()
     participant Model as provider.Review()
-    participant Parse as parseReviewJSON()
+    participant Parse as repair.RepairJSON() + Unmarshal
     participant Val as ValidateFindings()
-    participant Out as Output
+    participant Agent as agent.Refiner (--agent)
+    participant Out as Output & Thread Sync
 
     CLI->>Cfg: Load config (flags > env > YAML > defaults)
     CLI->>Prov: Create Provider / HTTPProvider / MultiProvider
+    CLI->>VCS: ListDismissedFindings() + ListOpenFindings() (CI mode)
     CLI->>Diff: getDiffs() — CI / local diff / file list
     Diff-->>Filt: []FileDiff
     Filt->>Filt: Filter(excluded patterns)
@@ -40,13 +43,17 @@ sequenceDiagram
     loop Each chunk
         CLI->>Prompt: buildNumberedDiff() → BuildUserPromptWithContext()
         CLI->>Model: Review(systemPrompt, userPrompt)
-        Model->>Parse: extractText() → parseReviewJSON()
+        Model->>Parse: extractText() → repair.RepairJSON() → parseReviewJSON()
         Parse-->>CLI: *ReviewResult
     end
 
-    CLI->>Val: ValidateFindings (drop invalid line refs)
-    CLI->>Filt: filterBySeverity (--min-severity)
-    CLI->>Out: Terminal / JSON / SARIF / GitLab notes
+    CLI->>Val: ValidateFindings (new-side Line, old-side OldLine, snippet snap)
+    opt --agent enabled
+        CLI->>Agent: Refine(findings) with read_file, find_definition, list_directory
+        Agent-->>CLI: Verified findings + VerdictRecord[]
+    end
+    CLI->>Filt: filterBySeverity + confidence floor + inline suppressions
+    CLI->>Out: Terminal / JSON / SARIF / SAST / PR & MR inline threads
 ```
 
 ---
@@ -55,14 +62,18 @@ sequenceDiagram
 
 | Package | Purpose | Key Exported Types | Dependencies |
 |---|---|---|---|
-| `cmd/code-reviewer` | CLI entry point; wires config, providers, reviewer | `main()`, `run()` | `config`, `context`, `gitlab`, `model`, `reviewer` |
-| `internal/config` | Config loading and validation; flag/env/YAML merge | `Config`, `Severity`, `CommentMode`, `ChunkStrategy`, `Load()` | `gopkg.in/yaml.v3` |
-| `internal/model` | AI model providers and prompt construction | `Provider`, `HTTPProvider`, `MultiProvider`, `ReviewProvider`, `ReviewResult`, `Finding`, `TokenUsage`, `ContextSnippet` | `google.golang.org/genai`, `golang.org/x/oauth2`, `golang.org/x/sync/errgroup`, `internal/retry` |
-| `internal/reviewer` | Core review pipeline orchestration and output | `Reviewer`, `ModelReviewer`, `VCSClient`, `DiffSource`, `CostEstimate` | `internal/config`, `internal/context`, `internal/diff`, `internal/model`, `internal/vcs`, `golang.org/x/term` |
-| `internal/diff` | Unified diff parsing, filtering, chunking, priority | `FileDiff`, `Hunk`, `DiffLine`, `LineType`, `ChunkStrategy` (interface), `FailStrategy`, `SplitStrategy`, `DiffTooLargeError` | (stdlib only) |
+| `cmd/code-reviewer` | CLI entry point; wires config, providers, VCS clients, reviewer | `main()`, `run()` | `config`, `context`, `github`, `gitlab`, `model`, `reviewer` |
+| `pkg/vcs` | Reusable platform-agnostic VCS types, fingerprinting, and thread state | `MRChanges`, `DiffEntry`, `DiffVersion`, `Comment`, `InlineCommentRequest`, `InlineCommentPosition`, `DismissedFinding`, `OpenFinding`, `Fingerprint()`, `FormatFindingHeader()`, `ParseFindingHeader()` | (stdlib only) |
+| `pkg/repair` | Deterministic LLM JSON repair (markdown fence stripping, double-encoded JSON, control characters, unescaped quotes) | `RepairJSON()` | (stdlib only) |
+| `pkg/rules` | Custom & platform governance YAML rule schema, validation, and path matching | `Rule`, `File`, `LoadFile()`, `Merge()` | `gopkg.in/yaml.v3` |
+| `pkg/agent` | Bounded multi-turn agent loop to verify findings with repository tools | `Refiner`, `Verdict`, `VerdictRecord`, `RunSummary`, `ToolExecutor` | `internal/model` |
+| `internal/config` | Config loading and validation; flag/env/YAML/platform merge | `Config`, `Severity`, `CommentMode`, `ChunkStrategy`, `DismissalMode`, `Load()` | `pkg/rules`, `gopkg.in/yaml.v3` |
+| `internal/model` | AI model providers, prompt construction, and response parsing | `Provider`, `HTTPProvider`, `MultiProvider`, `ReviewProvider`, `ReviewResult`, `Finding`, `TokenUsage`, `ContextSnippet` | `google.golang.org/genai`, `golang.org/x/oauth2`, `golang.org/x/sync/errgroup`, `pkg/repair`, `internal/retry` |
+| `internal/reviewer` | Core review pipeline orchestration, validation, caching, and output | `Reviewer`, `ModelReviewer`, `VCSClient`, `DiffSource`, `CostEstimate`, `AuditEntry` | `pkg/agent`, `pkg/vcs`, `internal/config`, `internal/context`, `internal/diff`, `internal/model` |
+| `internal/diff` | Unified diff parsing, filtering, chunking, priority scoring | `FileDiff`, `Hunk`, `DiffLine`, `LineType`, `ChunkStrategy` (interface), `FailStrategy`, `SplitStrategy`, `DiffTooLargeError` | (stdlib only) |
 | `internal/context` | Tree-sitter symbol extraction and grep-based usage finding | `Provider` (interface), `DefaultProvider`, `SymbolExtractor`, `UsageFinder`, `SymbolChange`, `CodeSnippet` | `internal/diff`, `github.com/odvcencio/gotreesitter` |
-| `internal/gitlab` | GitLab REST API v4 client | `Client` | `internal/vcs` |
-| `internal/vcs` | Platform-agnostic VCS types | `MRChanges`, `DiffEntry`, `DiffVersion`, `Comment`, `InlineCommentRequest`, `InlineCommentPosition` | (stdlib only) |
+| `internal/gitlab` | GitLab REST API v4 client (notes, discussions, approvals, raw_diffs fallback) | `Client` | `pkg/vcs` |
+| `internal/github` | GitHub REST API v3 client (PR reviews, inline comments, thread replies, approvals) | `Client` | `pkg/vcs` |
 | `internal/retry` | Exponential backoff with jitter | `Options`, `RetryableError`, `Do()`, `IsRetryable()` | (stdlib only) |
 
 ---
@@ -123,9 +134,10 @@ The default base prompt includes a constraint that the model **must ignore** any
 
 The user prompt is built by `BuildUserPromptWithContext()`:
 
-1. MR title and description (if in CI mode)
-2. Code changes in numbered diff format (wrapped in ```` ```diff ```` block)
-3. Related unchanged code snippets (from context pipeline)
+1. MR/PR title and description (if in CI mode)
+2. Code changes in dual-column numbered diff format (`old_line` and `new_line`, wrapped in ```` ```diff ```` block)
+3. Related unchanged code snippets (from tree-sitter context pipeline) and directory-scoped `context_files` (e.g., `AGENTS.md`)
+4. Previously dismissed finding locations (`file:line` only, never untrusted comment text) so the model does not rediscover them
 
 ---
 
@@ -178,8 +190,12 @@ classDiagram
     class Finding {
         +File string
         +Line int
+        +OldLine int
+        +EndLine int
         +Severity string
         +Category string
+        +RuleName string
+        +Confidence int
         +Title string
         +Body string
         +Suggestion string
@@ -230,13 +246,12 @@ classDiagram
 Both `Provider` and `HTTPProvider` follow the same flow:
 
 ```text
-generateRaw() → extractText() → parseReviewJSON() → *ReviewResult
+generateRaw() → extractText() → repair.RepairJSON() → parseReviewJSON() → *ReviewResult
 ```
 
-`parseReviewJSON()` has three fallback stages:
-1. Direct `json.Unmarshal`
-2. Strip markdown code fences (` ```json ... ``` `)
-3. Extract first `{...}` substring
+`parseReviewJSON()` delegates to `pkg/repair.RepairJSON()` to deterministically strip markdown code fences, repair double-encoded JSON strings, escape bare control characters, and repair unescaped quotes inside JSON string values before unmarshaling.
+
+
 
 ---
 
@@ -354,29 +369,38 @@ Known model limits:
 
 A Vertex AI snapshot suffix resolves to its base model: `claude-haiku-4-5@20251001` uses the `claude-haiku-4-5` limit.
 
-### Numbered Diff Format
+### Dual-Column Numbered Diff Format
 
-`buildNumberedDiff()` produces a format optimized for LLM line reference accuracy:
+`buildNumberedDiff()` renders both old-side and new-side line numbers (`old_line` / `new_line`) so the LLM can accurately reference added, context, or removed lines:
 
 ```diff
 === File: internal/handler/auth.go ===
 @@ -10,5 +10,7 @@ func Validate()
-  10   func Validate(token string) error {
-  11 +     if token == "" {
-  12 +         return ErrEmpty
-  13 +     }
-  14       claims, err := Parse(token)
+   10   10   func Validate(token string) error {
+   11      -     if len(token) == 0 {
+        11 +     if token == "" {
+        12 +         return ErrEmpty
+        13 +     }
+   12   14       claims, err := Parse(token)
 ```
 
 ### Token Budget (`internal/reviewer/budget.go`)
 
 `EstimateCost()` performs pre-flight estimation (output ≈ 25% of input). `TrimToBudget()` removes lowest-priority files from the tail until the estimate fits within `--max-tokens`. A runtime safety net stops chunk iteration if actual usage exceeds the budget.
 
-### Finding Validation (`internal/reviewer/validator.go`)
+### Finding Validation & Removed-Line Anchoring (`internal/reviewer/validator.go`)
 
-`ValidateFindings()` drops findings that reference:
-- Files not present in the diff (with fuzzy path matching as fallback)
-- Line numbers not in the changed set (with hunk-range tolerance)
+`ValidateFindings()` validates both new-side (`Line > 0`) and old-side (`OldLine > 0`, `Line == 0`) findings:
+- Drops findings referencing files not present in the diff (with fuzzy basename/suffix matching as fallback)
+- Validates new-side `Line` against added/context lines in diff hunks (snapping nearby off-by-N references)
+- Validates old-side `OldLine` against removed lines (`LineRemoved`) in diff hunks so findings on deleted code or removed guards anchor to the `LEFT` / `old_line` side of the diff (with `Suggestion` cleared because replacement fences cannot apply to deleted lines)
+
+### Agent Refinement Loop (`pkg/agent`)
+
+When `--agent` is enabled (optionally scoped via `--agent-scope high_severity_only`), `agent.Refiner` runs a bounded, multi-turn verification loop over candidate findings before they are reported:
+- **Tools**: `read_file` (bounded line ranges, symlink-safe within repo root), `find_definition` (tree-sitter + ripgrep symbol lookup), and `list_directory`
+- **Schema-Constrained Verdict**: On the final turn, the model emits a structured `Verdict` (`keep`, `drop`, or `downgrade` with updated severity and reasoning) constrained by a native JSON response schema (`VerdictResponseSchema()`) and repaired via `pkg/repair.RepairJSON()`
+- **Fail-Open Safety**: If a tool call or model turn fails or hits the turn/token budget, the original finding is kept and the error is recorded in `VerdictRecord` and `RunSummary` in the JSONL audit log (`--audit-log`)
 
 ---
 
@@ -396,6 +420,9 @@ GCPLocation:      "global"
 Focus:            ["all"]
 MinSeverity:      SeverityLow
 CommentMode:      "notes"
+CleanupMode:      "delete"
+DismissalMode:    "any"
+ConfidenceFloor:  80
 ChunkStrategy:    "fail"
 GitLabBaseURL:    "https://gitlab.com"
 SkipDraftMRs:     true
@@ -411,6 +438,10 @@ model: gemini-3.1-pro-preview
 focus: [security, bugs]
 min_severity: medium
 comment_mode: discussions
+cleanup_mode: resolve
+dismissal_mode: resolve_only
+agent: true
+agent_scope: high_severity_only
 chunk_strategy: split
 excluded_patterns: ["*.generated.go"]
 extra_rules: "Always flag SQL string concatenation"
@@ -420,6 +451,7 @@ proxy_url: http://localhost:8181/proxy/google/
 token_limit: 1000000
 confidence_floor: 80
 temperature: 0
+use_temperature: true
 max_tokens: 500000
 api_url: http://localhost:11434/v1
 ```
@@ -437,11 +469,14 @@ api_url: http://localhost:11434/v1
 | `REVIEW_CONTEXT_FILES` | `ContextFiles` (comma-separated) |
 | `REVIEW_MIN_SEVERITY` | `MinSeverity` |
 | `REVIEW_COMMENT_MODE` | `CommentMode` |
+| `CODE_REVIEWER_CLEANUP_MODE` | `CleanupMode` (`delete` or `resolve`) |
+| `REVIEW_DISMISSAL_MODE` | `DismissalMode` (`any` or `resolve_only`) |
 | `REVIEW_CHUNK_STRATEGY` | `ChunkStrategy` |
 | `GOOGLE_CLOUD_PROJECT` | `GCPProject` |
 | `GOOGLE_CLOUD_LOCATION` | `GCPLocation` |
 | `GITLAB_TOKEN` | `GitLabToken` |
 | `GITLAB_BASE_URL` | `GitLabBaseURL` |
+| `GITHUB_TOKEN` | `GitHubToken` |
 | `EXCLUDED_PATTERNS` | `ExcludedPatterns` (comma-separated) |
 | `REVIEW_EXTRA_RULES` | `ExtraRules` |
 | `SKIP_DRAFT_MRS` | `SkipDraftMRs` (`false` to disable) |
@@ -449,6 +484,7 @@ api_url: http://localhost:11434/v1
 | `REVIEW_CUSTOM_PROMPT` | `CustomPrompt` |
 | `NO_COLOR` | `NoColor` (presence disables color) |
 | `SARIF_OUTPUT` | `SARIFOutput` |
+| `SAST_OUTPUT` | `SASTOutput` |
 | `REVIEW_MODELS` | `Models` (comma-separated) |
 | `INCREMENTAL` | `Incremental` (`true`) |
 | `REVIEW_PROXY_URL` | `ProxyURL` |
@@ -458,7 +494,7 @@ api_url: http://localhost:11434/v1
 
 ### CI Auto-Detection
 
-These are read from GitLab CI environment but **not overridable** by config/flags:
+These are read from GitLab CI or GitHub Actions environment variables:
 
 | Variable | Field |
 |---|---|
@@ -466,11 +502,12 @@ These are read from GitLab CI environment but **not overridable** by config/flag
 | `CI_MERGE_REQUEST_IID` | `CIMergeRequestID` |
 | `CI_MERGE_REQUEST_DIFF_BASE_SHA` | `CIDiffBaseSHA` |
 | `CI_COMMIT_BEFORE_SHA` | `CICommitBeforeSHA` |
+| `GITHUB_ACTIONS` / `GITHUB_REPOSITORY` / `GITHUB_EVENT_PATH` | Auto-detected GitHub PR metadata |
 
 ### Validation
 
 - Exactly one input mode required: `--ci`, `--diff`, or `--files`
-- CI mode requires `CI_PROJECT_ID`, `CI_MERGE_REQUEST_IID`, and `GITLAB_TOKEN`
+- CI mode requires either GitLab MR env vars (`CI_PROJECT_ID`, `CI_MERGE_REQUEST_IID`, `GITLAB_TOKEN`) or GitHub Actions PR env vars (`GITHUB_REPOSITORY`, `GITHUB_EVENT_PATH`, `GITHUB_TOKEN`)
 - GitLab URL must use HTTPS (override with `CODE_REVIEWER_ALLOW_INSECURE=true`)
 - GCP project required for Vertex AI; or `--api-url` for HTTP provider
 
@@ -487,6 +524,8 @@ flowchart TD
     A -->|GitLab API| F{Token source?}
     F -->|CI_JOB_TOKEN| G[PRIVATE-TOKEN header]
     F -->|Project Access Token| G
+    A -->|GitHub API| H{Token source?}
+    H -->|GITHUB_TOKEN / PAT / App Token| I[Bearer Token header]
 
     B -->|"gcloud auth application-default login"| B1[Local Development]
     B -->|"Workload Identity Federation"| B2[CI/CD]
@@ -508,16 +547,16 @@ Three-tier auth strategy (checked in order):
 2. **GCP ADC** (when `GOOGLE_APPLICATION_CREDENTIALS` is set) → auto-refreshing `oauth2.TokenSource`
 3. **No auth** — for local endpoints like Ollama
 
-### GitLab API
+### GitLab & GitHub APIs
 
-- Token passed via `PRIVATE-TOKEN` header (not URL parameter)
-- Token source: `CI_JOB_TOKEN` (scoped to pipeline) or Project/Group Access Token with `api` scope
-- Redirect handler strips the `PRIVATE-TOKEN` header if redirected to a different host
+- **GitLab**: Token passed via `PRIVATE-TOKEN` header (`CI_JOB_TOKEN` for notes, or Project/Group Access Token with `api` scope for inline discussions and `GET /user` identity lookup)
+- **GitHub**: Token passed via `Authorization: Bearer` header (`GITHUB_TOKEN` for PR reviews/comments, or PAT / GitHub App user token so `GET /user` succeeds for dismissed/open thread deduplication)
+- Redirect handler strips credentials if redirected to a different host
 - Rate limiting: automatic retry with `Retry-After` header respect (capped at 60s)
 
 ---
 
-## 10. Output Modes
+## 10. Output Modes & Thread Lifecycle
 
 ### Terminal (Default)
 
@@ -528,7 +567,7 @@ Two rendering paths based on TTY detection:
 | **Color** | stdout is a TTY, `--no-color` not set, `NO_COLOR` not in env | ANSI box drawing, severity-colored labels (🔴🟠🟡🔵), dim pipes for body, green suggestions |
 | **Plain** | Piped output or `--no-color` | Markdown-formatted output, grouped by file |
 
-Both display: summary, finding count by severity, token usage, file-grouped findings with line numbers.
+Both display: summary, finding count by severity, token usage, file-grouped findings with line numbers (`line` or `-old_line` for deleted lines).
 
 ### JSON (`--json`)
 
@@ -543,6 +582,7 @@ Full `ReviewResult` struct serialized with `json.MarshalIndent`:
       "line": 42,
       "severity": "HIGH",
       "category": "bug",
+      "confidence": 92,
       "title": "...",
       "body": "...",
       "suggestion": "..."
@@ -556,27 +596,20 @@ Full `ReviewResult` struct serialized with `json.MarshalIndent`:
 }
 ```
 
-### SARIF 2.1.0 (`--sarif <path>`)
+### SARIF 2.1.0 (`--sarif <path>`) & GitLab SAST (`--sast <path>`)
 
-Written to disk (not stdout). Compatible with GitHub Code Scanning, GitLab SAST, and IDE integrations.
+Written to disk (not stdout). Compatible with GitHub Code Scanning, GitLab Security Dashboard, and IDE integrations.
 
-- Schema: `https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json`
-- Rules deduced from finding categories (`bug`, `security`, `performance`, `style`, `docs`)
+- SARIF Schema: `https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json` with `versionControlProvenance`
+- Rules deduced from finding categories or custom/platform `rule_name`
 - Severity mapping: CRITICAL/HIGH → `error`, MEDIUM → `warning`, LOW → `note`
 
-### GitLab Notes / Discussions (CI Mode)
+### GitHub & GitLab Inline Threads, Fingerprints, and Deduplication (CI Mode)
 
-Controlled by `--comment-mode`:
+Controlled by `--comment-mode`, `--cleanup-mode`, and `--dismissal-mode`:
 
-| Mode | Behavior |
-|---|---|
-| `notes` | Posts a single summary note with severity table and finding list |
-| `discussions` | Posts summary note **plus** inline diff-anchored discussions per finding |
+- **Hidden Finding Header (`pkg/vcs`)**: Every inline comment includes a machine-readable HTML comment header (`<!-- code-reviewer ... fp:<16-hex> loc:<file>:<line|old_line> cat:<key> -->`) computed by `vcs.Fingerprint()` over the file path, rule name (if rule-attributed) or category, and surrounding code lines (`radius=1`).
+- **Dismissed Findings (`ListDismissedFindings`)**: Threads authored by the bot account (`GET /user`) that have human replies or resolutions are matched by fingerprint. Findings below `HIGH` may be dismissed by the PR/MR author; `HIGH` and `CRITICAL` findings require engagement from a non-author reviewer (and with `--dismissal-mode resolve_only`, require explicit thread resolution rather than a plain reply). Suppressed findings are recorded in `--audit-log` under `suppressed` with `dismissed_note_id` and `author_only`.
+- **Open Thread Deduplication (`ListOpenFindings`)**: Unresolved bot threads with no human replies are matched by exact fingerprint or proximity (`±3` lines on unchanged surrounding code on the same diff side). Matching threads are kept open in place instead of being deleted/resolved and re-posted on subsequent pushes, unless a newly detected finding has a higher severity than the existing thread's badge.
+- **Removed-Line (`OldLine`) Anchoring**: Findings on deleted lines (`OldLine > 0`, `Line == 0`) are anchored to `Position.OldLine` in GitLab discussions and `side: "LEFT"` in GitHub PR review comments.
 
-Features:
-- **Bot marker** (`<!-- code-reviewer -->`) tags all comments for idempotent cleanup
-- **CleanPreviousReviews** deletes prior bot comments before posting new ones
-- **Inline discussions** use MR diff version SHAs (`BaseSHA`, `HeadSHA`, `StartSHA`) for accurate positioning
-- **Fallback**: if inline discussion creation fails (line out of range), posts as a regular note
-- **Pagination**: `ListBotNotes` follows `Link: <url>; rel="next"` headers with SSRF protection (validates same origin)
-- **Rate limiting**: 100ms delay between API calls; automatic 429 retry with `Retry-After` header
