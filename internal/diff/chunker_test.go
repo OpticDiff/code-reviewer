@@ -1,6 +1,9 @@
 package diff
 
 import (
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -152,5 +155,145 @@ func TestNewChunkStrategy(t *testing.T) {
 		if (err != nil) != tt.wantErr {
 			t.Errorf("NewChunkStrategy(%q) error = %v, wantErr %v", tt.name, err, tt.wantErr)
 		}
+	}
+}
+
+// sizedDiff returns a one-line diff for path whose content makes it roughly
+// `tokens` estimated tokens.
+func sizedDiff(path string, tokens int) FileDiff {
+	return FileDiff{
+		NewPath: path,
+		Hunks: []Hunk{{
+			Lines: []DiffLine{{Type: LineAdded, Content: strings.Repeat("x", tokens*4), NewLineNo: 1}},
+		}},
+	}
+}
+
+func chunkPaths(chunks [][]FileDiff) [][]string {
+	out := make([][]string, len(chunks))
+	for i, c := range chunks {
+		for _, d := range c {
+			out[i] = append(out[i], d.NewPath)
+		}
+	}
+	return out
+}
+
+func TestSplitStrategy_TargetTokensPacksToTarget(t *testing.T) {
+	var diffs []FileDiff
+	for i := range 10 {
+		diffs = append(diffs, sizedDiff(fmt.Sprintf("f%02d.go", i), 100))
+	}
+
+	// Default: the 1M limit holds everything in one chunk.
+	chunks, err := (&SplitStrategy{}).Chunk(diffs, 1_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("default packing: got %d chunks, want 1", len(chunks))
+	}
+
+	// A 350-token target holds three 100-token files per chunk.
+	chunks, err = (&SplitStrategy{TargetTokens: 350}).Chunk(diffs, 1_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 4 {
+		t.Fatalf("got %d chunks, want 4 (3+3+3+1)", len(chunks))
+	}
+	for i, c := range chunks {
+		if got := EstimateTokens(c); got > 350 {
+			t.Errorf("chunk %d is ~%d tokens, over the 350 target", i, got)
+		}
+	}
+}
+
+func TestSplitStrategy_TargetTokensAboveDefaultIsCapped(t *testing.T) {
+	var diffs []FileDiff
+	for i := range 4 {
+		diffs = append(diffs, sizedDiff(fmt.Sprintf("f%d.go", i), 300))
+	}
+	// Limit 1000 leaves 800 for diff content; a target of 5000 must not raise it.
+	chunks, err := (&SplitStrategy{TargetTokens: 5000}).Chunk(diffs, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chunks) != 2 {
+		t.Fatalf("got %d chunks, want 2 (the 80%% cap of 800 tokens holds two files)", len(chunks))
+	}
+}
+
+func TestSplitStrategy_FileLargerThanTargetGetsOwnChunk(t *testing.T) {
+	diffs := []FileDiff{
+		sizedDiff("small1.go", 50),
+		sizedDiff("huge.go", 900),
+		sizedDiff("small2.go", 50),
+	}
+	chunks, err := (&SplitStrategy{TargetTokens: 200}).Chunk(diffs, 1_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{{"huge.go"}, {"small1.go", "small2.go"}}
+	if got := chunkPaths(chunks); !reflect.DeepEqual(got, want) {
+		t.Errorf("chunks = %v, want %v", got, want)
+	}
+}
+
+func TestSplitStrategy_DeterministicOrder(t *testing.T) {
+	// Equal sizes: the order must follow the input, run after run.
+	var diffs []FileDiff
+	for i := range 12 {
+		diffs = append(diffs, sizedDiff(fmt.Sprintf("f%02d.go", i), 100))
+	}
+	s := &SplitStrategy{TargetTokens: 250}
+	first, err := s.Chunk(diffs, 1_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [][]string{
+		{"f00.go", "f01.go"}, {"f02.go", "f03.go"}, {"f04.go", "f05.go"},
+		{"f06.go", "f07.go"}, {"f08.go", "f09.go"}, {"f10.go", "f11.go"},
+	}
+	if got := chunkPaths(first); !reflect.DeepEqual(got, want) {
+		t.Fatalf("chunks = %v, want %v", got, want)
+	}
+	for range 20 {
+		again, err := s.Chunk(diffs, 1_000_000)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(chunkPaths(again), chunkPaths(first)) {
+			t.Fatal("chunking the same diff twice gave different chunks")
+		}
+	}
+}
+
+func TestSplitStrategy_ZeroTargetKeepsDefault(t *testing.T) {
+	diffs := makeTestDiffs(10, 100)
+	limit := EstimateTokens(diffs) / 2
+	a, err := (&SplitStrategy{}).Chunk(diffs, limit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := (&SplitStrategy{TargetTokens: 0}).Chunk(diffs, limit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(chunkPaths(a), chunkPaths(b)) {
+		t.Error("TargetTokens 0 changed the chunking")
+	}
+}
+
+func TestNewChunkStrategyWithTarget(t *testing.T) {
+	s, err := NewChunkStrategyWithTarget("split", 1234)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.(*SplitStrategy).TargetTokens; got != 1234 {
+		t.Errorf("TargetTokens = %d, want 1234", got)
+	}
+	if _, err := NewChunkStrategyWithTarget("bogus", 1); err == nil {
+		t.Error("expected an error for an unknown strategy")
 	}
 }
