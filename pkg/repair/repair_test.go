@@ -158,3 +158,78 @@ func TestRepairJSON_PreservesMultibyteUTF8(t *testing.T) {
 		t.Errorf("RepairJSON mangled non-ASCII text:\n got: %q\nwant: %q", got, want)
 	}
 }
+
+func TestRepairJSON_TrailingEscapedBackslash(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expected    string
+		madeRepairs bool
+	}{
+		{
+			name:        "valid JSON with trailing escaped backslash",
+			input:       `{"path": "C:\\", "next": "ok"}`,
+			expected:    `{"path": "C:\\", "next": "ok"}`,
+			madeRepairs: false,
+		},
+		{
+			name:        "broken JSON with trailing escaped backslash and bare newline",
+			input:       "{\"path\": \"C:\\\\\", \"msg\": \"line1\nline2\"}",
+			expected:    `{"path": "C:\\", "msg": "line1\nline2"}`,
+			madeRepairs: true,
+		},
+		{
+			name:        "broken JSON with double escaped backslash before closing quote and unescaped internal quote",
+			input:       `{"path": "C:\\\\", "msg": "say "hello""}`,
+			expected:    `{"path": "C:\\\\", "msg": "say \"hello\""}`,
+			madeRepairs: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, madeRepairs := RepairJSON(tt.input)
+			if got != tt.expected {
+				t.Errorf("RepairJSON() = %q, want %q", got, tt.expected)
+			}
+			if madeRepairs != tt.madeRepairs {
+				t.Errorf("RepairJSON() madeRepairs = %v, want %v", madeRepairs, tt.madeRepairs)
+			}
+		})
+	}
+}
+
+func TestRepairJSON_CodeFencesInsideStringValues(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		expected    string
+		madeRepairs bool
+	}{
+		{
+			name:        "valid JSON containing markdown code block inside string value",
+			input:       `{"suggestion": "Use:\n` + "```go\\nfoo()\\n```" + `"}`,
+			expected:    `{"suggestion": "Use:\n` + "```go\\nfoo()\\n```" + `"}`,
+			madeRepairs: false,
+		},
+		{
+			name:        "outer markdown fence wrapping JSON that also has inner code fences",
+			input:       "```json\n" + `{"suggestion": "Use:\n` + "```go\\nfoo()\\n```" + `"}` + "\n```",
+			expected:    `{"suggestion": "Use:\n` + "```go\\nfoo()\\n```" + `"}`,
+			madeRepairs: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, madeRepairs := RepairJSON(tt.input)
+			if got != tt.expected {
+				t.Errorf("RepairJSON() = %q, want %q", got, tt.expected)
+			}
+			if madeRepairs != tt.madeRepairs {
+				t.Errorf("RepairJSON() madeRepairs = %v, want %v", madeRepairs, tt.madeRepairs)
+			}
+		})
+	}
+}
+

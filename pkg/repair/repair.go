@@ -2,7 +2,6 @@ package repair
 
 import (
 	"encoding/json"
-	"regexp"
 	"strings"
 )
 
@@ -16,46 +15,92 @@ func RepairJSON(raw string) (string, bool) {
 	original := raw
 	repaired := raw
 
-	// 1. Strip markdown code fences
-	if strings.Contains(repaired, "```") {
-		re := regexp.MustCompile("(?s)```(?:json)?\\s*(.*?)\\s*```")
-		if match := re.FindStringSubmatch(repaired); len(match) > 1 {
-			repaired = match[1]
+	for range 4 {
+		next := repairOnce(repaired)
+		if next == repaired {
+			break
 		}
+		repaired = next
 	}
 
-	// 2. Fix double-encoded (or triple-encoded) JSON strings
-	for {
-		trimmed := strings.TrimSpace(repaired)
-		if strings.HasPrefix(trimmed, `"`) && strings.HasSuffix(trimmed, `"`) {
-			var unquoted string
-			if err := json.Unmarshal([]byte(trimmed), &unquoted); err == nil {
-				repaired = unquoted
-				if strings.HasPrefix(strings.TrimSpace(unquoted), "{") || strings.HasPrefix(strings.TrimSpace(unquoted), "[") {
-					break
-				}
-				continue
-			}
+	return repaired, original != repaired
+}
+
+func repairOnce(s string) string {
+	repaired := stripMarkdownFences(s)
+	repaired = unwrapEncodedJSON(repaired)
+
+	trimmed := strings.TrimSpace(repaired)
+	if trimmed != "" && json.Valid([]byte(trimmed)) {
+		return repaired
+	}
+
+	return fixJSONStrings(repaired)
+}
+
+func stripMarkdownFences(s string) string {
+	trimmed := strings.TrimSpace(s)
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, `"`) {
+		return s
+	}
+	openIdx := strings.Index(s, "```")
+	if openIdx < 0 {
+		return s
+	}
+	afterOpen := s[openIdx+3:]
+	if len(afterOpen) >= 4 && strings.EqualFold(afterOpen[:4], "json") {
+		if len(afterOpen) == 4 || afterOpen[4] == '\n' || afterOpen[4] == '\r' || afterOpen[4] == ' ' || afterOpen[4] == '\t' {
+			afterOpen = afterOpen[4:]
+		}
+	}
+	closeIdx := strings.LastIndex(afterOpen, "```")
+	if closeIdx < 0 {
+		return s
+	}
+	return strings.TrimSpace(afterOpen[:closeIdx])
+}
+
+func unwrapEncodedJSON(s string) string {
+	curr := s
+	for range 5 {
+		trimmed := strings.TrimSpace(curr)
+		if !strings.HasPrefix(trimmed, `"`) || !strings.HasSuffix(trimmed, `"`) {
+			break
+		}
+		var unquoted string
+		if err := json.Unmarshal([]byte(trimmed), &unquoted); err != nil {
+			break
+		}
+		uTrim := strings.TrimSpace(unquoted)
+		if strings.HasPrefix(uTrim, "{") || strings.HasPrefix(uTrim, "[") {
+			return unquoted
+		}
+		if strings.HasPrefix(uTrim, `"`) && strings.HasSuffix(uTrim, `"`) {
+			curr = unquoted
+			continue
 		}
 		break
 	}
+	return s
+}
 
-	// 3 & 4. Escape bare control characters & fix unescaped internal double quotes
-	repaired = fixJSONStrings(repaired)
-
-	return repaired, original != repaired
+func isEscaped(s string, i int) bool {
+	backslashes := 0
+	for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+		backslashes++
+	}
+	return backslashes%2 == 1
 }
 
 func fixJSONStrings(s string) string {
 	var sb strings.Builder
 	inString := false
-	var prev rune
 
 	// Iterate bytes and copy them verbatim: converting a byte to a rune would
 	// re-encode every byte of a multi-byte UTF-8 sequence as Latin-1.
 	for i := 0; i < len(s); i++ {
 		r := rune(s[i])
-		if r == '"' && prev != '\\' {
+		if r == '"' && !isEscaped(s, i) {
 			var isBoundary bool
 			if inString {
 				isBoundary = false
@@ -91,7 +136,6 @@ func fixJSONStrings(s string) string {
 
 			if !isBoundary {
 				sb.WriteString(`\"`)
-				prev = '"'
 				continue
 			} else {
 				inString = !inString
@@ -112,7 +156,6 @@ func fixJSONStrings(s string) string {
 		} else {
 			sb.WriteByte(s[i])
 		}
-		prev = r
 	}
 
 	return sb.String()

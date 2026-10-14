@@ -255,11 +255,11 @@ See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
 
 ### GitHub Actions
 
-Use the composite action directly from [`OpticDiff/code-reviewer@v0.26.1`](action.yml) (or [`OpticDiff/code-reviewer-action@v1`](https://github.com/OpticDiff/code-reviewer-action)):
+Use the composite action directly from [`OpticDiff/code-reviewer@v0.26.2`](action.yml) (or [`OpticDiff/code-reviewer-action@v1`](https://github.com/OpticDiff/code-reviewer-action)):
 
 ```yaml
 # Self-hosted (Ollama) — zero auth, no cloud
-- uses: OpticDiff/code-reviewer@v0.26.1
+- uses: OpticDiff/code-reviewer@v0.26.2
   with:
     model: qwen3:8b
     api-url: http://ollama:11434/v1
@@ -275,7 +275,7 @@ Use the composite action directly from [`OpticDiff/code-reviewer@v0.26.1`](actio
   with:
     workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
     service_account: ${{ secrets.WIF_SA }}
-- uses: OpticDiff/code-reviewer@v0.26.1
+- uses: OpticDiff/code-reviewer@v0.26.2
   with:
     project-id: ${{ secrets.GCP_PROJECT }}
     incremental: "true"
@@ -669,7 +669,7 @@ Also works with the [pre-commit](https://pre-commit.com) framework:
 ```yaml
 # .pre-commit-config.yaml
 - repo: https://github.com/OpticDiff/code-reviewer
-  rev: v0.26.1
+  rev: v0.26.2
   hooks:
     - id: code-review
       stages: [pre-push]
@@ -861,8 +861,8 @@ CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https
 Releases are automated via [GoReleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
 
 ```bash
-git tag -a v0.26.1 -m "v0.26.1"
-git push origin v0.26.1
+git tag -a v0.26.2 -m "v0.26.2"
+git push origin v0.26.2
 # → GitHub Actions: test → build 6 binaries → publish to Releases
 ```
 
