@@ -22,7 +22,7 @@ sequenceDiagram
     participant Ctx as Context Provider
     participant Prompt as BuildPrompt()
     participant Model as provider.Review()
-    participant Parse as repair.JSON() + Unmarshal
+    participant Parse as repair.RepairJSON() + Unmarshal
     participant Val as ValidateFindings()
     participant Agent as agent.Refiner (--agent)
     participant Out as Output & Thread Sync
@@ -43,7 +43,7 @@ sequenceDiagram
     loop Each chunk
         CLI->>Prompt: buildNumberedDiff() → BuildUserPromptWithContext()
         CLI->>Model: Review(systemPrompt, userPrompt)
-        Model->>Parse: extractText() → repair.JSON() → parseReviewJSON()
+        Model->>Parse: extractText() → repair.RepairJSON() → parseReviewJSON()
         Parse-->>CLI: *ReviewResult
     end
 
@@ -64,7 +64,7 @@ sequenceDiagram
 |---|---|---|---|
 | `cmd/code-reviewer` | CLI entry point; wires config, providers, VCS clients, reviewer | `main()`, `run()` | `config`, `context`, `github`, `gitlab`, `model`, `reviewer` |
 | `pkg/vcs` | Reusable platform-agnostic VCS types, fingerprinting, and thread state | `MRChanges`, `DiffEntry`, `DiffVersion`, `Comment`, `InlineCommentRequest`, `InlineCommentPosition`, `DismissedFinding`, `OpenFinding`, `Fingerprint()`, `FormatFindingHeader()`, `ParseFindingHeader()` | (stdlib only) |
-| `pkg/repair` | Deterministic LLM JSON repair (markdown fence stripping, unescaped quotes, trailing commas) | `JSON()` | (stdlib only) |
+| `pkg/repair` | Deterministic LLM JSON repair (markdown fence stripping, double-encoded JSON, control characters, unescaped quotes) | `RepairJSON()` | (stdlib only) |
 | `pkg/rules` | Custom & platform governance YAML rule schema, validation, and path matching | `Rule`, `File`, `LoadFile()`, `Merge()` | `gopkg.in/yaml.v3` |
 | `pkg/agent` | Bounded multi-turn agent loop to verify findings with repository tools | `Refiner`, `Verdict`, `VerdictRecord`, `RunSummary`, `ToolExecutor` | `internal/model` |
 | `internal/config` | Config loading and validation; flag/env/YAML/platform merge | `Config`, `Severity`, `CommentMode`, `ChunkStrategy`, `DismissalMode`, `Load()` | `pkg/rules`, `gopkg.in/yaml.v3` |
@@ -246,10 +246,11 @@ classDiagram
 Both `Provider` and `HTTPProvider` follow the same flow:
 
 ```text
-generateRaw() → extractText() → repair.JSON() → parseReviewJSON() → *ReviewResult
+generateRaw() → extractText() → repair.RepairJSON() → parseReviewJSON() → *ReviewResult
 ```
 
-`parseReviewJSON()` delegates to `pkg/repair.JSON()` to deterministically strip markdown code fences, repair unescaped quotes inside JSON string values, and strip trailing commas before unmarshaling.
+`parseReviewJSON()` delegates to `pkg/repair.RepairJSON()` to deterministically strip markdown code fences, repair double-encoded JSON strings, escape bare control characters, and repair unescaped quotes inside JSON string values before unmarshaling.
+
 
 
 ---
@@ -398,7 +399,7 @@ A Vertex AI snapshot suffix resolves to its base model: `claude-haiku-4-5@202510
 
 When `--agent` is enabled (optionally scoped via `--agent-scope high_severity_only`), `agent.Refiner` runs a bounded, multi-turn verification loop over candidate findings before they are reported:
 - **Tools**: `read_file` (bounded line ranges, symlink-safe within repo root), `find_definition` (tree-sitter + ripgrep symbol lookup), and `list_directory`
-- **Schema-Constrained Verdict**: On the final turn, the model emits a structured `Verdict` (`keep`, `drop`, or `downgrade` with updated severity and reasoning) constrained by a native JSON response schema (`VerdictResponseSchema()`) and repaired via `pkg/repair.JSON()`
+- **Schema-Constrained Verdict**: On the final turn, the model emits a structured `Verdict` (`keep`, `drop`, or `downgrade` with updated severity and reasoning) constrained by a native JSON response schema (`VerdictResponseSchema()`) and repaired via `pkg/repair.RepairJSON()`
 - **Fail-Open Safety**: If a tool call or model turn fails or hits the turn/token budget, the original finding is kept and the error is recorded in `VerdictRecord` and `RunSummary` in the JSONL audit log (`--audit-log`)
 
 ---

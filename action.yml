@@ -236,9 +236,20 @@ runs:
         [ -n "${INPUT_API_URL}" ] && ARGS+=(--api-url "${INPUT_API_URL}")
 
         if [ -n "${INPUT_EXTRA_ARGS}" ]; then
-          # shellcheck disable=SC2206
-          EXTRA=( ${INPUT_EXTRA_ARGS} )
+          PARSED_ARGS="$(mktemp)"
+          trap 'rm -f "${PARSED_ARGS}"' EXIT
+          if ! printf '%s' "${INPUT_EXTRA_ARGS}" | xargs printf '%s\0' >"${PARSED_ARGS}"; then
+            echo "::error::Invalid quoting in extra-args"
+            exit 1
+          fi
+          EXTRA=()
+          while IFS= read -r -d '' arg; do
+            EXTRA+=("$arg")
+          done <"${PARSED_ARGS}"
           ARGS+=("${EXTRA[@]}")
+          rm -f "${PARSED_ARGS}"
+          trap - EXIT
         fi
 
         exec code-reviewer "${ARGS[@]}"
+
