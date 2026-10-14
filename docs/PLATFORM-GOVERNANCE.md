@@ -172,8 +172,9 @@ gh attestation verify checksums.txt \
 cosign verify \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/OpticDiff/code-reviewer/\.github/workflows/release\.yml@refs/tags/v' \
-  ghcr.io/opticdiff/code-reviewer:v0.24.0
+  ghcr.io/opticdiff/code-reviewer:v0.26.0
 ```
+
 *(Or pin and verify by digest: `ghcr.io/opticdiff/code-reviewer@sha256:<digest>`)*
 
 ### SARIF `versionControlProvenance`
@@ -311,7 +312,7 @@ In GitLab Ultimate (Security & Compliance → Policies), configure a Pipeline Ex
 code-review-platform:
   stage: test
   image:
-    name: ghcr.io/opticdiff/code-reviewer:v0.10.0
+    name: ghcr.io/opticdiff/code-reviewer:v0.26.0
     entrypoint: [""]
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -351,14 +352,13 @@ jobs:
           curl --proto '=https' -sSf -H "Authorization: Bearer ${{ secrets.PLATFORM_READ_TOKEN }}" \
             "https://api.github.com/repos/org/platform-standards/tarball/main" | tar -xz -C /tmp/platform-governance --strip-components=1
 
-      - uses: OpticDiff/code-reviewer-action@v1
+      - uses: OpticDiff/code-reviewer@v0.26.0
         with:
-          extra-args: >-
-            --platform-config "/tmp/platform-governance/rules/*.yaml"
-            --platform-review-md "/tmp/platform-governance/guidelines/*.md"
+          project-id: ${{ secrets.GCP_PROJECT }}
+          platform-config: "/tmp/platform-governance/rules/*.yaml"
+          platform-review-md: "/tmp/platform-governance/guidelines/*.md"
         env:
-          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.CODE_REVIEWER_TOKEN || secrets.GITHUB_TOKEN }}
 ```
 
 ### Option C: Baked into Internal Platform Container Image
@@ -366,12 +366,13 @@ jobs:
 For air-gapped or strictly regulated Kubernetes/Nix runners, bake platform standards directly into the container image:
 
 ```dockerfile
-FROM ghcr.io/opticdiff/code-reviewer:v0.10.0
+FROM ghcr.io/opticdiff/code-reviewer:v0.26.0
 COPY rules/ /etc/code-reviewer/rules/
 COPY guidelines/ /etc/code-reviewer/guidelines/
 ENV CODE_REVIEW_PLATFORM_CONFIG="/etc/code-reviewer/rules/*.yaml"
 ENV CODE_REVIEW_PLATFORM_REVIEW_MD="/etc/code-reviewer/guidelines/*.md"
 ```
+
 
 ### Option D: In-Repo Protected by `CODEOWNERS`
 

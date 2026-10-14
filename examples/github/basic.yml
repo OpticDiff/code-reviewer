@@ -2,9 +2,10 @@
 # Minimal GitHub Actions workflow for code-reviewer
 #
 # Features:
-# - Uses the reusable OpticDiff/code-reviewer-action@v1 action
+# - Uses the composite OpticDiff/code-reviewer@v0.26.0 action (or OpticDiff/code-reviewer-action@v1)
 # - Authenticates to Google Cloud Vertex AI via Workload Identity Federation (WIF)
 # - Inspects full git diff on Pull Requests (opened, synchronize, reopened)
+# - Verifies HIGH/CRITICAL findings with the repo-aware agent refinement loop
 # - Posts inline review comments and code suggestions directly on the PR
 # ============================================================================
 
@@ -42,11 +43,17 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SA }}
 
-      # Run the code-reviewer reusable action
+      # Run the code-reviewer composite action
+      # Tip: Provide a PAT or GitHub App user token in secrets.CODE_REVIEWER_TOKEN
+      # so GET /user succeeds for dismissed/open review thread deduplication across pushes.
       - name: Run code-reviewer
-        uses: OpticDiff/code-reviewer-action@v1
+        uses: OpticDiff/code-reviewer@v0.26.0
         with:
           project-id: ${{ secrets.GCP_PROJECT }}
           model: gemini-3.8-flash
+          agent: "true"
+          agent-scope: high_severity_only
+          audit-log: review.jsonl
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.CODE_REVIEWER_TOKEN || secrets.GITHUB_TOKEN }}
+

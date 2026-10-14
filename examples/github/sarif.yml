@@ -44,17 +44,21 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.WIF_SA }}
 
-      # Run code-reviewer with SARIF output via extra-args (not the built-in sarif input)
-      # so we control the upload step separately with if: always().
+      # Run code-reviewer with SARIF output and upload the report with if: always()
+      # so SARIF is published to GitHub Security even when findings cause a non-zero exit.
       - name: Run code-reviewer
         id: review
-        uses: OpticDiff/code-reviewer-action@v1
+        uses: OpticDiff/code-reviewer@v0.26.0
         with:
+          project-id: ${{ secrets.GCP_PROJECT }}
           model: gemini-3.8-flash
-          extra-args: "--focus security --sarif results.sarif"
+          focus: security
+          agent: "true"
+          agent-scope: high_severity_only
+          sarif: results.sarif
+          audit-log: review.jsonl
         env:
-          GOOGLE_CLOUD_PROJECT: ${{ secrets.GCP_PROJECT }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.CODE_REVIEWER_TOKEN || secrets.GITHUB_TOKEN }}
 
       # Upload SARIF independently — runs even when review finds issues (exit 1)
       - name: Upload SARIF report
@@ -63,3 +67,4 @@ jobs:
         with:
           sarif_file: results.sarif
           category: code-reviewer
+
