@@ -8,9 +8,9 @@ branding:
 
 inputs:
   version:
-    description: "Release tag of OpticDiff/code-reviewer to install (e.g. v0.26.0 or latest)"
+    description: "Release tag of OpticDiff/code-reviewer to install (e.g. v0.26.1 or latest)"
     required: false
-    default: "v0.26.0"
+    default: "v0.26.1"
   project-id:
     description: "Google Cloud project ID for Vertex AI (sets GOOGLE_CLOUD_PROJECT)"
     required: false

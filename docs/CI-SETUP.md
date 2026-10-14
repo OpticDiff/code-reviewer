@@ -179,7 +179,7 @@ jobs:
           service_account: ${{ secrets.WIF_SA }}
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.26.0
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.26.1
 
       - name: Review PR
         env:
@@ -218,7 +218,7 @@ jobs:
           service_account: ${{ secrets.WIF_SA }}
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.26.0
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.26.1
 
 
       - name: Review PR
