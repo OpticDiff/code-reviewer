@@ -312,7 +312,7 @@ In GitLab Ultimate (Security & Compliance → Policies), configure a Pipeline Ex
 code-review-platform:
   stage: test
   image:
-    name: ghcr.io/opticdiff/code-reviewer:v0.26.0
+    name: ghcr.io/opticdiff/code-reviewer:v0.26.1
     entrypoint: [""]
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -352,7 +352,7 @@ jobs:
           curl --proto '=https' -sSf -H "Authorization: Bearer ${{ secrets.PLATFORM_READ_TOKEN }}" \
             "https://api.github.com/repos/org/platform-standards/tarball/main" | tar -xz -C /tmp/platform-governance --strip-components=1
 
-      - uses: OpticDiff/code-reviewer@v0.26.0
+      - uses: OpticDiff/code-reviewer@v0.26.1
         with:
           project-id: ${{ secrets.GCP_PROJECT }}
           platform-config: "/tmp/platform-governance/rules/*.yaml"
@@ -366,7 +366,7 @@ jobs:
 For air-gapped or strictly regulated Kubernetes/Nix runners, bake platform standards directly into the container image:
 
 ```dockerfile
-FROM ghcr.io/opticdiff/code-reviewer:v0.26.0
+FROM ghcr.io/opticdiff/code-reviewer:v0.26.1
 COPY rules/ /etc/code-reviewer/rules/
 COPY guidelines/ /etc/code-reviewer/guidelines/
 ENV CODE_REVIEW_PLATFORM_CONFIG="/etc/code-reviewer/rules/*.yaml"
