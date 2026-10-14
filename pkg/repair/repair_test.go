@@ -218,6 +218,18 @@ func TestRepairJSON_CodeFencesInsideStringValues(t *testing.T) {
 			expected:    `{"suggestion": "Use:\n` + "```go\\nfoo()\\n```" + `"}`,
 			madeRepairs: true,
 		},
+		{
+			name:        "three-backtick opener with four-backtick closing fence line",
+			input:       "```json\n{\"key\": \"value\"}\n````  ",
+			expected:    `{"key": "value"}`,
+			madeRepairs: true,
+		},
+		{
+			name:        "valid JSON string literal whose content starts with brace but is not JSON",
+			input:       `"{not-json}"`,
+			expected:    `"{not-json}"`,
+			madeRepairs: false,
+		},
 	}
 
 	for _, tt := range tests {

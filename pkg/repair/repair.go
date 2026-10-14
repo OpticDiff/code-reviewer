@@ -47,17 +47,47 @@ func stripMarkdownFences(s string) string {
 	if openIdx < 0 {
 		return s
 	}
-	afterOpen := s[openIdx+3:]
+	fenceChar := s[openIdx]
+	openLen := 0
+	for openIdx+openLen < len(s) && s[openIdx+openLen] == fenceChar {
+		openLen++
+	}
+	afterOpen := s[openIdx+openLen:]
 	if len(afterOpen) >= 4 && strings.EqualFold(afterOpen[:4], "json") {
 		if len(afterOpen) == 4 || afterOpen[4] == '\n' || afterOpen[4] == '\r' || afterOpen[4] == ' ' || afterOpen[4] == '\t' {
 			afterOpen = afterOpen[4:]
 		}
 	}
-	closeIdx := strings.LastIndex(afterOpen, "```")
-	if closeIdx < 0 {
-		return s
+
+	searchEnd := len(afterOpen)
+	for searchEnd > 0 {
+		lineStart := strings.LastIndexByte(afterOpen[:searchEnd], '\n')
+		var line string
+		if lineStart < 0 {
+			line = afterOpen[:searchEnd]
+		} else {
+			line = afterOpen[lineStart+1 : searchEnd]
+		}
+
+		trimmedLine := strings.TrimLeft(line, " \t")
+		markerLen := 0
+		for markerLen < len(trimmedLine) && trimmedLine[markerLen] == fenceChar {
+			markerLen++
+		}
+		if markerLen >= openLen && strings.TrimSpace(trimmedLine[markerLen:]) == "" {
+			if lineStart < 0 {
+				return ""
+			}
+			return strings.TrimSpace(afterOpen[:lineStart])
+		}
+
+		if lineStart < 0 {
+			break
+		}
+		searchEnd = lineStart
 	}
-	return strings.TrimSpace(afterOpen[:closeIdx])
+
+	return s
 }
 
 func unwrapEncodedJSON(s string) string {
@@ -72,7 +102,7 @@ func unwrapEncodedJSON(s string) string {
 			break
 		}
 		uTrim := strings.TrimSpace(unquoted)
-		if strings.HasPrefix(uTrim, "{") || strings.HasPrefix(uTrim, "[") {
+		if (strings.HasPrefix(uTrim, "{") || strings.HasPrefix(uTrim, "[")) && json.Valid([]byte(uTrim)) {
 			return unquoted
 		}
 		if strings.HasPrefix(uTrim, `"`) && strings.HasSuffix(uTrim, `"`) {
