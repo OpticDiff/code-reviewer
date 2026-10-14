@@ -1692,3 +1692,77 @@ func TestLoad_DismissalModePrecedenceDefaultAndValidation(t *testing.T) {
 		t.Errorf("err = %v, want mention of 'invalid dismissal-mode'", err)
 	}
 }
+
+func TestLoad_ChunkTargetAndConcurrency(t *testing.T) {
+	t.Setenv("REVIEW_CHUNK_TARGET_TOKENS", "")
+	t.Setenv("REVIEW_CHUNK_CONCURRENCY", "")
+
+	// Defaults: both off.
+	cfg, err := loadWithAgentScope(t, "chunk_strategy: split\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ChunkTargetTokens != 0 || cfg.ChunkConcurrency != 0 {
+		t.Errorf("defaults = target %d, concurrency %d, want 0, 0", cfg.ChunkTargetTokens, cfg.ChunkConcurrency)
+	}
+
+	// YAML.
+	cfg, err = loadWithAgentScope(t, "chunk_strategy: split\nchunk_target_tokens: 150000\nchunk_concurrency: 4\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ChunkTargetTokens != 150000 || cfg.ChunkConcurrency != 4 {
+		t.Errorf("yaml = target %d, concurrency %d, want 150000, 4", cfg.ChunkTargetTokens, cfg.ChunkConcurrency)
+	}
+
+	// Environment overrides YAML.
+	t.Setenv("REVIEW_CHUNK_TARGET_TOKENS", "100000")
+	t.Setenv("REVIEW_CHUNK_CONCURRENCY", "3")
+	cfg, err = loadWithAgentScope(t, "chunk_strategy: split\nchunk_target_tokens: 150000\nchunk_concurrency: 4\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ChunkTargetTokens != 100000 || cfg.ChunkConcurrency != 3 {
+		t.Errorf("env = target %d, concurrency %d, want 100000, 3", cfg.ChunkTargetTokens, cfg.ChunkConcurrency)
+	}
+
+	// Flags override the environment.
+	cfg, err = loadWithAgentScope(t, "chunk_strategy: split\n", "--chunk-target-tokens", "50000", "--chunk-concurrency", "2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ChunkTargetTokens != 50000 || cfg.ChunkConcurrency != 2 {
+		t.Errorf("flags = target %d, concurrency %d, want 50000, 2", cfg.ChunkTargetTokens, cfg.ChunkConcurrency)
+	}
+}
+
+func TestLoad_ChunkTargetAndConcurrencyValidation(t *testing.T) {
+	t.Setenv("REVIEW_CHUNK_TARGET_TOKENS", "")
+	t.Setenv("REVIEW_CHUNK_CONCURRENCY", "")
+
+	tests := []struct {
+		name    string
+		yaml    string
+		args    []string
+		wantSub string
+	}{
+		{"negative target", "chunk_strategy: split\n", []string{"--chunk-target-tokens", "-1"}, "invalid chunk-target-tokens"},
+		{"negative concurrency", "", []string{"--chunk-concurrency", "-2"}, "invalid chunk-concurrency"},
+		{"target without split", "", []string{"--chunk-target-tokens", "1000"}, "requires chunk-strategy split"},
+		{"concurrency without split is fine", "", []string{"--chunk-concurrency", "4"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadWithAgentScope(t, tt.yaml, tt.args...)
+			if tt.wantSub == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantSub) {
+				t.Fatalf("err = %v, want it to contain %q", err, tt.wantSub)
+			}
+		})
+	}
+}

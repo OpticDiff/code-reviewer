@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `chunk_target_tokens` configuration field, `--chunk-target-tokens` CLI flag, and `REVIEW_CHUNK_TARGET_TOKENS` environment variable. With `chunk_strategy: split`, chunks are packed to this many estimated tokens instead of 80% of the context limit, which keeps each request smaller. The value is capped at the 80% default, a file larger than the target still gets a chunk of its own, and `0` or unset keeps today's behavior.
+- `chunk_concurrency` configuration field, `--chunk-concurrency` CLI flag, and `REVIEW_CHUNK_CONCURRENCY` environment variable. Up to this many chunks are reviewed at once, with results merged in chunk order; the `--max-tokens` runtime check runs between groups of chunks. `1` or unset reviews one chunk at a time, as before.
+
+### Changed
+- The `split` chunk strategy keeps files of equal size in input order, so the same diff always produces the same chunks.
+
 ## [0.26.0] — 2026-10-13
 
 ### Added
