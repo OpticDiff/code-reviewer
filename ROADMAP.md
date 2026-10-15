@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.7.0 — in development**
+Current status: **v0.26.2 — released**
 
 ## ✅ v0.1 — Foundation (Done)
 
@@ -60,21 +60,24 @@ Current status: **v0.7.0 — in development**
 - [x] **GitLab Draft Notes API** — For single-notification reviews
 - [x] **SSRF hardening and tech debt cleanup**
 
-## 🔜 v0.7 — Developer Experience & Distribution
+## ✅ v0.7–v0.26 — Enterprise Governance, Agentic Verification & Distribution (Done)
 
-- [ ] **GitHub Actions workflow** — Drop-in `.github/workflows/code-review.yml` example
+- [x] **Composite GitHub Action (`action.yml`) & workflow examples** — Drop-in `OpticDiff/code-reviewer` composite action and ready-to-use workflows in `examples/github/`
+- [x] **Policy engine & Platform Governance (`--profile`, `--platform-config`, `--platform-review-md`)** — Path-based custom rules, banned pattern regex scanning, and dual-plane platform/product governance profiles
+- [x] **Agentic verification loop (`--agent`, `--agent-scope`)** — Multi-turn read-only repo tool loop (`read_file`, `search_code`, `read_symbol`) to verify or drop false-positive findings
+- [x] **Audit trail (`--audit-log`)** — Structured JSONL log of reviews: intent, classification, findings, token usage, and timing
+- [x] **Caching (`--cache-dir`, `--cache-max-age`, `--no-cache`)** — Per-file diff caching across pushes with `cache stats` and `cache clear` subcommands
+- [x] **Dismissal & auto-approve controls (`--dismissal-mode`, `--auto-approve`)** — Strict `resolve_only` dismissal for blocking gates and automatic MR/PR approval on clean reviews
+- [x] **GitLab SAST report output (`--sast`)** — Native GitLab SAST v15.0.7 security report generation alongside SARIF 2.1.0
+
+## 🔜 Next — Deep Context & Interactive Workflows
+
 - [ ] **Pre-commit.com listing** — Register in the pre-commit hook registry for discovery
-
-## 🏢 v1.0 — Compliance & Audit
-
-- [ ] **Policy engine** — Define path-based policies in `.code-reviewer.yaml` (e.g., auth changes require security focus)
 - [ ] **Scope enforcement** — Block MRs with scope creep above configurable threshold
-- [ ] **Audit trail** — Structured JSONL log of all reviews: intent, classification, findings, token usage, timing
 - [ ] **Multi-pass review** — First pass with Flash (fast/cheap), escalate flagged files to Pro (deep analysis)
 - [ ] **RAG-based context** — Embed repo into a vector store for enterprise-scale cross-file context (beyond grep)
 - [ ] **Import-aware resolution** — Per-language import graph traversal to find transitive dependencies of changed symbols
 - [ ] **Reply to bot comments** — Monitor MR note webhooks, respond to follow-up questions ("why is this a problem?")
-- [ ] **Caching** — Hash file diffs, skip re-review of unchanged files across pushes
 
 ## 💡 Ideas (Unplanned)
 

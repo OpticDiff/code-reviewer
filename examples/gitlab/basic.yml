@@ -13,7 +13,7 @@ stages:
 
 code-review:
   stage: review
-  image: ghcr.io/opticdiff/code-reviewer:0.7.0
+  image: ghcr.io/opticdiff/code-reviewer:v0.26.2
 
   # Only trigger pipeline on merge request events
   rules:
