@@ -17,7 +17,7 @@ stages:
 
 code-review-discussions:
   stage: review
-  image: ghcr.io/opticdiff/code-reviewer:0.7.0
+  image: ghcr.io/opticdiff/code-reviewer:v0.26.2
 
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -31,6 +31,7 @@ code-review-discussions:
 
     # 'discussions' mode posts comments anchored directly to changed lines in the MR diff
     REVIEW_COMMENT_MODE: "discussions"
+    CODE_REVIEWER_CLEANUP_MODE: "resolve"
 
     # Minimum severity threshold (low, medium, high, critical)
     REVIEW_MIN_SEVERITY: "low"
