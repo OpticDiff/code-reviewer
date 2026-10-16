@@ -342,6 +342,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--min-severity` | Minimum severity to report | `low` |
 | `--comment-mode` | `notes` or `discussions` | `notes` |
 | `--chunk-strategy` | `fail` or `split` | `fail` |
+| `--chunk-target-tokens` | With `split`, pack chunks to this many estimated tokens instead of 80% of the context limit (0 = 80% of the limit) | — |
+| `--chunk-concurrency` | Review up to this many chunks at once (0 or 1 = one at a time) | — |
 | `--token-limit` | Context window token limit override (0 = use model default) | — |
 | `--confidence-floor` | Minimum model confidence percent (1-100) required to report a finding | `80` |
 | `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
@@ -405,6 +407,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_MIN_SEVERITY` | Min severity | `low` |
 | `REVIEW_COMMENT_MODE` | Comment mode | `notes` |
 | `REVIEW_CHUNK_STRATEGY` | Chunk strategy | `fail` |
+| `REVIEW_CHUNK_TARGET_TOKENS` | Chunk size target in estimated tokens (with `split`) | — |
+| `REVIEW_CHUNK_CONCURRENCY` | Chunks reviewed at once | — |
 | `REVIEW_TOKEN_LIMIT` | Context window token limit override | — |
 | `REVIEW_CONFIDENCE_FLOOR` | Minimum model confidence percent (1-100) to report a finding | `80` |
 | `REVIEW_CONTEXT_FILES` | Directory-scoped guidance files, comma-separated | — |
@@ -445,6 +449,9 @@ Create `.code-reviewer.yaml` in your repo root:
 ```yaml
 model: gemini-3.8-flash
 token_limit: 1000000     # Optional: explicit context window token limit override
+chunk_strategy: split    # Optional: split large diffs instead of failing
+chunk_target_tokens: 150000  # Optional: with split, pack chunks to ~150k tokens instead of 80% of the context limit
+chunk_concurrency: 4     # Optional: review up to 4 chunks at once
 confidence_floor: 80     # Optional: minimum model confidence percent (1-100) to report a finding
 temperature: 0           # Optional: sampling temperature (0-2); unset = built-in 0.2
 use_temperature: true    # Optional: false = send no temperature at all (model default applies)
@@ -791,6 +798,11 @@ Large MRs may exceed the model's context window. The `--chunk-strategy` flag con
 - **`split`** — Auto-splits diffs into file groups, runs separate model calls, merges results.
 
 The chunker interface is modular — custom strategies can be added.
+
+With `split`, two options tune how the work is divided:
+
+- **`--chunk-target-tokens N`** (`chunk_target_tokens`) packs chunks to about `N` estimated tokens instead of 80% of the context limit. A very large single request is slow and can exceed the service's per-request deadline, so on a long diff several smaller requests are often more reliable than one near-limit request. `N` is capped at the 80% default, a file larger than `N` still gets a chunk of its own, and `0` or unset keeps the default.
+- **`--chunk-concurrency K`** (`chunk_concurrency`) reviews up to `K` chunks at once. Findings and summaries are merged in chunk order whatever order the calls finish in, and `1` or unset reviews one chunk at a time. Each call retries rate-limit errors (HTTP 429) on its own, so a higher value mainly trades quota for wall-clock time. The `--max-tokens` runtime check runs after each group of `K` chunks, so the chunks of the group that crosses the budget are all spent before the run stops.
 
 ## Caching
 

@@ -32,9 +32,19 @@ func (s *FailStrategy) Chunk(diffs []FileDiff, tokenLimit int) ([][]FileDiff, er
 	return [][]FileDiff{diffs}, nil
 }
 
+// splitLimitFraction is the share of the context window that SplitStrategy fills
+// with diff content; the rest is left for the system prompt and the response.
+const splitLimitFraction = 0.80
+
 // SplitStrategy splits diffs into groups that each fit within the token limit.
 // Files are sorted by size (largest first) and bin-packed into groups.
-type SplitStrategy struct{}
+type SplitStrategy struct {
+	// TargetTokens, when positive, is the size each group is packed to instead
+	// of 80% of the token limit. It is capped at that 80% so a group never
+	// outgrows the context window. A file larger than the target still gets a
+	// group of its own.
+	TargetTokens int
+}
 
 // Chunk splits diffs into groups that fit within tokenLimit.
 func (s *SplitStrategy) Chunk(diffs []FileDiff, tokenLimit int) ([][]FileDiff, error) {
@@ -43,9 +53,12 @@ func (s *SplitStrategy) Chunk(diffs []FileDiff, tokenLimit int) ([][]FileDiff, e
 	}
 
 	// Reserve ~20% of the limit for the system prompt and response.
-	effectiveLimit := int(float64(tokenLimit) * 0.80)
+	effectiveLimit := int(float64(tokenLimit) * splitLimitFraction)
 	if effectiveLimit <= 0 {
 		effectiveLimit = tokenLimit
+	}
+	if s.TargetTokens > 0 && s.TargetTokens < effectiveLimit {
+		effectiveLimit = s.TargetTokens
 	}
 
 	// Sort by estimated tokens descending (review largest files first).
@@ -57,7 +70,9 @@ func (s *SplitStrategy) Chunk(diffs []FileDiff, tokenLimit int) ([][]FileDiff, e
 	for i, d := range diffs {
 		indexed[i] = indexedDiff{diff: d, tokens: estimateFileDiffTokens(&d)}
 	}
-	sort.Slice(indexed, func(i, j int) bool {
+	// Stable, so files of equal size keep their input order and the same diff
+	// always produces the same chunks.
+	sort.SliceStable(indexed, func(i, j int) bool {
 		return indexed[i].tokens > indexed[j].tokens
 	})
 
@@ -182,11 +197,18 @@ func TokenLimitForModel(model string) int {
 
 // NewChunkStrategy creates a ChunkStrategy from a strategy name.
 func NewChunkStrategy(name string) (ChunkStrategy, error) {
+	return NewChunkStrategyWithTarget(name, 0)
+}
+
+// NewChunkStrategyWithTarget is NewChunkStrategy with a chunk size target in
+// estimated tokens. The target only applies to the split strategy; 0 keeps the
+// default of 80% of the token limit.
+func NewChunkStrategyWithTarget(name string, targetTokens int) (ChunkStrategy, error) {
 	switch name {
 	case "fail", "":
 		return &FailStrategy{}, nil
 	case "split":
-		return &SplitStrategy{}, nil
+		return &SplitStrategy{TargetTokens: targetTokens}, nil
 	default:
 		return nil, fmt.Errorf("unknown chunk strategy: %q (valid: fail, split)", name)
 	}

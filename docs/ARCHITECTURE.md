@@ -40,7 +40,7 @@ sequenceDiagram
     CLI->>Ctx: FindRelatedCode() via tree-sitter + grep
     Ctx-->>CLI: []ContextSnippet
 
-    loop Each chunk
+    loop Each chunk (or wave of --chunk-concurrency chunks)
         CLI->>Prompt: buildNumberedDiff() → BuildUserPromptWithContext()
         CLI->>Model: Review(systemPrompt, userPrompt)
         Model->>Parse: extractText() → repair.RepairJSON() → parseReviewJSON()
@@ -352,7 +352,11 @@ Two strategies controlled by `--chunk-strategy`:
 | Strategy | Behavior |
 |---|---|
 | `fail` (default) | Error if diff exceeds model context window |
-| `split` | Bin-pack files into chunks (80% effective limit, largest-first) |
+| `split` | Bin-pack files into chunks (80% effective limit, largest-first; ties keep input order) |
+
+`--chunk-target-tokens N` lowers the `split` packing size to `N` estimated tokens (never above the 80% limit). A file larger than the target gets a chunk of its own.
+
+`--chunk-concurrency K` reviews chunks in waves of `K`: the calls of a wave run at once, their results are merged in chunk order, and the runtime token-budget check runs between waves. If a call in a wave fails, the error of the lowest-numbered failing chunk is returned.
 
 Token estimation: 1 token ≈ 4 characters.
 
@@ -386,7 +390,7 @@ A Vertex AI snapshot suffix resolves to its base model: `claude-haiku-4-5@202510
 
 ### Token Budget (`internal/reviewer/budget.go`)
 
-`EstimateCost()` performs pre-flight estimation (output ≈ 25% of input). `TrimToBudget()` removes lowest-priority files from the tail until the estimate fits within `--max-tokens`. A runtime safety net stops chunk iteration if actual usage exceeds the budget.
+`EstimateCost()` performs pre-flight estimation (output ≈ 25% of input). `TrimToBudget()` removes lowest-priority files from the tail until the estimate fits within `--max-tokens`. A runtime safety net stops chunk iteration if actual usage exceeds the budget; with `--chunk-concurrency` it is checked between waves of chunks.
 
 ### Finding Validation & Removed-Line Anchoring (`internal/reviewer/validator.go`)
 
@@ -472,6 +476,8 @@ api_url: http://localhost:11434/v1
 | `CODE_REVIEWER_CLEANUP_MODE` | `CleanupMode` (`delete` or `resolve`) |
 | `REVIEW_DISMISSAL_MODE` | `DismissalMode` (`any` or `resolve_only`) |
 | `REVIEW_CHUNK_STRATEGY` | `ChunkStrategy` |
+| `REVIEW_CHUNK_TARGET_TOKENS` | `ChunkTargetTokens` |
+| `REVIEW_CHUNK_CONCURRENCY` | `ChunkConcurrency` |
 | `GOOGLE_CLOUD_PROJECT` | `GCPProject` |
 | `GOOGLE_CLOUD_LOCATION` | `GCPLocation` |
 | `GITLAB_TOKEN` | `GitLabToken` |

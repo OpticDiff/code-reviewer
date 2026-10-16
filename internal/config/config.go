@@ -136,6 +136,8 @@ type Config struct {
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
+	ChunkTargetTokens  int    // With the split strategy, pack chunks to this many estimated tokens instead of 80% of the context limit (0 = 80% of the limit).
+	ChunkConcurrency   int    // Chunks reviewed at once (0 or 1 = one at a time).
 	APIURL             string // HTTP provider: OpenAI-compatible endpoint URL.
 	APIKey             string // HTTP provider: API key (optional, e.g. for IAM/ADC auth).
 
@@ -271,6 +273,8 @@ type repoConfig struct {
 	CleanupMode      string   `yaml:"cleanup_mode"`
 	DismissalMode    string   `yaml:"dismissal_mode"`
 	ChunkStrategy    string   `yaml:"chunk_strategy"`
+	ChunkTargetTokens int      `yaml:"chunk_target_tokens"`
+	ChunkConcurrency  int      `yaml:"chunk_concurrency"`
 	CacheDir         string   `yaml:"cache_dir"`
 	NoCache          *bool    `yaml:"no_cache"`
 	CacheMaxAge      string   `yaml:"cache_max_age"` // e.g. "7d", "24h"
@@ -529,6 +533,12 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.ChunkStrategy != "" {
 		c.ChunkStrategy = ChunkStrategy(rc.ChunkStrategy)
 	}
+	if rc.ChunkTargetTokens != 0 {
+		c.ChunkTargetTokens = rc.ChunkTargetTokens
+	}
+	if rc.ChunkConcurrency != 0 {
+		c.ChunkConcurrency = rc.ChunkConcurrency
+	}
 	if rc.CacheDir != "" {
 		c.CacheDir = rc.CacheDir
 	}
@@ -707,6 +717,22 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("REVIEW_CHUNK_STRATEGY"); v != "" {
 		c.ChunkStrategy = ChunkStrategy(v)
 	}
+	if v := os.Getenv("REVIEW_CHUNK_TARGET_TOKENS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_CHUNK_TARGET_TOKENS", "value", v, "error", err)
+		} else {
+			c.ChunkTargetTokens = n
+		}
+	}
+	if v := os.Getenv("REVIEW_CHUNK_CONCURRENCY"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_CHUNK_CONCURRENCY", "value", v, "error", err)
+		} else {
+			c.ChunkConcurrency = n
+		}
+	}
 	if v := os.Getenv("GOOGLE_CLOUD_PROJECT"); v != "" {
 		c.GCPProject = v
 	}
@@ -859,6 +885,8 @@ func (c *Config) loadFlags() error {
 	cleanupMode := fs.String("cleanup-mode", "", "How to handle previous bot comments (delete or resolve)")
 	dismissalMode := fs.String("dismissal-mode", "", "What dismisses a HIGH/CRITICAL finding's thread: any (reply or resolution, default) or resolve_only")
 	chunkStrategy := fs.String("chunk-strategy", "", "How to handle large diffs: fail (default) or split")
+	chunkTargetTokens := fs.Int("chunk-target-tokens", 0, "With --chunk-strategy split, pack chunks to this many estimated tokens instead of 80% of the context limit (0 = 80% of the limit)")
+	chunkConcurrency := fs.Int("chunk-concurrency", 0, "Review up to this many chunks at once (0 or 1 = one at a time)")
 	extraRules := fs.String("extra-rules", "", "Additional review rules appended to prompt")
 	platformConfig := fs.String("platform-config", "", "Path, comma-separated paths, or glob for platform YAML rules/config")
 	platformReviewMD := fs.String("platform-review-md", "", "Path, comma-separated paths, or glob for platform markdown guidelines")
@@ -1012,6 +1040,12 @@ func (c *Config) loadFlags() error {
 				return
 			}
 			c.TokenLimit = *tokenLimit
+		}
+		if f.Name == "chunk-target-tokens" {
+			c.ChunkTargetTokens = *chunkTargetTokens
+		}
+		if f.Name == "chunk-concurrency" {
+			c.ChunkConcurrency = *chunkConcurrency
 		}
 		if f.Name == "confidence-floor" {
 			c.ConfidenceFloor = *confidenceFloor
@@ -1351,6 +1385,15 @@ func (c *Config) validate() error {
 	// Validate chunk strategy.
 	if c.ChunkStrategy != ChunkStrategyFail && c.ChunkStrategy != ChunkStrategySplit {
 		return fmt.Errorf("invalid chunk-strategy: %q (valid: fail, split)", c.ChunkStrategy)
+	}
+	if c.ChunkTargetTokens < 0 {
+		return fmt.Errorf("invalid chunk-target-tokens: %d (must be 0 or greater)", c.ChunkTargetTokens)
+	}
+	if c.ChunkTargetTokens > 0 && c.ChunkStrategy != ChunkStrategySplit {
+		return fmt.Errorf("chunk-target-tokens requires chunk-strategy split")
+	}
+	if c.ChunkConcurrency < 0 {
+		return fmt.Errorf("invalid chunk-concurrency: %d (must be 0 or greater)", c.ChunkConcurrency)
 	}
 
 	// Summarize mode is single-model only.

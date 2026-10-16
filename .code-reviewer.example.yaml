@@ -90,6 +90,15 @@ comment_mode: notes
 # split: auto-split into chunks and merge results
 chunk_strategy: fail
 
+# With chunk_strategy: split, pack chunks to this many estimated tokens instead
+# of 80% of the context limit. Smaller chunks mean shorter requests. A file
+# larger than the target gets a chunk of its own. 0 or unset keeps the default.
+# chunk_target_tokens: 150000
+
+# Review up to this many chunks at once. Results are merged in chunk order.
+# 1 or unset reviews one chunk at a time.
+# chunk_concurrency: 4
+
 # File patterns to exclude from review (glob syntax).
 excluded_patterns:
   - "go.sum"

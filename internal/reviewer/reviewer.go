@@ -371,7 +371,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	if tokenLimit <= 0 {
 		tokenLimit = diff.TokenLimitForModel(r.cfg.Model)
 	}
-	chunker, err := diff.NewChunkStrategy(string(r.cfg.ChunkStrategy))
+	chunker, err := diff.NewChunkStrategyWithTarget(string(r.cfg.ChunkStrategy), r.cfg.ChunkTargetTokens)
 	if err != nil {
 		return 0, err
 	}
@@ -447,36 +447,49 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	anyTruncated := false
 	reviewedFiles := make(map[string]bool)
 
-	for i, chunk := range chunks {
-		slog.Info(fmt.Sprintf("reviewing chunk %d/%d (%d files, ~%d tokens)",
-			i+1, len(chunks), len(chunk), diff.EstimateTokens(chunk)))
+	// Chunks are reviewed in waves of up to ChunkConcurrency at once. Results
+	// are merged in chunk order and the runtime budget is checked after each
+	// wave, so with the default of one chunk per wave the loop is sequential.
+	waveSize := max(r.cfg.ChunkConcurrency, 1)
+	for start := 0; start < len(chunks) && !budgetExceeded; start += waveSize {
+		end := min(start+waveSize, len(chunks))
 
-		numberedDiff := buildNumberedDiff(chunk)
-		if len(chunks) > 1 {
-			numberedDiff = buildChangedFilesSection(auditDiffs, tokenLimit/changedFilesBudgetDivisor) + numberedDiff
-		}
-		userPrompt := model.BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff, contextSnippets)
+		userPrompts := make([]string, 0, end-start)
+		for i := start; i < end; i++ {
+			chunk := chunks[i]
+			slog.Info(fmt.Sprintf("reviewing chunk %d/%d (%d files, ~%d tokens)",
+				i+1, len(chunks), len(chunk), diff.EstimateTokens(chunk)))
 
-		result, err := r.provider.Review(ctx, systemPrompt, userPrompt)
-		if err != nil {
-			return 0, fmt.Errorf("model review (chunk %d): %w", i+1, err)
-		}
-
-		if result.Truncated {
-			anyTruncated = true
-			slog.Warn("chunk review response was truncated by model; files in this chunk will not be cached", "chunk", i+1)
-		} else {
-			for _, d := range chunk {
-				reviewedFiles[d.NewPath] = true
+			numberedDiff := buildNumberedDiff(chunk)
+			if len(chunks) > 1 {
+				numberedDiff = buildChangedFilesSection(auditDiffs, tokenLimit/changedFilesBudgetDivisor) + numberedDiff
 			}
+			userPrompts = append(userPrompts, model.BuildUserPromptWithContext(mrTitle, mrDesc, numberedDiff, contextSnippets))
 		}
 
-		chunkSummaries = append(chunkSummaries, result.Summary)
-		allFindings = append(allFindings, result.Findings...)
-		if result.Usage != nil {
-			totalUsage.InputTokens += result.Usage.InputTokens
-			totalUsage.OutputTokens += result.Usage.OutputTokens
-			totalUsage.TotalTokens += result.Usage.TotalTokens
+		results, err := r.reviewWave(ctx, systemPrompt, userPrompts, start)
+		if err != nil {
+			return 0, err
+		}
+
+		for j, result := range results {
+			i := start + j
+			if result.Truncated {
+				anyTruncated = true
+				slog.Warn("chunk review response was truncated by model; files in this chunk will not be cached", "chunk", i+1)
+			} else {
+				for _, d := range chunks[i] {
+					reviewedFiles[d.NewPath] = true
+				}
+			}
+
+			chunkSummaries = append(chunkSummaries, result.Summary)
+			allFindings = append(allFindings, result.Findings...)
+			if result.Usage != nil {
+				totalUsage.InputTokens += result.Usage.InputTokens
+				totalUsage.OutputTokens += result.Usage.OutputTokens
+				totalUsage.TotalTokens += result.Usage.TotalTokens
+			}
 		}
 
 		// Runtime budget safety net — stop if actual usage exceeds limit.
@@ -484,10 +497,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			slog.Warn("runtime token budget exceeded, stopping review",
 				"used", totalUsage.TotalTokens,
 				"limit", r.cfg.MaxTokens,
-				"chunks_completed", i+1,
+				"chunks_completed", end,
 				"chunks_total", len(chunks))
 			budgetExceeded = true
-			break
 		}
 	}
 
