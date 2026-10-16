@@ -2036,3 +2036,89 @@ func TestGetCIDiffs_MissingFilesAreUnreviewed(t *testing.T) {
 		t.Errorf("unreviewed = %v, want a marker for 3 missing files", r.parseFailedFiles)
 	}
 }
+
+func TestRun_CacheKey_IgnoresDismissalsAndIncludesVersion(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go", "file2.go")
+	cacheDir := t.TempDir()
+
+	baseCfg := func(ver string) *config.Config {
+		return &config.Config{
+			NoCache:          false,
+			CacheDir:         cacheDir,
+			CacheMaxAge:      time.Hour,
+			Version:          ver,
+			Model:            "gemini-2.5-flash",
+			ChunkStrategy:    config.ChunkStrategyFail,
+			MinSeverity:      config.SeverityLow,
+			CIMode:           true,
+			CIProjectID:      "123",
+			CIMergeRequestID: "456",
+			CommentMode:      config.CommentModeDiscussions,
+		}
+	}
+
+	f1 := model.Finding{File: "file1.go", Line: 1, Severity: "LOW", Category: "style", Title: "f1", Body: "b1"}
+	f2 := model.Finding{File: "file2.go", Line: 1, Severity: "LOW", Category: "style", Title: "f2", Body: "b2"}
+
+	// Run 1 (v0.26.1): no dismissals -> populates cache for file1.go and file2.go.
+	mm1 := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "initial run",
+			Findings: []model.Finding{f1, f2},
+		},
+	}
+	client1 := &threadVCS{
+		mockVCS: &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
+	}
+	ds := &mockDiffSource{diffs: allDiffs}
+	r1 := NewWithDiffSource(baseCfg("v0.26.1"), mm1, client1, ds)
+	count1, err := r1.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run 1 failed: %v", err)
+	}
+	if count1 != 2 || mm1.calls != 1 {
+		t.Fatalf("run 1: count=%d calls=%d, want count=2 calls=1", count1, mm1.calls)
+	}
+
+	// Run 2 (same version v0.26.1): a thread in file1.go is dismissed.
+	// Both file1.go and file2.go must hit the cache (0 model calls), and
+	// FilterDismissed suppresses file1.go's finding while keeping file2.go's.
+	postedF1 := fingerprinted(f1, allDiffs)
+	mm2 := &mockModel{
+		result: &model.ReviewResult{Summary: "should not be called"},
+	}
+	client2 := &threadVCS{
+		mockVCS:   &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
+		dismissed: []vcs.DismissedFinding{{Fingerprint: postedF1.Fingerprint, Anchor: postedF1.Anchor, AnchorLines: postedF1.AnchorLines, Path: "file1.go", Line: 1, Resolved: true}},
+	}
+	r2 := NewWithDiffSource(baseCfg("v0.26.1"), mm2, client2, ds)
+	count2, err := r2.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run 2 failed: %v", err)
+	}
+	if mm2.calls != 0 {
+		t.Errorf("run 2: expected 0 model calls (dismissal must not invalidate cache), got %d", mm2.calls)
+	}
+	if count2 != 1 {
+		t.Errorf("run 2: expected 1 remaining finding (file2.go) after FilterDismissed on cached findings, got %d", count2)
+	}
+
+	// Run 3 (upgraded tool version v0.26.2): must miss the v0.26.1 cache and invoke the model.
+	mm3 := &mockModel{
+		result: &model.ReviewResult{
+			Summary:  "upgraded run",
+			Findings: []model.Finding{f2},
+		},
+	}
+	client3 := &threadVCS{
+		mockVCS:   &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
+		dismissed: client2.dismissed,
+	}
+	r3 := NewWithDiffSource(baseCfg("v0.26.2"), mm3, client3, ds)
+	if _, err := r3.Run(context.Background()); err != nil {
+		t.Fatalf("run 3 failed: %v", err)
+	}
+	if mm3.calls != 1 {
+		t.Errorf("run 3: expected 1 model call (cache miss on version change), got %d", mm3.calls)
+	}
+}

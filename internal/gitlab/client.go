@@ -668,6 +668,7 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 
 	// Create inline draft notes.
 	var draftsFailed int
+	var draftedComments []vcs.ReviewComment
 	if req.Version != nil && len(req.Comments) > 0 {
 		for _, comment := range req.Comments {
 			if err := ctx.Err(); err != nil {
@@ -713,6 +714,8 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 					slog.Error("note fallback also failed", "error", noteErr)
 				}
 				draftsFailed++
+			} else {
+				draftedComments = append(draftedComments, comment)
 			}
 			time.Sleep(apiRateDelay) // Rate limit between draft note creations.
 		}
@@ -720,7 +723,17 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 
 	// Publish all drafts in one batch (1 notification).
 	if err := c.publishDraftNotes(ctx, projectID, mrIID); err != nil {
-		return fmt.Errorf("publishing draft notes: %w", err)
+		// GitLab may reject a draft note's position only at bulk_publish time.
+		// Delete the unpublished drafts and fall back to posting the summary
+		// and drafted comments individually so one bad position does not lose
+		// the entire review.
+		slog.Warn("draft bulk_publish failed, cleaning up drafts and falling back to individual comments", "error", err)
+		if cleanErr := c.deleteAllDraftNotes(ctx, projectID, mrIID); cleanErr != nil {
+			slog.Warn("failed to clean unpublished draft notes after bulk_publish failure", "error", cleanErr)
+		}
+		fallbackReq := req
+		fallbackReq.Comments = draftedComments
+		return c.submitViaIndividualComments(ctx, projectID, mrIID, fallbackReq)
 	}
 
 	slog.Info("posted GitLab review via draft notes",
@@ -796,7 +809,7 @@ func oldLinePtr(comment vcs.ReviewComment) *int {
 }
 
 // submitViaIndividualComments is the legacy path: PostNote + N×CreateDiscussion.
-// Used as fallback when Draft Notes API is unavailable.
+// Used as fallback when Draft Notes API is unavailable or bulk_publish fails.
 func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
 	// Post summary note.
 	if _, err := c.PostNote(ctx, projectID, mrIID, req.Summary); err != nil {
@@ -813,6 +826,13 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 			if err := ctx.Err(); err != nil {
 				slog.Warn("context canceled, stopping inline comment posting", "error", err)
 				break
+			}
+			if comment.Path == "" || (comment.Line <= 0 && comment.OldLine <= 0) {
+				slog.Warn("dropping invalid review comment",
+					"path", comment.Path,
+					"line", comment.Line,
+				)
+				continue
 			}
 			noteBody := comment.Body + suggestionBlock(comment)
 			inlineReq := vcs.InlineCommentRequest{
