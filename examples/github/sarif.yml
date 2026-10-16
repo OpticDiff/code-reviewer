@@ -48,7 +48,7 @@ jobs:
       # so SARIF is published to GitHub Security even when findings cause a non-zero exit.
       - name: Run code-reviewer
         id: review
-        uses: OpticDiff/code-reviewer@v0.26.2
+        uses: OpticDiff/code-reviewer@v0.27.0
         with:
           project-id: ${{ secrets.GCP_PROJECT }}
           model: gemini-3.8-flash

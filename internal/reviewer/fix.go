@@ -21,6 +21,17 @@ type ApplyFix struct {
 	Reason     string // Non-empty if skipped.
 }
 
+// hasAppliableSuggestions reports whether any finding carries a new-file
+// suggestion that can be posted as an inline suggestion block.
+func hasAppliableSuggestions(findings []model.Finding) bool {
+	for _, f := range findings {
+		if f.Suggestion != "" && f.Line > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ApplyFixes takes review findings with suggestions and applies them to the
 // working tree. Returns a list of applied/skipped fixes. Files are resolved
 // relative to repoRoot (or cwd if empty).

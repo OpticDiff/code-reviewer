@@ -10,7 +10,7 @@
 #
 # include:
 #   # Pin to a specific tag for reproducibility:
-#   - remote: 'https://raw.githubusercontent.com/OpticDiff/code-reviewer/v0.26.2/examples/gitlab/template.yml'
+#   - remote: 'https://raw.githubusercontent.com/OpticDiff/code-reviewer/v0.27.0/examples/gitlab/template.yml'
 #   # Or from a central GitLab project (preferred for internal use):
 #   # - project: 'devsecops/ci-templates'
 #   #   ref: 'v1.0.0'
@@ -30,7 +30,7 @@
 
 .code-review:
   stage: review
-  image: ghcr.io/opticdiff/code-reviewer:v0.26.2
+  image: ghcr.io/opticdiff/code-reviewer:v0.27.0
 
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"

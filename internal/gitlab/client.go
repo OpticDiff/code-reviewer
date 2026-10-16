@@ -361,6 +361,131 @@ func (c *Client) ApproveReview(ctx context.Context, projectID, mrIID, headSHA st
 	return c.post(ctx, apiURL, body, nil)
 }
 
+const defaultSuggestionCommitMessage = "chore: apply code-reviewer suggestions"
+
+var _ vcs.SuggestionApplier = (*Client)(nil)
+
+type batchApplySuggestionsRequest struct {
+	IDs           []int  `json:"ids"`
+	CommitMessage string `json:"commit_message,omitempty"`
+}
+
+type applySuggestionRequest struct {
+	CommitMessage string `json:"commit_message,omitempty"`
+}
+
+type lineSpan struct {
+	from int
+	to   int
+}
+
+// ApplySuggestions applies appliable inline suggestions authored by the bot on
+// the merge request at headSHA. It uses PUT /suggestions/batch_apply first so
+// all suggestions land in a single commit, and falls back to individual
+// PUT /suggestions/:id/apply calls if the batch is rejected.
+func (c *Client) ApplySuggestions(ctx context.Context, projectID, mrIID, headSHA string) (int, error) {
+	if headSHA == "" {
+		return 0, fmt.Errorf("applying suggestions requires a non-empty head SHA")
+	}
+	botUser, err := c.currentUser(ctx)
+	if err != nil {
+		return 0, err
+	}
+	discussions, err := c.ListDiscussions(ctx, projectID, mrIID)
+	if err != nil {
+		return 0, fmt.Errorf("listing discussions for suggestions: %w", err)
+	}
+
+	ids := appliableSuggestionIDs(discussions, c.botMarker, botUser, headSHA)
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	batchReq := batchApplySuggestionsRequest{
+		IDs:           ids,
+		CommitMessage: defaultSuggestionCommitMessage,
+	}
+	batchURL := fmt.Sprintf("%s/suggestions/batch_apply", c.baseURL)
+	if err := c.put(ctx, batchURL, batchReq, nil); err != nil {
+		slog.Warn("batch_apply failed, falling back to individual suggestion apply",
+			"count", len(ids), "error", err)
+		var applied int
+		var lastErr error
+		singleReq := applySuggestionRequest{CommitMessage: defaultSuggestionCommitMessage}
+		for _, id := range ids {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return applied, ctxErr
+			}
+			singleURL := fmt.Sprintf("%s/suggestions/%d/apply", c.baseURL, id)
+			if applyErr := c.put(ctx, singleURL, singleReq, nil); applyErr != nil {
+				slog.Warn("failed to apply suggestion individually", "suggestion_id", id, "error", applyErr)
+				lastErr = applyErr
+			} else {
+				applied++
+			}
+			time.Sleep(apiRateDelay)
+		}
+		if applied == 0 && lastErr != nil {
+			return 0, fmt.Errorf("applying suggestions: %w", lastErr)
+		}
+		return applied, nil
+	}
+
+	slog.Info("applied suggestions via GitLab batch_apply", "count", len(ids))
+	return len(ids), nil
+}
+
+// appliableSuggestionIDs collects suggestion IDs from unresolved, unanswered
+// inline discussions authored by botUser on headSHA, skipping overlapping
+// line ranges within the same file.
+func appliableSuggestionIDs(discussions []Discussion, botMarker, botUser, headSHA string) []int {
+	if botUser == "" || headSHA == "" {
+		return nil
+	}
+	seenSpans := make(map[string][]lineSpan)
+	var ids []int
+	for _, d := range discussions {
+		if len(d.Notes) == 0 {
+			continue
+		}
+		first := d.Notes[0]
+		if first.System || first.Author.Username != botUser || !strings.Contains(first.Body, botMarker) {
+			continue
+		}
+		if first.Resolved || first.Position == nil || first.Position.NewPath == "" || first.Position.HeadSHA != headSHA {
+			continue
+		}
+		if len(threadParticipants(d, botUser)) > 0 {
+			continue
+		}
+		file := first.Position.NewPath
+		for _, s := range first.Suggestions {
+			if s.ID <= 0 || !s.Appliable || s.Applied {
+				continue
+			}
+			from, to := s.FromLine, s.ToLine
+			if to < from {
+				to = from
+			}
+			overlaps := false
+			for _, sp := range seenSpans[file] {
+				if from <= sp.to && to >= sp.from {
+					overlaps = true
+					break
+				}
+			}
+			if overlaps {
+				slog.Warn("skipping overlapping suggestion",
+					"file", file, "from_line", from, "to_line", to, "suggestion_id", s.ID)
+				continue
+			}
+			seenSpans[file] = append(seenSpans[file], lineSpan{from: from, to: to})
+			ids = append(ids, s.ID)
+		}
+	}
+	return ids
+}
+
 // PostNote creates a simple note (comment) on a merge request.
 func (c *Client) PostNote(ctx context.Context, projectID, mrIID, body string) (*vcs.Comment, error) {
 	url := fmt.Sprintf("%s/projects/%s/merge_requests/%s/notes", c.baseURL, url.PathEscape(projectID), mrIID)

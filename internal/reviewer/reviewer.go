@@ -773,6 +773,36 @@ skipAgent:
 				fmt.Printf("ℹ️  Auto-approve skipped: %s\n", decision.Reason)
 			}
 		}
+
+		// Step 7d: Apply posted inline suggestions remotely via platform API if requested.
+		if r.cfg.AutoFixRemote {
+			if !hasAppliableSuggestions(toPost) {
+				slog.Info("auto-fix-remote skipped: no inline suggestions posted")
+			} else if applier, ok := r.glClient.(vcs.SuggestionApplier); ok {
+				headSHA := ""
+				if version != nil {
+					headSHA = version.HeadSHA
+				} else if len(cachedVersions) > 0 {
+					headSHA = cachedVersions[0].HeadSHA
+				} else {
+					vers, verr := r.glClient.GetMRVersions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID)
+					if verr == nil && len(vers) > 0 {
+						headSHA = vers[0].HeadSHA
+					}
+				}
+				if headSHA == "" {
+					slog.Warn("auto-fix-remote skipped: could not determine reviewed HEAD SHA")
+				} else {
+					applied, err := applier.ApplySuggestions(ctx, r.cfg.CIProjectID, r.cfg.CIMergeRequestID, headSHA)
+					if err != nil {
+						return len(allFindings), fmt.Errorf("auto-fix-remote failed: %w", err)
+					}
+					slog.Info("auto-fix-remote completed", "applied", applied, "head_sha", headSHA)
+				}
+			} else {
+				slog.Warn("auto-fix-remote enabled but VCS client does not support remote suggestion application")
+			}
+		}
 	}
 
 	// Step 8: Apply fixes if requested.

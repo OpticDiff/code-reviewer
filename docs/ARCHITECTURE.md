@@ -495,6 +495,8 @@ api_url: http://localhost:11434/v1
 | `INCREMENTAL` | `Incremental` (`true`) |
 | `REVIEW_PROXY_URL` | `ProxyURL` |
 | `REVIEW_MAX_TOKENS` | `MaxTokens` |
+| `REVIEW_AUTO_APPROVE` | `AutoApprove` (`true`) |
+| `REVIEW_AUTO_FIX_REMOTE` | `AutoFixRemote` (`true`) |
 | `REVIEW_API_URL` | `APIURL` |
 | `REVIEW_API_KEY` | `APIKey` |
 
@@ -618,4 +620,6 @@ Controlled by `--comment-mode`, `--cleanup-mode`, and `--dismissal-mode`:
 - **Dismissed Findings (`ListDismissedFindings`)**: Threads authored by the bot account (`GET /user`) that have human replies or resolutions are matched by fingerprint. Findings below `HIGH` may be dismissed by the PR/MR author; `HIGH` and `CRITICAL` findings require engagement from a non-author reviewer (and with `--dismissal-mode resolve_only`, require explicit thread resolution rather than a plain reply). Suppressed findings are recorded in `--audit-log` under `suppressed` with `dismissed_note_id` and `author_only`.
 - **Open Thread Deduplication (`ListOpenFindings`)**: Unresolved bot threads with no human replies are matched by exact fingerprint or proximity (`±3` lines on unchanged surrounding code on the same diff side). Matching threads are kept open in place instead of being deleted/resolved and re-posted on subsequent pushes, unless a newly detected finding has a higher severity than the existing thread's badge.
 - **Removed-Line (`OldLine`) Anchoring**: Findings on deleted lines (`OldLine > 0`, `Line == 0`) are anchored to `Position.OldLine` in GitLab discussions and `side: "LEFT"` in GitHub PR review comments.
+- **Remote Suggestion Application (`vcs.SuggestionApplier` / `--auto-fix-remote`)**: After inline discussions are published in CI mode (`--comment-mode discussions`), `Client.ApplySuggestions` queries the merge request's discussions, selects unresolved/unanswered suggestions authored by the authenticated bot account (`GET /api/v4/user`) on the reviewed `HeadSHA`, skips overlapping line spans per file, and applies them via `PUT /api/v4/suggestions/batch_apply` (falling back to `PUT /api/v4/suggestions/:id/apply` per suggestion).
+
 

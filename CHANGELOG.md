@@ -5,14 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.27.0] — 2026-10-15
 
 ### Added
-- `chunk_target_tokens` configuration field, `--chunk-target-tokens` CLI flag, and `REVIEW_CHUNK_TARGET_TOKENS` environment variable. With `chunk_strategy: split`, chunks are packed to this many estimated tokens instead of 80% of the context limit, which keeps each request smaller. The value is capped at the 80% default, a file larger than the target still gets a chunk of its own, and `0` or unset keeps today's behavior.
-- `chunk_concurrency` configuration field, `--chunk-concurrency` CLI flag, and `REVIEW_CHUNK_CONCURRENCY` environment variable. Up to this many chunks are reviewed at once, with results merged in chunk order; the `--max-tokens` runtime check runs between groups of chunks. `1` or unset reviews one chunk at a time, as before.
+- `auto_fix_remote` configuration field, `--auto-fix-remote` CLI flag, and `REVIEW_AUTO_FIX_REMOTE` environment variable (#47). When enabled in CI mode with `comment_mode: discussions`, posted inline suggestions are applied to the merge request branch via the GitLab Suggestions API (`PUT /api/v4/suggestions/batch_apply`, falling back to individual `PUT /api/v4/suggestions/:id/apply` calls), restricted to unresolved, unanswered discussions authored by the authenticated bot account on the reviewed `HeadSHA`.
+- `chunk_target_tokens` configuration field, `--chunk-target-tokens` CLI flag, and `REVIEW_CHUNK_TARGET_TOKENS` environment variable (#164). With `chunk_strategy: split`, chunks are packed to this many estimated tokens instead of 80% of the context limit, which keeps each request smaller. The value is capped at the 80% default, a file larger than the target still gets a chunk of its own, and `0` or unset keeps today's behavior.
+- `chunk_concurrency` configuration field, `--chunk-concurrency` CLI flag, and `REVIEW_CHUNK_CONCURRENCY` environment variable (#164). Up to this many chunks are reviewed at once, with results merged in chunk order; the `--max-tokens` runtime check runs between groups of chunks. `1` or unset reviews one chunk at a time, as before.
 
 ### Changed
-- The `split` chunk strategy keeps files of equal size in input order, so the same diff always produces the same chunks.
+- The `split` chunk strategy keeps files of equal size in input order, so the same diff always produces the same chunks (#164).
+
+### Fixed
+- GitLab Draft Notes `bulk_publish` failures no longer silently drop inline comments: when `bulk_publish` fails (and no inline discussions were already published), `SubmitReview` falls back to posting individual discussions (`POST /discussions`) and deletes any remaining unpublished draft notes (#166).
+- Per-file review cache keys now scope the dismissed-findings prompt section to the target file and include the `code-reviewer` tool version, preventing a dismissal in one file from invalidating cached reviews of unrelated files and ensuring tool upgrades re-evaluate diffs (#166).
+
+## [0.26.2] — 2026-10-13
+
+### Fixed
+- `pkg/repair.RepairJSON` now tracks backslash parity inside JSON string literals and only strips outer markdown code fences when the unwrapped payload is valid JSON (#163).
+
+## [0.26.1] — 2026-10-13
+
+### Fixed
+- Vertex AI agent refinement loop schema and tool-turn stability improvements (#161, #162).
 
 ## [0.26.0] — 2026-10-13
 

@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.26.2 — released**
+Current status: **v0.27.0 — released**
 
 ## ✅ v0.1 — Foundation (Done)
 
@@ -60,14 +60,15 @@ Current status: **v0.26.2 — released**
 - [x] **GitLab Draft Notes API** — For single-notification reviews
 - [x] **SSRF hardening and tech debt cleanup**
 
-## ✅ v0.7–v0.26 — Enterprise Governance, Agentic Verification & Distribution (Done)
+## ✅ v0.7–v0.27 — Enterprise Governance, Agentic Verification & Distribution (Done)
 
 - [x] **Composite GitHub Action (`action.yml`) & workflow examples** — Drop-in `OpticDiff/code-reviewer` composite action and ready-to-use workflows in `examples/github/`
 - [x] **Policy engine & Platform Governance (`--profile`, `--platform-config`, `--platform-review-md`)** — Path-based custom rules, banned pattern regex scanning, and dual-plane platform/product governance profiles
 - [x] **Agentic verification loop (`--agent`, `--agent-scope`)** — Multi-turn read-only repo tool loop (`read_file`, `search_code`, `read_symbol`) to verify or drop false-positive findings
 - [x] **Audit trail (`--audit-log`)** — Structured JSONL log of reviews: intent, classification, findings, token usage, and timing
 - [x] **Caching (`--cache-dir`, `--cache-max-age`, `--no-cache`)** — Per-file diff caching across pushes with `cache stats` and `cache clear` subcommands
-- [x] **Dismissal & auto-approve controls (`--dismissal-mode`, `--auto-approve`)** — Strict `resolve_only` dismissal for blocking gates and automatic MR/PR approval on clean reviews
+- [x] **Dismissal, auto-approve & remote auto-fix controls (`--dismissal-mode`, `--auto-approve`, `--auto-fix-remote`)** — Strict `resolve_only` dismissal for blocking gates, automatic MR/PR approval on clean reviews, and remote suggestion application via the GitLab Suggestions API (#47)
+- [x] **Parallel chunking & target token packing (`--chunk-target-tokens`, `--chunk-concurrency`)** — Configurable chunk packing size and concurrent wave evaluation (#164)
 - [x] **GitLab SAST report output (`--sast`)** — Native GitLab SAST v15.0.7 security report generation alongside SARIF 2.1.0
 
 ## 🔜 Next — Deep Context & Interactive Workflows
