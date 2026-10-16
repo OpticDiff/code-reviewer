@@ -338,6 +338,9 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	if r.cfg.Profile != "" && r.cfg.Profile != "all" {
 		cacheModelID += ":profile=" + r.cfg.Profile
 	}
+	if r.cfg.Version != "" {
+		cacheModelID += ":version=" + r.cfg.Version
+	}
 
 	// Step 2e: Cache lookup.
 	// Snapshot diffs for audit before Partition filters to uncached only.
@@ -346,12 +349,16 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var cachedFindings []model.Finding
 	var cacheKeys map[string]string
 	if r.cache != nil && len(diffs) > 0 {
-		promptHash := cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, config.FormatRulesPrompt(applicableRules, nil)+contextGuidance+FormatDismissedPrompt(dismissed, resolveOnly))
+		baseFormattedRules := config.FormatRulesPrompt(applicableRules, nil) + contextGuidance
+		promptHashForFile := func(d diff.FileDiff) string {
+			fileDismissed := FormatDismissedPrompt(DismissedForFile(dismissed, d), resolveOnly)
+			return cache.PromptHash(r.cfg.CustomPrompt, platformReviewMD, reviewMD, r.cfg.Focus, r.cfg.ExtraRules, baseFormattedRules+fileDismissed)
+		}
 		if forceFullReview {
 			slog.Info("bypassing review cache due to commit trigger", "trigger", triggerMatched)
-			diffs, _, _, cacheKeys = cache.Partition(diffs, nil, cacheModelID, promptHash)
+			diffs, _, _, cacheKeys = cache.PartitionWithFilePrompt(diffs, nil, cacheModelID, promptHashForFile)
 		} else {
-			diffs, cachedFindings, cacheHits, cacheKeys = cache.Partition(diffs, r.cache, cacheModelID, promptHash)
+			diffs, cachedFindings, cacheHits, cacheKeys = cache.PartitionWithFilePrompt(diffs, r.cache, cacheModelID, promptHashForFile)
 			if cacheHits > 0 {
 				slog.Info("cache", "hits", cacheHits, "cached_findings", len(cachedFindings), "uncached_files", len(diffs))
 			}

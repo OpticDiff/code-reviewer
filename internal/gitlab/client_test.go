@@ -1042,8 +1042,179 @@ func TestSubmitReview_DraftNotes_FallbackOn404(t *testing.T) {
 }
 
 func TestSubmitReview_DraftNotes_PublishFailure(t *testing.T) {
-	// Drafts created successfully but publish fails → error returned.
+	// When bulk_publish fails (e.g. GitLab rejects a position at publish time),
+	// SubmitReview deletes the unpublished drafts and falls back to posting
+	// the summary and inline findings individually, converting any rejected
+	// discussion position into a plain MR note naming the file and line.
+	var (
+		mu              sync.Mutex
+		nextDraftID     int
+		activeDrafts    = make(map[int]string)
+		deletedDraftIDs []int
+		postedNotes     []string
+		postedDisPaths  []string
+	)
+
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/notes"):
+			_, _ = w.Write([]byte(`[]`))
+
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
+			list := make([]DraftNote, 0, len(activeDrafts))
+			for id, note := range activeDrafts {
+				list = append(list, DraftNote{ID: id, Note: note})
+			}
+			_ = json.NewEncoder(w).Encode(list)
+
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/draft_notes/"):
+			parts := strings.Split(r.URL.Path, "/")
+			var id int
+			_, _ = fmt.Sscanf(parts[len(parts)-1], "%d", &id)
+			delete(activeDrafts, id)
+			deletedDraftIDs = append(deletedDraftIDs, id)
+			w.WriteHeader(http.StatusNoContent)
+
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/bulk_publish"):
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"400 Bad request - Position is invalid"}`))
+
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/draft_notes"):
+			var req CreateDraftNoteRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			nextDraftID++
+			activeDrafts[nextDraftID] = req.Note
+			_, _ = fmt.Fprintf(w, `{"id":%d,"note":"draft"}`, nextDraftID)
+
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/discussions"):
+			var disc CreateDiscussionRequest
+			_ = json.NewDecoder(r.Body).Decode(&disc)
+			if disc.Position != nil && disc.Position.NewPath == "rejected.go" {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"line_code is invalid"}`))
+				return
+			}
+			if disc.Position != nil {
+				postedDisPaths = append(postedDisPaths, disc.Position.NewPath)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"disc-1"}`))
+
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/notes"):
+			var note CreateNoteRequest
+			_ = json.NewDecoder(r.Body).Decode(&note)
+			postedNotes = append(postedNotes, note.Body)
+			_, _ = fmt.Fprintf(w, `{"id":%d,"body":"ok"}`, len(postedNotes))
+
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	req := vcs.SubmitReviewRequest{
+		Summary: "Review summary text",
+		Version: &vcs.DiffVersion{
+			BaseSHA:  "base",
+			HeadSHA:  "head",
+			StartSHA: "start",
+		},
+		Comments: []vcs.ReviewComment{
+			{Path: "good.go", Line: 10, Body: "good finding"},
+			{Path: "rejected.go", Line: 25, Body: "rejected inline position"},
+		},
+	}
+
+	if err := client.SubmitReview(context.Background(), "proj", "1", req); err != nil {
+		t.Fatalf("expected fallback to succeed on bulk_publish failure, got: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(activeDrafts) != 0 {
+		t.Errorf("expected all unpublished drafts to be deleted after bulk_publish failure, %d remain", len(activeDrafts))
+	}
+	if len(deletedDraftIDs) != 3 {
+		t.Errorf("expected 3 drafts (summary + 2 inline) to be deleted, got %d", len(deletedDraftIDs))
+	}
+	if len(postedDisPaths) != 1 || postedDisPaths[0] != "good.go" {
+		t.Errorf("posted discussions = %v, want [good.go]", postedDisPaths)
+	}
+	// Expect 2 notes: the summary note and the fallback note for rejected.go:25.
+	if len(postedNotes) != 2 {
+		t.Fatalf("posted notes = %d (%v), want 2 (summary + rejected position fallback)", len(postedNotes), postedNotes)
+	}
+	if !strings.Contains(postedNotes[0], "Review summary text") {
+		t.Errorf("first note = %q, want summary text", postedNotes[0])
+	}
+	if !strings.Contains(postedNotes[1], "**rejected.go:25**") || !strings.Contains(postedNotes[1], "rejected inline position") {
+		t.Errorf("second note = %q, want fallback note naming rejected.go:25", postedNotes[1])
+	}
+}
+
+func TestSubmitReview_DraftNotes_PublishFailure_CleanupError(t *testing.T) {
+	// If bulk_publish fails AND deleting the unpublished drafts fails,
+	// SubmitReview must return an error without posting duplicate comments.
+	var notePosted bool
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
+			// Initial cleanup returns empty, post-create returns the created draft.
+			if notePosted {
+				_, _ = w.Write([]byte(`[{"id":1,"note":"draft"}]`))
+			} else {
+				_, _ = w.Write([]byte(`[]`))
+			}
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/draft_notes") && !strings.Contains(r.URL.Path, "/bulk_publish"):
+			notePosted = true
+			_, _ = w.Write([]byte(`{"id":1,"note":"draft"}`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/bulk_publish"):
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"Internal Server Error"}`))
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/draft_notes/"):
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	err := client.SubmitReview(context.Background(), "proj", "1", vcs.SubmitReviewRequest{Summary: "Review"})
+	if err == nil {
+		t.Fatal("expected error when bulk_publish and draft cleanup both fail")
+	}
+	if !strings.Contains(err.Error(), "publishing draft notes") {
+		t.Errorf("error = %q, want contains 'publishing draft notes'", err.Error())
+	}
+}
+
+func TestSubmitReview_DraftNotes_PublishFailure_AlreadyPublished(t *testing.T) {
+	// If bulk_publish returns an error after the server already published the
+	// drafts (listDraftNotes returns empty), SubmitReview must not re-post the
+	// summary individually.
+	var individualNotePosts int
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 
 		switch {
@@ -1052,10 +1223,13 @@ func TestSubmitReview_DraftNotes_PublishFailure(t *testing.T) {
 		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
 			_, _ = w.Write([]byte(`[]`))
 		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/bulk_publish"):
-			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(`{"message":"Internal Server Error"}`))
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"message":"502 Bad Gateway"}`))
 		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/draft_notes"):
 			_, _ = w.Write([]byte(`{"id":1,"note":"draft"}`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/notes"):
+			individualNotePosts++
+			_, _ = w.Write([]byte(`{"id":1,"body":"note"}`))
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -1063,14 +1237,13 @@ func TestSubmitReview_DraftNotes_PublishFailure(t *testing.T) {
 	defer srv.Close()
 
 	client := NewClient(srv.URL, "token")
-	req := vcs.SubmitReviewRequest{Summary: "Review"}
-
-	err := client.SubmitReview(context.Background(), "proj", "1", req)
-	if err == nil {
-		t.Fatal("expected error on publish failure")
+	if err := client.SubmitReview(context.Background(), "proj", "1", vcs.SubmitReviewRequest{Summary: "Review"}); err != nil {
+		t.Fatalf("unexpected error when drafts were already published: %v", err)
 	}
-	if !strings.Contains(err.Error(), "publishing draft notes") {
-		t.Errorf("error = %q, want 'publishing draft notes'", err.Error())
+	mu.Lock()
+	defer mu.Unlock()
+	if individualNotePosts != 0 {
+		t.Errorf("expected 0 duplicate PostNote calls when drafts were already published, got %d", individualNotePosts)
 	}
 }
 

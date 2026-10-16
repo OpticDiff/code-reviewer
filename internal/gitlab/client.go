@@ -668,6 +668,8 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 
 	// Create inline draft notes.
 	var draftsFailed int
+	var draftedComments []vcs.ReviewComment
+	var fallbackNoteErrs error
 	if req.Version != nil && len(req.Comments) > 0 {
 		for _, comment := range req.Comments {
 			if err := ctx.Err(); err != nil {
@@ -711,8 +713,12 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 				noteBodyStr := fmt.Sprintf("**%s** — %s", commentLocation(comment), noteBody)
 				if _, noteErr := c.PostNote(ctx, projectID, mrIID, noteBodyStr); noteErr != nil {
 					slog.Error("note fallback also failed", "error", noteErr)
+					fallbackNoteErrs = errors.Join(fallbackNoteErrs, fmt.Errorf("posting fallback note for %s: %w", commentLocation(comment), noteErr))
+					draftedComments = append(draftedComments, comment)
 				}
 				draftsFailed++
+			} else {
+				draftedComments = append(draftedComments, comment)
 			}
 			time.Sleep(apiRateDelay) // Rate limit between draft note creations.
 		}
@@ -720,7 +726,32 @@ func (c *Client) submitViaDraftNotes(ctx context.Context, projectID, mrIID strin
 
 	// Publish all drafts in one batch (1 notification).
 	if err := c.publishDraftNotes(ctx, projectID, mrIID); err != nil {
-		return fmt.Errorf("publishing draft notes: %w", err)
+		// Verify whether the drafts are still unpublished before falling back to
+		// individual comments, so an ambiguous error after server-side publish
+		// does not duplicate the review.
+		remaining, listErr := c.listDraftNotes(ctx, projectID, mrIID)
+		if listErr != nil {
+			return fmt.Errorf("publishing draft notes: %w (verifying unpublished drafts: %v)", err, listErr)
+		}
+		if len(remaining) == 0 {
+			slog.Warn("draft bulk_publish returned error but no unpublished drafts remain; assuming published", "error", err)
+			return fallbackNoteErrs
+		}
+
+		// GitLab rejected the batch (e.g. an invalid position only checked at
+		// publish time). Delete the unpublished drafts and fall back to posting
+		// the summary and remaining comments individually.
+		slog.Warn("draft bulk_publish failed, cleaning up drafts and falling back to individual comments", "error", err)
+		if cleanErr := c.deleteAllDraftNotes(ctx, projectID, mrIID); cleanErr != nil {
+			return fmt.Errorf("publishing draft notes: %w (cleaning up unpublished drafts: %v)", err, cleanErr)
+		}
+		fallbackReq := req
+		fallbackReq.Comments = draftedComments
+		return c.submitViaIndividualComments(ctx, projectID, mrIID, fallbackReq)
+	}
+
+	if fallbackNoteErrs != nil {
+		return fallbackNoteErrs
 	}
 
 	slog.Info("posted GitLab review via draft notes",
@@ -796,7 +827,7 @@ func oldLinePtr(comment vcs.ReviewComment) *int {
 }
 
 // submitViaIndividualComments is the legacy path: PostNote + N×CreateDiscussion.
-// Used as fallback when Draft Notes API is unavailable.
+// Used as fallback when Draft Notes API is unavailable or bulk_publish fails.
 func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrIID string, req vcs.SubmitReviewRequest) error {
 	// Post summary note.
 	if _, err := c.PostNote(ctx, projectID, mrIID, req.Summary); err != nil {
@@ -804,6 +835,7 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 	}
 	slog.Info("posted review summary")
 
+	var fallbackErrs error
 	// Post inline comments if there's a diff version.
 	if req.Version != nil && len(req.Comments) > 0 {
 		inlinePosted := 0
@@ -813,6 +845,13 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 			if err := ctx.Err(); err != nil {
 				slog.Warn("context canceled, stopping inline comment posting", "error", err)
 				break
+			}
+			if comment.Path == "" || (comment.Line <= 0 && comment.OldLine <= 0) {
+				slog.Warn("dropping invalid review comment",
+					"path", comment.Path,
+					"line", comment.Line,
+				)
+				continue
 			}
 			noteBody := comment.Body + suggestionBlock(comment)
 			inlineReq := vcs.InlineCommentRequest{
@@ -842,6 +881,7 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 				noteBodyStr := fmt.Sprintf("**%s** — %s", commentLocation(comment), noteBody)
 				if _, err := c.PostNote(ctx, projectID, mrIID, noteBodyStr); err != nil {
 					slog.Error("failed to post fallback note", "error", err)
+					fallbackErrs = errors.Join(fallbackErrs, fmt.Errorf("posting fallback note for %s: %w", commentLocation(comment), err))
 				} else {
 					fallbackPosted++
 				}
@@ -858,7 +898,7 @@ func (c *Client) submitViaIndividualComments(ctx context.Context, projectID, mrI
 		)
 	}
 
-	return nil
+	return fallbackErrs
 }
 
 // --- Draft Notes API methods ---

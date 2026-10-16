@@ -235,3 +235,18 @@ func FormatDismissedPrompt(dismissed []vcs.DismissedFinding, resolveOnly bool) s
 		"Reviewers already closed out findings at these locations. Do not report them again unless the code there has materially changed:\n" +
 		sb.String()
 }
+
+// DismissedForFile returns the subset of dismissed findings that apply to d
+// (matching NewPath or OldPath).
+func DismissedForFile(dismissed []vcs.DismissedFinding, d diff.FileDiff) []vcs.DismissedFinding {
+	if len(dismissed) == 0 {
+		return nil
+	}
+	var out []vcs.DismissedFinding
+	for _, item := range dismissed {
+		if item.Path != "" && (item.Path == d.NewPath || (d.OldPath != "" && item.Path == d.OldPath)) {
+			out = append(out, item)
+		}
+	}
+	return out
+}
