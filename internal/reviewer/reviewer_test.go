@@ -2059,16 +2059,26 @@ func TestRun_CacheKey_IgnoresDismissalsAndIncludesVersion(t *testing.T) {
 
 	f1 := model.Finding{File: "file1.go", Line: 1, Severity: "LOW", Category: "style", Title: "f1", Body: "b1"}
 	f2 := model.Finding{File: "file2.go", Line: 1, Severity: "LOW", Category: "style", Title: "f2", Body: "b2"}
+	postedF1 := fingerprinted(f1, allDiffs)
+	dismissalF1 := vcs.DismissedFinding{
+		Fingerprint: postedF1.Fingerprint,
+		Anchor:      postedF1.Anchor,
+		AnchorLines: postedF1.AnchorLines,
+		Path:        "file1.go",
+		Line:        1,
+		Resolved:    true,
+	}
 
-	// Run 1 (v0.26.1): no dismissals -> populates cache for file1.go and file2.go.
+	// Run 1 (v0.26.1): active dismissal in file1.go; model omits f1 and returns only f2.
 	mm1 := &mockModel{
 		result: &model.ReviewResult{
-			Summary:  "initial run",
-			Findings: []model.Finding{f1, f2},
+			Summary:  "run with dismissal",
+			Findings: []model.Finding{f2},
 		},
 	}
 	client1 := &threadVCS{
-		mockVCS: &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
+		mockVCS:   &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
+		dismissed: []vcs.DismissedFinding{dismissalF1},
 	}
 	ds := &mockDiffSource{diffs: allDiffs}
 	r1 := NewWithDiffSource(baseCfg("v0.26.1"), mm1, client1, ds)
@@ -2076,49 +2086,78 @@ func TestRun_CacheKey_IgnoresDismissalsAndIncludesVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run 1 failed: %v", err)
 	}
-	if count1 != 2 || mm1.calls != 1 {
-		t.Fatalf("run 1: count=%d calls=%d, want count=2 calls=1", count1, mm1.calls)
+	if count1 != 1 || mm1.calls != 1 {
+		t.Fatalf("run 1: count=%d calls=%d, want count=1 calls=1", count1, mm1.calls)
 	}
 
-	// Run 2 (same version v0.26.1): a thread in file1.go is dismissed.
-	// Both file1.go and file2.go must hit the cache (0 model calls), and
-	// FilterDismissed suppresses file1.go's finding while keeping file2.go's.
-	postedF1 := fingerprinted(f1, allDiffs)
+	// Run 2 (v0.26.1): remove the dismissal in file1.go (reverse sequence).
+	// file2.go has no dismissal change so it MUST hit the cache (not sent in prompt),
+	// whereas file1.go's per-file dismissal changed so it misses the cache and f1 appears.
 	mm2 := &mockModel{
-		result: &model.ReviewResult{Summary: "should not be called"},
+		result: &model.ReviewResult{
+			Summary:  "re-review file1 without dismissal",
+			Findings: []model.Finding{f1},
+		},
 	}
 	client2 := &threadVCS{
-		mockVCS:   &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
-		dismissed: []vcs.DismissedFinding{{Fingerprint: postedF1.Fingerprint, Anchor: postedF1.Anchor, AnchorLines: postedF1.AnchorLines, Path: "file1.go", Line: 1, Resolved: true}},
+		mockVCS: &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
 	}
 	r2 := NewWithDiffSource(baseCfg("v0.26.1"), mm2, client2, ds)
 	count2, err := r2.Run(context.Background())
 	if err != nil {
 		t.Fatalf("run 2 failed: %v", err)
 	}
-	if mm2.calls != 0 {
-		t.Errorf("run 2: expected 0 model calls (dismissal must not invalidate cache), got %d", mm2.calls)
+	if mm2.calls != 1 {
+		t.Fatalf("run 2: expected 1 model call for file1.go after removing dismissal, got %d", mm2.calls)
 	}
-	if count2 != 1 {
-		t.Errorf("run 2: expected 1 remaining finding (file2.go) after FilterDismissed on cached findings, got %d", count2)
+	if strings.Contains(mm2.lastUserPrompt, "file2.go") {
+		t.Errorf("run 2: expected file2.go to hit cache and be omitted from model prompt")
+	}
+	if count2 != 2 {
+		t.Errorf("run 2: expected 2 findings (fresh f1 + cached f2), got %d", count2)
 	}
 
-	// Run 3 (upgraded tool version v0.26.2): must miss the v0.26.1 cache and invoke the model.
+	// Run 3 (v0.26.1): re-add the dismissal in file1.go.
+	// Both file1.go (cached from Run 1 with dismissalF1) and file2.go (cached from Run 1/2)
+	// hit the cache -> 0 model calls!
 	mm3 := &mockModel{
+		result: &model.ReviewResult{Summary: "should not be called"},
+	}
+	client3 := &threadVCS{
+		mockVCS:   &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
+		dismissed: []vcs.DismissedFinding{dismissalF1},
+	}
+	r3 := NewWithDiffSource(baseCfg("v0.26.1"), mm3, client3, ds)
+	count3, err := r3.Run(context.Background())
+	if err != nil {
+		t.Fatalf("run 3 failed: %v", err)
+	}
+	if mm3.calls != 0 {
+		t.Errorf("run 3: expected 0 model calls (both files cached for their dismissal state), got %d", mm3.calls)
+	}
+	if count3 != 1 {
+		t.Errorf("run 3: expected 1 finding (f2), got %d", count3)
+	}
+
+	// Run 4 (upgraded tool version v0.26.2): must miss the v0.26.1 cache for both files.
+	mm4 := &mockModel{
 		result: &model.ReviewResult{
 			Summary:  "upgraded run",
 			Findings: []model.Finding{f2},
 		},
 	}
-	client3 := &threadVCS{
+	client4 := &threadVCS{
 		mockVCS:   &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "h1", BaseSHA: "b1", StartSHA: "s1"}}},
-		dismissed: client2.dismissed,
+		dismissed: []vcs.DismissedFinding{dismissalF1},
 	}
-	r3 := NewWithDiffSource(baseCfg("v0.26.2"), mm3, client3, ds)
-	if _, err := r3.Run(context.Background()); err != nil {
-		t.Fatalf("run 3 failed: %v", err)
+	r4 := NewWithDiffSource(baseCfg("v0.26.2"), mm4, client4, ds)
+	if _, err := r4.Run(context.Background()); err != nil {
+		t.Fatalf("run 4 failed: %v", err)
 	}
-	if mm3.calls != 1 {
-		t.Errorf("run 3: expected 1 model call (cache miss on version change), got %d", mm3.calls)
+	if mm4.calls != 1 {
+		t.Errorf("run 4: expected 1 model call (cache miss on version change), got %d", mm4.calls)
+	}
+	if !strings.Contains(mm4.lastUserPrompt, "file1.go") || !strings.Contains(mm4.lastUserPrompt, "file2.go") {
+		t.Errorf("run 4: expected both files to miss cache on version change")
 	}
 }

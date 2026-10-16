@@ -180,10 +180,17 @@ func (c *Cache) Stats() (entries int, totalBytes int64, oldestTime time.Time, er
 }
 
 func Partition(diffs []diff.FileDiff, c *Cache, model, promptHash string) (uncached []diff.FileDiff, cachedFindings []model.Finding, cacheHits int, cacheKeys map[string]string) {
+	return PartitionWithFilePrompt(diffs, c, model, func(diff.FileDiff) string { return promptHash })
+}
+
+// PartitionWithFilePrompt partitions file diffs into cached and uncached sets
+// using a per-file prompt hash callback so file-scoped prompt hints (such as
+// dismissed findings in a specific file) only affect that file's cache key.
+func PartitionWithFilePrompt(diffs []diff.FileDiff, c *Cache, model string, promptHashForFile func(diff.FileDiff) string) (uncached []diff.FileDiff, cachedFindings []model.Finding, cacheHits int, cacheKeys map[string]string) {
 	cacheKeys = make(map[string]string)
 	for _, d := range diffs {
 		dh := DiffHash(d)
-		key := CacheKey(dh, model, promptHash)
+		key := CacheKey(dh, model, promptHashForFile(d))
 		cacheKeys[d.NewPath] = key
 
 		if c != nil {

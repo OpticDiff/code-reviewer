@@ -1159,6 +1159,94 @@ func TestSubmitReview_DraftNotes_PublishFailure(t *testing.T) {
 	}
 }
 
+func TestSubmitReview_DraftNotes_PublishFailure_CleanupError(t *testing.T) {
+	// If bulk_publish fails AND deleting the unpublished drafts fails,
+	// SubmitReview must return an error without posting duplicate comments.
+	var notePosted bool
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
+			// Initial cleanup returns empty, post-create returns the created draft.
+			if notePosted {
+				_, _ = w.Write([]byte(`[{"id":1,"note":"draft"}]`))
+			} else {
+				_, _ = w.Write([]byte(`[]`))
+			}
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/draft_notes") && !strings.Contains(r.URL.Path, "/bulk_publish"):
+			notePosted = true
+			_, _ = w.Write([]byte(`{"id":1,"note":"draft"}`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/bulk_publish"):
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"Internal Server Error"}`))
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/draft_notes/"):
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message":"403 Forbidden"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	err := client.SubmitReview(context.Background(), "proj", "1", vcs.SubmitReviewRequest{Summary: "Review"})
+	if err == nil {
+		t.Fatal("expected error when bulk_publish and draft cleanup both fail")
+	}
+	if !strings.Contains(err.Error(), "publishing draft notes") {
+		t.Errorf("error = %q, want contains 'publishing draft notes'", err.Error())
+	}
+}
+
+func TestSubmitReview_DraftNotes_PublishFailure_AlreadyPublished(t *testing.T) {
+	// If bulk_publish returns an error after the server already published the
+	// drafts (listDraftNotes returns empty), SubmitReview must not re-post the
+	// summary individually.
+	var individualNotePosts int
+	var mu sync.Mutex
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+
+		switch {
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodGet && strings.Contains(r.URL.Path, "/draft_notes"):
+			_, _ = w.Write([]byte(`[]`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/bulk_publish"):
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"message":"502 Bad Gateway"}`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/draft_notes"):
+			_, _ = w.Write([]byte(`{"id":1,"note":"draft"}`))
+		case r.Method == http.MethodPost && strings.Contains(r.URL.Path, "/notes"):
+			individualNotePosts++
+			_, _ = w.Write([]byte(`{"id":1,"body":"note"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	if err := client.SubmitReview(context.Background(), "proj", "1", vcs.SubmitReviewRequest{Summary: "Review"}); err != nil {
+		t.Fatalf("unexpected error when drafts were already published: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if individualNotePosts != 0 {
+		t.Errorf("expected 0 duplicate PostNote calls when drafts were already published, got %d", individualNotePosts)
+	}
+}
+
 func TestSubmitReview_DraftNotes_CleansStaleDrafts(t *testing.T) {
 	// Existing stale drafts are deleted before new ones are created.
 	var deleteCalled bool
