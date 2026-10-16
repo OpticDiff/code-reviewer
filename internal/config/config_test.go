@@ -1766,3 +1766,104 @@ func TestLoad_ChunkTargetAndConcurrencyValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_AutoFixRemote(t *testing.T) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+
+	setupCI := func(t *testing.T, yamlContent string) {
+		t.Helper()
+		t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+		t.Setenv("CI_PROJECT_ID", "123")
+		t.Setenv("CI_MERGE_REQUEST_IID", "456")
+		t.Setenv("GITLAB_TOKEN", "glpat-test")
+		t.Setenv("REVIEW_AUTO_FIX_REMOTE", "")
+		dir := t.TempDir()
+		if yamlContent != "" {
+			if err := os.WriteFile(filepath.Join(dir, ".code-reviewer.yaml"), []byte(yamlContent), 0o644); err != nil {
+				t.Fatalf("writing yaml: %v", err)
+			}
+		}
+		oldDir, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("Getwd: %v", err)
+		}
+		t.Cleanup(func() { os.Chdir(oldDir) }) //nolint:errcheck
+		if err := os.Chdir(dir); err != nil {
+			t.Fatalf("Chdir: %v", err)
+		}
+	}
+
+	t.Run("default false", func(t *testing.T) {
+		setupCI(t, "")
+		os.Args = []string{"code-reviewer", "--ci"}
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() unexpected error: %v", err)
+		}
+		if cfg.AutoFixRemote {
+			t.Error("AutoFixRemote = true, want false")
+		}
+	})
+
+	t.Run("yaml sets true", func(t *testing.T) {
+		setupCI(t, "comment_mode: discussions\nauto_fix_remote: true\n")
+		os.Args = []string{"code-reviewer", "--ci"}
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() unexpected error: %v", err)
+		}
+		if !cfg.AutoFixRemote {
+			t.Error("AutoFixRemote = false, want true")
+		}
+	})
+
+	t.Run("env overrides yaml", func(t *testing.T) {
+		setupCI(t, "comment_mode: discussions\nauto_fix_remote: false\n")
+		t.Setenv("REVIEW_AUTO_FIX_REMOTE", "true")
+		os.Args = []string{"code-reviewer", "--ci"}
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() unexpected error: %v", err)
+		}
+		if !cfg.AutoFixRemote {
+			t.Error("AutoFixRemote = false, want true")
+		}
+	})
+
+	t.Run("flag overrides env", func(t *testing.T) {
+		setupCI(t, "comment_mode: discussions\n")
+		t.Setenv("REVIEW_AUTO_FIX_REMOTE", "false")
+		os.Args = []string{"code-reviewer", "--ci", "--auto-fix-remote"}
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() unexpected error: %v", err)
+		}
+		if !cfg.AutoFixRemote {
+			t.Error("AutoFixRemote = false, want true")
+		}
+	})
+
+	validationTests := []struct {
+		name    string
+		args    []string
+		wantSub string
+	}{
+		{"requires ci mode", []string{"--diff", "--comment-mode", "discussions", "--auto-fix-remote"}, "--auto-fix-remote requires --ci mode"},
+		{"rejects dry-run", []string{"--ci", "--comment-mode", "discussions", "--dry-run", "--auto-fix-remote"}, "--auto-fix-remote cannot be used with --dry-run"},
+		{"requires discussions comment-mode", []string{"--ci", "--comment-mode", "notes", "--auto-fix-remote"}, "--auto-fix-remote requires --comment-mode discussions"},
+		{"rejects explain", []string{"--ci", "--no-intent", "--comment-mode", "discussions", "--explain", "--auto-fix-remote"}, "--auto-fix-remote and --explain are mutually exclusive"},
+		{"rejects summarize", []string{"--ci", "--no-intent", "--comment-mode", "discussions", "--summarize", "--auto-fix-remote"}, "--auto-fix-remote and --summarize are mutually exclusive"},
+	}
+	for _, tt := range validationTests {
+		t.Run(tt.name, func(t *testing.T) {
+			setupCI(t, "")
+			os.Args = append([]string{"code-reviewer"}, tt.args...)
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), tt.wantSub) {
+				t.Fatalf("Load() err = %v, want substring %q", err, tt.wantSub)
+			}
+		})
+	}
+}
+

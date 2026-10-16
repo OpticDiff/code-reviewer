@@ -5,7 +5,7 @@
 # - Runs Ollama as a service container (sidecar) in GitHub Actions
 # - No cloud credentials (GCP/AWS) required — zero external API egress
 # - Pulls lightweight model (qwen3:8b) inside the Ollama container
-# - Posts review comments using OpticDiff/code-reviewer@v0.26.2 (or OpticDiff/code-reviewer-action@v1)
+# - Posts review comments using OpticDiff/code-reviewer@v0.27.0 (or OpticDiff/code-reviewer-action@v1)
 # ============================================================================
 
 name: Self-Hosted Code Review (Ollama)
@@ -60,7 +60,7 @@ jobs:
       # Run code-reviewer pointing to the Ollama OpenAI-compatible endpoint.
       # On host runners with mapped ports, use localhost (not the service label).
       - name: Run code-reviewer
-        uses: OpticDiff/code-reviewer@v0.26.2
+        uses: OpticDiff/code-reviewer@v0.27.0
         with:
           model: qwen3:8b
           api-url: http://localhost:11434/v1

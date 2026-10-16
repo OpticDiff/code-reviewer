@@ -8,9 +8,9 @@ branding:
 
 inputs:
   version:
-    description: "Release tag of OpticDiff/code-reviewer to install (e.g. v0.26.2 or latest)"
+    description: "Release tag of OpticDiff/code-reviewer to install (e.g. v0.27.0 or latest)"
     required: false
-    default: "v0.26.2"
+    default: "v0.27.0"
   project-id:
     description: "Google Cloud project ID for Vertex AI (sets GOOGLE_CLOUD_PROJECT)"
     required: false
@@ -69,6 +69,10 @@ inputs:
     default: "false"
   auto-approve:
     description: "Automatically approve the PR on a clean review (true or false)"
+    required: false
+    default: "false"
+  auto-fix-remote:
+    description: "Automatically apply inline suggestions via the platform API (true or false)"
     required: false
     default: "false"
   profile:
@@ -190,6 +194,7 @@ runs:
         INPUT_AGENT_SCOPE: ${{ inputs.agent-scope }}
         INPUT_INCREMENTAL: ${{ inputs.incremental }}
         INPUT_AUTO_APPROVE: ${{ inputs.auto-approve }}
+        INPUT_AUTO_FIX_REMOTE: ${{ inputs.auto-fix-remote }}
         INPUT_PROFILE: ${{ inputs.profile }}
         INPUT_PLATFORM_CONFIG: ${{ inputs.platform-config }}
         INPUT_PLATFORM_REVIEW_MD: ${{ inputs.platform-review-md }}
@@ -227,6 +232,7 @@ runs:
         [ -n "${INPUT_AGENT_SCOPE}" ] && ARGS+=(--agent-scope "${INPUT_AGENT_SCOPE}")
         [ "${INPUT_INCREMENTAL}" = "true" ] && ARGS+=(--incremental)
         [ "${INPUT_AUTO_APPROVE}" = "true" ] && ARGS+=(--auto-approve)
+        [ "${INPUT_AUTO_FIX_REMOTE}" = "true" ] && ARGS+=(--auto-fix-remote)
         [ -n "${INPUT_PROFILE}" ] && ARGS+=(--profile "${INPUT_PROFILE}")
         [ -n "${INPUT_PLATFORM_CONFIG}" ] && ARGS+=(--platform-config "${INPUT_PLATFORM_CONFIG}")
         [ -n "${INPUT_PLATFORM_REVIEW_MD}" ] && ARGS+=(--platform-review-md "${INPUT_PLATFORM_REVIEW_MD}")

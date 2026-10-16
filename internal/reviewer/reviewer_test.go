@@ -2161,3 +2161,104 @@ func TestRun_CacheKey_IgnoresDismissalsAndIncludesVersion(t *testing.T) {
 		t.Errorf("run 4: expected both files to miss cache on version change")
 	}
 }
+
+type suggestionApplierVCS struct {
+	*mockVCS
+	applyCalls  int
+	appliedSHA  string
+	applyResult int
+	applyErr    error
+}
+
+func (s *suggestionApplierVCS) ApplySuggestions(ctx context.Context, projectID, reviewID, headSHA string) (int, error) {
+	s.applyCalls++
+	s.appliedSHA = headSHA
+	return s.applyResult, s.applyErr
+}
+
+func TestRun_AutoFixRemote(t *testing.T) {
+	allDiffs := makeTestDiffs("file1.go")
+	ds := &mockDiffSource{diffs: allDiffs}
+
+	baseCfg := func() *config.Config {
+		return &config.Config{
+			NoCache:          true,
+			Model:            "gemini-2.5-flash",
+			ChunkStrategy:    config.ChunkStrategyFail,
+			MinSeverity:      config.SeverityLow,
+			CIMode:           true,
+			CIProjectID:      "123",
+			CIMergeRequestID: "456",
+			CommentMode:      config.CommentModeDiscussions,
+			AutoFixRemote:    true,
+		}
+	}
+
+	t.Run("applies suggestions when findings have Suggestion", func(t *testing.T) {
+		mm := &mockModel{
+			result: &model.ReviewResult{
+				Summary: "found fixable issue",
+				Findings: []model.Finding{{
+					File: "file1.go", Line: 1, Severity: "MEDIUM",
+					Category: "bug", Title: "fix it", Body: "body",
+					Suggestion: "line1_fixed",
+				}},
+			},
+		}
+		vc := &suggestionApplierVCS{
+			mockVCS:     &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "head-123", BaseSHA: "b1", StartSHA: "s1"}}},
+			applyResult: 1,
+		}
+		r := NewWithDiffSource(baseCfg(), mm, vc, ds)
+		if _, err := r.Run(context.Background()); err != nil {
+			t.Fatalf("Run() error: %v", err)
+		}
+		if vc.applyCalls != 1 {
+			t.Errorf("applyCalls = %d, want 1", vc.applyCalls)
+		}
+		if vc.appliedSHA != "head-123" {
+			t.Errorf("appliedSHA = %q, want %q", vc.appliedSHA, "head-123")
+		}
+	})
+
+	t.Run("skips API call when no findings have Suggestion", func(t *testing.T) {
+		mm := &mockModel{
+			result: &model.ReviewResult{
+				Summary: "found non-fixable issue",
+				Findings: []model.Finding{{
+					File: "file1.go", Line: 1, Severity: "MEDIUM",
+					Category: "bug", Title: "no suggestion", Body: "body",
+				}},
+			},
+		}
+		vc := &suggestionApplierVCS{
+			mockVCS: &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "head-123", BaseSHA: "b1", StartSHA: "s1"}}},
+		}
+		r := NewWithDiffSource(baseCfg(), mm, vc, ds)
+		if _, err := r.Run(context.Background()); err != nil {
+			t.Fatalf("Run() error: %v", err)
+		}
+		if vc.applyCalls != 0 {
+			t.Errorf("applyCalls = %d, want 0", vc.applyCalls)
+		}
+	})
+
+	t.Run("skips gracefully when VCS does not implement SuggestionApplier", func(t *testing.T) {
+		mm := &mockModel{
+			result: &model.ReviewResult{
+				Summary: "found fixable issue",
+				Findings: []model.Finding{{
+					File: "file1.go", Line: 1, Severity: "MEDIUM",
+					Category: "bug", Title: "fix it", Body: "body",
+					Suggestion: "line1_fixed",
+				}},
+			},
+		}
+		vc := &mockVCS{mrVersions: []vcs.DiffVersion{{ID: 1, HeadSHA: "head-123", BaseSHA: "b1", StartSHA: "s1"}}}
+		r := NewWithDiffSource(baseCfg(), mm, vc, ds)
+		if _, err := r.Run(context.Background()); err != nil {
+			t.Fatalf("Run() error: %v", err)
+		}
+	})
+}
+

@@ -2359,3 +2359,289 @@ func TestSubmitReview_SuggestionFence(t *testing.T) {
 		}
 	}
 }
+
+func TestApplySuggestions_BatchApplyFiltersAndSucceeds(t *testing.T) {
+	var gotBatchIDs []int
+	var gotBatchMsg string
+	intPtr := func(n int) *int { return &n }
+
+	discussions := []Discussion{
+		// 1. Valid bot suggestion on a.go line 10 (ID 101)
+		{
+			ID: "d1",
+			Notes: []Note{{
+				ID:     1,
+				Body:   "fix a\n<!-- code-reviewer -->",
+				Author: Author{Username: "review-bot"},
+				Position: &DiscussionPosition{
+					NewPath: "a.go",
+					NewLine: intPtr(10),
+					HeadSHA: "head-sha",
+				},
+				Suggestions: []Suggestion{{
+					ID:        101,
+					FromLine:  10,
+					ToLine:    12,
+					Appliable: true,
+					Applied:   false,
+				}},
+			}},
+		},
+		// 2. Overlapping bot suggestion on a.go line 11 (ID 109) -> must be skipped
+		{
+			ID: "d2",
+			Notes: []Note{{
+				ID:     2,
+				Body:   "overlapping fix\n<!-- code-reviewer -->",
+				Author: Author{Username: "review-bot"},
+				Position: &DiscussionPosition{
+					NewPath: "a.go",
+					NewLine: intPtr(11),
+					HeadSHA: "head-sha",
+				},
+				Suggestions: []Suggestion{{
+					ID:        109,
+					FromLine:  11,
+					ToLine:    13,
+					Appliable: true,
+					Applied:   false,
+				}},
+			}},
+		},
+		// 3. Spoofed marker from non-bot user (ID 666) -> must be skipped
+		{
+			ID: "d3",
+			Notes: []Note{{
+				ID:     3,
+				Body:   "spoofed\n<!-- code-reviewer -->",
+				Author: Author{Username: "attacker"},
+				Position: &DiscussionPosition{
+					NewPath: "b.go",
+					NewLine: intPtr(5),
+					HeadSHA: "head-sha",
+				},
+				Suggestions: []Suggestion{{
+					ID:        666,
+					FromLine:  5,
+					ToLine:    5,
+					Appliable: true,
+					Applied:   false,
+				}},
+			}},
+		},
+		// 4. Resolved bot discussion (ID 104) -> must be skipped
+		{
+			ID: "d4",
+			Notes: []Note{{
+				ID:       4,
+				Body:     "resolved\n<!-- code-reviewer -->",
+				Author:   Author{Username: "review-bot"},
+				Resolved: true,
+				Position: &DiscussionPosition{
+					NewPath: "c.go",
+					NewLine: intPtr(5),
+					HeadSHA: "head-sha",
+				},
+				Suggestions: []Suggestion{{
+					ID:        104,
+					FromLine:  5,
+					ToLine:    5,
+					Appliable: true,
+					Applied:   false,
+				}},
+			}},
+		},
+		// 5. Bot discussion with human reply (ID 105) -> must be skipped
+		{
+			ID: "d5",
+			Notes: []Note{
+				{
+					ID:     5,
+					Body:   "replied\n<!-- code-reviewer -->",
+					Author: Author{Username: "review-bot"},
+					Position: &DiscussionPosition{
+						NewPath: "d.go",
+						NewLine: intPtr(5),
+						HeadSHA: "head-sha",
+					},
+					Suggestions: []Suggestion{{
+						ID:        105,
+						FromLine:  5,
+						ToLine:    5,
+						Appliable: true,
+						Applied:   false,
+					}},
+				},
+				{
+					ID:     6,
+					Body:   "please don't apply this",
+					Author: Author{Username: "developer"},
+				},
+			},
+		},
+		// 6. Bot discussion on stale HeadSHA (ID 106) -> must be skipped
+		{
+			ID: "d6",
+			Notes: []Note{{
+				ID:     7,
+				Body:   "stale\n<!-- code-reviewer -->",
+				Author: Author{Username: "review-bot"},
+				Position: &DiscussionPosition{
+					NewPath: "e.go",
+					NewLine: intPtr(5),
+					HeadSHA: "old-sha",
+				},
+				Suggestions: []Suggestion{{
+					ID:        106,
+					FromLine:  5,
+					ToLine:    5,
+					Appliable: true,
+					Applied:   false,
+				}},
+			}},
+		},
+		// 7. Second valid bot suggestion on b.go line 20 (ID 102)
+		{
+			ID: "d7",
+			Notes: []Note{{
+				ID:     8,
+				Body:   "fix b\n<!-- code-reviewer -->",
+				Author: Author{Username: "review-bot"},
+				Position: &DiscussionPosition{
+					NewPath: "b.go",
+					NewLine: intPtr(20),
+					HeadSHA: "head-sha",
+				},
+				Suggestions: []Suggestion{{
+					ID:        102,
+					FromLine:  20,
+					ToLine:    20,
+					Appliable: true,
+					Applied:   false,
+				}},
+			}},
+		},
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v4/user":
+			_, _ = w.Write([]byte(`{"username":"review-bot"}`))
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/discussions"):
+			_ = json.NewEncoder(w).Encode(discussions)
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v4/suggestions/batch_apply":
+			var req batchApplySuggestionsRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decoding batch_apply body: %v", err)
+			}
+			gotBatchIDs = req.IDs
+			gotBatchMsg = req.CommitMessage
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	applied, err := client.ApplySuggestions(context.Background(), "proj", "1", "head-sha")
+	if err != nil {
+		t.Fatalf("ApplySuggestions unexpected error: %v", err)
+	}
+	if applied != 2 {
+		t.Errorf("applied = %d, want 2", applied)
+	}
+	if len(gotBatchIDs) != 2 || gotBatchIDs[0] != 101 || gotBatchIDs[1] != 102 {
+		t.Errorf("batch IDs = %v, want [101 102]", gotBatchIDs)
+	}
+	if gotBatchMsg != defaultSuggestionCommitMessage {
+		t.Errorf("commit_message = %q, want %q", gotBatchMsg, defaultSuggestionCommitMessage)
+	}
+}
+
+func TestApplySuggestions_FallbackToSingleApply(t *testing.T) {
+	intPtr := func(n int) *int { return &n }
+	discussions := []Discussion{
+		{
+			ID: "d1",
+			Notes: []Note{{
+				ID:       1,
+				Body:     "fix 1\n<!-- code-reviewer -->",
+				Author:   Author{Username: "review-bot"},
+				Position: &DiscussionPosition{NewPath: "a.go", NewLine: intPtr(10), HeadSHA: "head-sha"},
+				Suggestions: []Suggestion{{
+					ID: 101, FromLine: 10, ToLine: 10, Appliable: true,
+				}},
+			}},
+		},
+		{
+			ID: "d2",
+			Notes: []Note{{
+				ID:       2,
+				Body:     "fix 2\n<!-- code-reviewer -->",
+				Author:   Author{Username: "review-bot"},
+				Position: &DiscussionPosition{NewPath: "b.go", NewLine: intPtr(20), HeadSHA: "head-sha"},
+				Suggestions: []Suggestion{{
+					ID: 102, FromLine: 20, ToLine: 20, Appliable: true,
+				}},
+			}},
+		},
+	}
+
+	var singleCalls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v4/user":
+			_, _ = w.Write([]byte(`{"username":"review-bot"}`))
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/discussions"):
+			_ = json.NewEncoder(w).Encode(discussions)
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v4/suggestions/batch_apply":
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"message":"Suggestions are not appliable as a batch"}`))
+		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/apply"):
+			singleCalls = append(singleCalls, r.URL.Path)
+			if strings.Contains(r.URL.Path, "/102/") {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"message":"Suggestion is not appliable"}`))
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	applied, err := client.ApplySuggestions(context.Background(), "proj", "1", "head-sha")
+	if err != nil {
+		t.Fatalf("unexpected error when 1 of 2 suggestions applies: %v", err)
+	}
+	if applied != 1 {
+		t.Errorf("applied = %d, want 1", applied)
+	}
+	if len(singleCalls) != 2 {
+		t.Errorf("singleCalls = %v, want 2 calls", singleCalls)
+	}
+}
+
+func TestApplySuggestions_EmptyHeadSHAFailsClosed(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected HTTP call when headSHA is empty: %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+
+	client := NewClient(srv.URL, "token")
+	applied, err := client.ApplySuggestions(context.Background(), "proj", "1", "")
+	if err == nil {
+		t.Fatal("expected error for empty headSHA, got nil")
+	}
+	if applied != 0 {
+		t.Errorf("applied = %d, want 0", applied)
+	}
+}
+

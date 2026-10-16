@@ -92,6 +92,15 @@ func (v *DiffVersion) toVCS() vcs.DiffVersion {
 	}
 }
 
+// Suggestion represents a GitLab diff suggestion attached to a diff note.
+type Suggestion struct {
+	ID        int  `json:"id"`
+	FromLine  int  `json:"from_line"`
+	ToLine    int  `json:"to_line"`
+	Appliable bool `json:"appliable"`
+	Applied   bool `json:"applied"`
+}
+
 // Note represents a comment on an MR.
 type Note struct {
 	ID        int                 `json:"id"`
@@ -106,6 +115,9 @@ type Note struct {
 	Resolvable bool    `json:"resolvable,omitempty"`
 	Resolved   bool    `json:"resolved,omitempty"`
 	ResolvedBy *Author `json:"resolved_by,omitempty"`
+
+	// Suggestions holds code suggestions attached to this diff note.
+	Suggestions []Suggestion `json:"suggestions,omitempty"`
 }
 
 // toVCS converts a GitLab note to the platform-agnostic type.

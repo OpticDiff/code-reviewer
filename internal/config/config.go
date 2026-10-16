@@ -205,7 +205,8 @@ type Config struct {
 	Explain bool // Explain the diff instead of reviewing it.
 
 	// Fix mode.
-	Fix bool // Apply suggested fixes to the working tree.
+	Fix           bool // Apply suggested fixes to the working tree.
+	AutoFixRemote bool // Apply posted inline suggestions to the MR/PR source branch via the platform API (CI mode only).
 
 	// Auto-approve.
 	AutoApprove bool // Automatically approve MR/PR when review finds no issues.
@@ -294,6 +295,7 @@ type repoConfig struct {
 	UpdateDescription        *bool    `yaml:"update_description"`
 	IntentReview             *bool    `yaml:"intent_review"`
 	AutoApprove              *bool    `yaml:"auto_approve"`
+	AutoFixRemote            *bool    `yaml:"auto_fix_remote"`
 	ReReviewTriggers         []string `yaml:"re_review_triggers"`
 	Rules                    []Rule   `yaml:"rules"`
 	PlatformConfig           string   `yaml:"platform_config"`
@@ -611,6 +613,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.AutoApprove != nil {
 		c.AutoApprove = *rc.AutoApprove
 	}
+	if rc.AutoFixRemote != nil {
+		c.AutoFixRemote = *rc.AutoFixRemote
+	}
 	if len(rc.ReReviewTriggers) > 0 {
 		c.ReReviewTriggers = rc.ReReviewTriggers
 	}
@@ -830,6 +835,13 @@ func (c *Config) loadEnv() {
 			c.AutoApprove = false
 		}
 	}
+	if v := os.Getenv("REVIEW_AUTO_FIX_REMOTE"); v != "" {
+		if strings.EqualFold(v, "true") || v == "1" {
+			c.AutoFixRemote = true
+		} else if strings.EqualFold(v, "false") || v == "0" {
+			c.AutoFixRemote = false
+		}
+	}
 	if v := os.Getenv("CODE_REVIEWER_PLATFORM_CONFIG"); v != "" {
 		c.PlatformConfig = v
 	} else if v := os.Getenv("CODE_REVIEW_PLATFORM_CONFIG"); v != "" {
@@ -916,6 +928,7 @@ func (c *Config) loadFlags() error {
 	noIntentFlag := fs.Bool("no-intent", false, "Disable intent-aware review (overrides CI default)")
 	explain := fs.Bool("explain", false, "Explain the diff instead of reviewing it")
 	fix := fs.Bool("fix", false, "Apply suggested fixes to the working tree after review")
+	autoFixRemote := fs.Bool("auto-fix-remote", false, "Apply posted inline suggestions to the MR/PR source branch via the platform API (CI mode only)")
 	autoApprove := fs.Bool("auto-approve", false, "Automatically approve MR/PR when review finds no issues (CI mode only)")
 	profile := fs.String("profile", "", "Review profile: platform, product, or all (default: all)")
 	platformModel := fs.String("platform-model", "", "Model override when --profile=platform")
@@ -1104,6 +1117,9 @@ func (c *Config) loadFlags() error {
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "auto-approve" {
 			c.AutoApprove = *autoApprove
+		}
+		if f.Name == "auto-fix-remote" {
+			c.AutoFixRemote = *autoFixRemote
 		}
 	})
 	// Profile flag: CLI is immutable — if set, env var is silently ignored.
@@ -1426,6 +1442,21 @@ func (c *Config) validate() error {
 	}
 	if c.AutoApprove && c.DryRun {
 		return fmt.Errorf("--auto-approve cannot be used with --dry-run")
+	}
+	if c.AutoFixRemote && !c.CIMode {
+		return fmt.Errorf("--auto-fix-remote requires --ci mode")
+	}
+	if c.AutoFixRemote && c.DryRun {
+		return fmt.Errorf("--auto-fix-remote cannot be used with --dry-run")
+	}
+	if c.AutoFixRemote && c.CommentMode != CommentModeDiscussions {
+		return fmt.Errorf("--auto-fix-remote requires --comment-mode discussions")
+	}
+	if c.AutoFixRemote && c.Explain {
+		return fmt.Errorf("--auto-fix-remote and --explain are mutually exclusive")
+	}
+	if c.AutoFixRemote && c.Summarize {
+		return fmt.Errorf("--auto-fix-remote and --summarize are mutually exclusive")
 	}
 
 	return nil

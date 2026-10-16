@@ -108,7 +108,7 @@ jobs:
           fetch-depth: 0
 
       - name: Run code-reviewer
-        uses: OpticDiff/code-reviewer@v0.26.2
+        uses: OpticDiff/code-reviewer@v0.27.0
         with:
           model: anthropic.claude-3-5-sonnet-20241022-v2:0
           api-url: https://bedrock-gateway.corp.internal/v1
@@ -125,7 +125,7 @@ stages:
 
 code-review:
   stage: review
-  image: ghcr.io/opticdiff/code-reviewer:v0.26.2
+  image: ghcr.io/opticdiff/code-reviewer:v0.27.0
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   variables:

@@ -107,6 +107,7 @@ func run(ctx, initCtx context.Context) (int, error) {
 		"chunk_strategy", cfg.ChunkStrategy,
 		"chunk_target_tokens", cfg.ChunkTargetTokens,
 		"chunk_concurrency", cfg.ChunkConcurrency,
+		"auto_fix_remote", cfg.AutoFixRemote,
 		"dry_run", cfg.DryRun,
 		"proxy_enabled", cfg.ProxyURL != "",
 		"review_md", cfg.ReviewMD != "",

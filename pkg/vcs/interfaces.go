@@ -24,6 +24,14 @@ type Approver interface {
 	ApproveReview(ctx context.Context, projectID, reviewID, headSHA string) error
 }
 
+// SuggestionApplier applies posted inline code suggestions on the merge/pull
+// request's source branch via the platform API. Implementations must only
+// apply suggestions from unresolved, unanswered threads authored by the
+// tool's own authenticated account and anchored to headSHA.
+type SuggestionApplier interface {
+	ApplySuggestions(ctx context.Context, projectID, mrIID, headSHA string) (int, error)
+}
+
 // DescriptionUpdater updates MR/PR descriptions.
 type DescriptionUpdater interface {
 	GetDescription(ctx context.Context, projectID, mrIID string) (string, error)

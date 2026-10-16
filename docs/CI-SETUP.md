@@ -179,7 +179,7 @@ jobs:
           service_account: ${{ secrets.WIF_SA }}
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.26.2
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.27.0
 
       - name: Review PR
         env:
@@ -218,7 +218,7 @@ jobs:
           service_account: ${{ secrets.WIF_SA }}
 
       - name: Install code-reviewer
-        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.26.2
+        run: go install github.com/OpticDiff/code-reviewer/cmd/code-reviewer@v0.27.0
 
 
       - name: Review PR
@@ -362,6 +362,8 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `api_url` | `--api-url` | `REVIEW_API_URL` | — | OpenAI-compatible API endpoint URL |
 | — | `--api-key` | `REVIEW_API_KEY` | — | API key for HTTP provider |
 | `proxy_url` | `--proxy-url` | `REVIEW_PROXY_URL` | — | LLM proxy URL (e.g., Candela) |
+| `auto_approve` | `--auto-approve` | `REVIEW_AUTO_APPROVE` | `false` | Automatically approve MR/PR on clean review (CI mode) |
+| `auto_fix_remote` | `--auto-fix-remote` | `REVIEW_AUTO_FIX_REMOTE` | `false` | Automatically apply inline suggestions via the GitLab Suggestions API (CI mode, requires `comment_mode: discussions`) |
 | `excluded_patterns` | — | `EXCLUDED_PATTERNS` | `go.sum,*.lock,vendor/*` | Glob patterns to exclude from review |
 | — | — | `GOOGLE_CLOUD_PROJECT` | **Required**† | GCP project for Vertex AI |
 | — | — | `GOOGLE_CLOUD_LOCATION` | `global` | GCP region |

@@ -128,7 +128,7 @@ jobs:
           fi
 
       - name: Run code-reviewer
-        uses: OpticDiff/code-reviewer@v0.26.2
+        uses: OpticDiff/code-reviewer@v0.27.0
         with:
           model: bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
           api-url: http://localhost:4000/v1
@@ -148,7 +148,7 @@ stages:
 
 bedrock-review:
   stage: review
-  image: ghcr.io/opticdiff/code-reviewer:v0.26.2
+  image: ghcr.io/opticdiff/code-reviewer:v0.27.0
   services:
     - name: ghcr.io/berriai/litellm:main-latest
       alias: litellm

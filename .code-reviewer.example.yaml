@@ -52,6 +52,8 @@ comment_mode: notes
 # dismissal_mode: any     # What dismisses a HIGH/CRITICAL finding's thread: any (a reply or a resolution) or resolve_only (a resolution only)
 
 # update_description: false  # Inject review summary into MR/PR description
+# auto_approve: false        # Automatically approve MR/PR on clean review (CI mode)
+# auto_fix_remote: false     # Automatically apply appliable inline suggestions via the GitLab Suggestions API (CI mode, requires comment_mode: discussions)
 
 # output_json: false         # Output results as JSON instead of posting
 # sast_output: gl-sast-report.json # Export findings to native GitLab SAST report

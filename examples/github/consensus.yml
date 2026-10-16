@@ -42,7 +42,7 @@ jobs:
       # Tip: Provide a PAT or GitHub App user token in secrets.CODE_REVIEWER_TOKEN
       # so GET /user succeeds and dismissed/open review threads are deduplicated across pushes.
       - name: Run code-reviewer
-        uses: OpticDiff/code-reviewer@v0.26.2
+        uses: OpticDiff/code-reviewer@v0.27.0
         with:
           project-id: ${{ secrets.GCP_PROJECT }}
           models: gemini-3.8-flash,claude-sonnet-5

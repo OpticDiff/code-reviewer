@@ -22,7 +22,7 @@ To pin a specific version of `code-reviewer` for your repository, add it to `.mi
 
 ```toml
 [tools]
-"ubi:OpticDiff/code-reviewer" = "0.26.2"
+"ubi:OpticDiff/code-reviewer" = "0.27.0"
 ```
 
 Then install the tools specified for the project:
@@ -39,7 +39,7 @@ Define standardized review commands under the `[tasks]` table in `.mise.toml` so
 
 ```toml
 [tools]
-"ubi:OpticDiff/code-reviewer" = "0.26.2"
+"ubi:OpticDiff/code-reviewer" = "0.27.0"
 
 [env]
 GOOGLE_CLOUD_PROJECT = "my-gcp-project"

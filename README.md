@@ -255,11 +255,11 @@ See [`.gitlab-ci.example.yml`](.gitlab-ci.example.yml) for the full setup.
 
 ### GitHub Actions
 
-Use the composite action directly from [`OpticDiff/code-reviewer@v0.26.2`](action.yml) (or [`OpticDiff/code-reviewer-action@v1`](https://github.com/OpticDiff/code-reviewer-action)):
+Use the composite action directly from [`OpticDiff/code-reviewer@v0.27.0`](action.yml) (or [`OpticDiff/code-reviewer-action@v1`](https://github.com/OpticDiff/code-reviewer-action)):
 
 ```yaml
 # Self-hosted (Ollama) — zero auth, no cloud
-- uses: OpticDiff/code-reviewer@v0.26.2
+- uses: OpticDiff/code-reviewer@v0.27.0
   with:
     model: qwen3:8b
     api-url: http://ollama:11434/v1
@@ -275,7 +275,7 @@ Use the composite action directly from [`OpticDiff/code-reviewer@v0.26.2`](actio
   with:
     workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
     service_account: ${{ secrets.WIF_SA }}
-- uses: OpticDiff/code-reviewer@v0.26.2
+- uses: OpticDiff/code-reviewer@v0.27.0
   with:
     project-id: ${{ secrets.GCP_PROJECT }}
     incremental: "true"
@@ -366,6 +366,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--agent` | Enable the agent refinement loop that verifies findings with `read_file`, `find_definition` and `list_directory` | `false` |
 | `--agent-scope` | Findings the agent loop examines: `all` or `high_severity_only` (HIGH and CRITICAL only; also `agent_scope` in YAML) | `all` |
 | `--auto-approve` | Automatically approve MR/PR on clean review (CI mode only) | `false` |
+| `--auto-fix-remote` | Automatically apply inline suggestions via the platform API (CI mode, requires `--comment-mode discussions`) | `false` |
 | `--api-url` | OpenAI-compatible API endpoint (e.g., `http://localhost:11434/v1`) | — |
 | `--api-key` | API key for HTTP provider (optional for IAM/ADC auth) | — |
 | `--incremental` | Only review files changed in latest push (CI mode) | `false` |
@@ -434,6 +435,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_SCOPE_ACTION` | Action when scope exceeded: `warn` or `fail` | `warn` |
 | `REVIEW_AUDIT_LOG` | Write audit log to this file path | — |
 | `REVIEW_AUTO_APPROVE` | Automatically approve on clean review (`true`/`false`) | `false` |
+| `REVIEW_AUTO_FIX_REMOTE` | Automatically apply inline suggestions via the platform API (`true`/`false`) | `false` |
 | `REVIEW_API_URL` | OpenAI-compatible API endpoint | — |
 | `REVIEW_API_KEY` | API key for HTTP provider | — |
 | `NO_COLOR` | Disable ANSI colors ([no-color.org](https://no-color.org)) | — |
@@ -478,6 +480,7 @@ update_description: false  # Inject summary into MR/PR description
 cleanup_mode: delete       # delete or resolve
 dismissal_mode: any        # any or resolve_only (what dismisses a HIGH/CRITICAL finding)
 auto_approve: false     # Auto-approve MR/PR when zero findings (CI mode)
+auto_fix_remote: false  # Apply inline suggestions via platform API (CI mode, discussions)
 audit_log: review.jsonl # Write audit trail
 max_files: 30           # Scope enforcement: warn when MR exceeds 30 files
 scope_action: warn      # warn or fail
@@ -593,6 +596,19 @@ GitHub: ensure 'pull-requests: write' permission
 GitLab: ensure token has 'api' scope
 ```
 
+### Auto-Fix Remote (GitLab Suggestions API)
+
+When `--auto-fix-remote` (`auto_fix_remote: true`, `REVIEW_AUTO_FIX_REMOTE=true`) is enabled with `--ci --comment-mode discussions`, the tool applies its posted inline suggestions to the merge request branch via the GitLab Suggestions API (`PUT /api/v4/suggestions/batch_apply`, falling back to `PUT /api/v4/suggestions/:id/apply` per suggestion if batch application fails).
+
+```bash
+code-reviewer --ci --comment-mode discussions --auto-fix-remote
+```
+
+Safety guards:
+- Only suggestions from unresolved, unanswered inline discussions authored by the authenticated bot account (`GET /api/v4/user`) and anchored to the reviewed `HeadSHA` are applied.
+- Overlapping suggestion line ranges in the same file are skipped automatically so `batch_apply` does not fail on conflicting edits.
+- Requires a GitLab token with `api` scope and push permission on the MR source branch.
+
 ### REVIEW.md
 
 Create a `REVIEW.md` in your repo root to inject team-specific review instructions. Its contents are treated as the **highest priority** instruction in the system prompt — above the built-in rules, focus overlays, and extra rules.
@@ -676,7 +692,7 @@ Also works with the [pre-commit](https://pre-commit.com) framework:
 ```yaml
 # .pre-commit-config.yaml
 - repo: https://github.com/OpticDiff/code-reviewer
-  rev: v0.26.2
+  rev: v0.27.0
   hooks:
     - id: code-review
       stages: [pre-push]
@@ -873,8 +889,8 @@ CI runs **build**, **test**, and **lint** as 3 parallel jobs. [CodeRabbit](https
 Releases are automated via [GoReleaser](https://goreleaser.com). Tag a version to publish binaries to GitHub Releases:
 
 ```bash
-git tag -a v0.26.2 -m "v0.26.2"
-git push origin v0.26.2
+git tag -a v0.27.0 -m "v0.27.0"
+git push origin v0.27.0
 # → GitHub Actions: test → build 6 binaries → publish to Releases
 ```
 
