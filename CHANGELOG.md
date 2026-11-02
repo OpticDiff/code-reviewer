@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `thinking_level` configuration field, `--thinking-level` CLI flag, and `REVIEW_THINKING_LEVEL` environment variable (`minimal`, `low`, `medium` or `high`, case-insensitive). When set, every Vertex AI generation request (review, summary, explain, consensus and the agent loop) carries the matching thinking config, passed to the model as given. Unset keeps requests unchanged. An invalid flag value is a usage error; an invalid environment or YAML value is ignored with a warning. The setting is not sent to `--api-url` endpoints. A level that applies is part of the review cache identity, so changing it re-reviews cached diffs; leaving it unset keeps existing cache entries valid.
 
+### Fixed
+- The intent pass is given every changed file when the per-file review cache serves some of them. It used to see only the files that still needed a review, so a later push could draw "missing test coverage" or "outside the stated scope" findings against a change that, taken whole, has its tests and is in scope.
+
 ## [0.27.0] — 2026-10-15
 
 ### Added
