@@ -17,6 +17,7 @@
     "**/*.{tf,tfvars}": "languages/terraform.md",
     "**/*.nix": "languages/nix.md",
     "**/Dockerfile*": "languages/dockerfile.md",
+    "**/Containerfile*": "languages/dockerfile.md",
     "**/*.{sh,bash,zsh}": "languages/shell.md",
     "**/.github/workflows/*.{yaml,yml}": "languages/github_workflows.md",
     "**/*.md": "languages/markdown.md",

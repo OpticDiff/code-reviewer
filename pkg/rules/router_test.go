@@ -95,9 +95,13 @@ func TestSystemRulesJSON_Routing(t *testing.T) {
 		{"requirements.txt", "languages/python.md"},
 		{"requirements-dev.txt", "languages/python.md"},
 		{"services/worker/requirements-prod.txt", "languages/python.md"},
+		{"lib.rs", "languages/rust.md"},
 		{"main.rs", "languages/rust.md"},
 		{"Cargo.toml", "languages/rust.md"},
 		{"crates/core/Cargo.toml", "languages/rust.md"},
+		{"Dockerfile", "languages/dockerfile.md"},
+		{"Containerfile", "languages/dockerfile.md"},
+		{"services/api/Containerfile.prod", "languages/dockerfile.md"},
 	}
 
 	for _, tt := range tests {
@@ -106,6 +110,22 @@ func TestSystemRulesJSON_Routing(t *testing.T) {
 				t.Errorf("router.Match(%q) = %q, want %q", tt.filePath, got, tt.wantRule)
 			}
 		})
+	}
+}
+
+func TestRuleRouter_Match_Deterministic(t *testing.T) {
+	router := &RuleRouter{
+		DefaultRule: "default.md",
+		PathRuleMap: map[string]string{
+			"**/*.txt":          "generic_txt.md",
+			"**/a_manifest.txt": "manifest_txt.md",
+		},
+	}
+
+	for i := 0; i < 100; i++ {
+		if got := router.Match("dir/a_manifest.txt"); got != "generic_txt.md" {
+			t.Fatalf("iteration %d: router.Match returned %q, want deterministic sorted match %q", i, got, "generic_txt.md")
+		}
 	}
 }
 
