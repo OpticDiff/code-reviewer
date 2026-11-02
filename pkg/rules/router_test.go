@@ -78,6 +78,9 @@ func TestGlobMatch(t *testing.T) {
 	}
 }
 
+// TestSystemRulesJSON_Routing verifies that rules/system_rules.json routes
+// language sources, manifests, containerfiles, and GitHub workflows to their
+// expected rule checklists.
 func TestSystemRulesJSON_Routing(t *testing.T) {
 	router, err := LoadRuleRouter(filepath.Join("..", "..", "rules"))
 	if err != nil {
@@ -102,6 +105,9 @@ func TestSystemRulesJSON_Routing(t *testing.T) {
 		{"Dockerfile", "languages/dockerfile.md"},
 		{"Containerfile", "languages/dockerfile.md"},
 		{"services/api/Containerfile.prod", "languages/dockerfile.md"},
+		{".github/workflows/ci.yml", "languages/github_workflows.md"},
+		{".github/workflows/release.yaml", "languages/github_workflows.md"},
+		{"config/app.yaml", "languages/yaml_config.md"},
 	}
 
 	for _, tt := range tests {
@@ -113,18 +119,26 @@ func TestSystemRulesJSON_Routing(t *testing.T) {
 	}
 }
 
+// TestRuleRouter_Match_Deterministic verifies that RuleRouter.Match evaluates
+// overlapping glob patterns deterministically, preferring more specific patterns
+// over broader wildcards.
 func TestRuleRouter_Match_Deterministic(t *testing.T) {
 	router := &RuleRouter{
 		DefaultRule: "default.md",
 		PathRuleMap: map[string]string{
-			"**/*.txt":          "generic_txt.md",
-			"**/a_manifest.txt": "manifest_txt.md",
+			"**/*.txt":                        "generic_txt.md",
+			"**/a_manifest.txt":               "manifest_txt.md",
+			"**/*.{yaml,yml}":                 "generic_yaml.md",
+			"**/.github/workflows/*.{yaml,yml}": "workflow_yaml.md",
 		},
 	}
 
 	for i := 0; i < 100; i++ {
-		if got := router.Match("dir/a_manifest.txt"); got != "generic_txt.md" {
-			t.Fatalf("iteration %d: router.Match returned %q, want deterministic sorted match %q", i, got, "generic_txt.md")
+		if got := router.Match("dir/a_manifest.txt"); got != "manifest_txt.md" {
+			t.Fatalf("iteration %d: router.Match returned %q, want specific match %q", i, got, "manifest_txt.md")
+		}
+		if got := router.Match(".github/workflows/build.yml"); got != "workflow_yaml.md" {
+			t.Fatalf("iteration %d: router.Match returned %q, want workflow match %q", i, got, "workflow_yaml.md")
 		}
 	}
 }

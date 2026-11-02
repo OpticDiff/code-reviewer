@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,15 +42,42 @@ func LoadRuleRouter(rulesDir string) (*RuleRouter, error) {
 }
 
 // Match returns the rule file path that applies to a given source file path.
-// Patterns are evaluated in deterministic sorted order; returns the default
-// rule if no glob pattern matches.
+// Patterns are evaluated in deterministic order (most specific first, then
+// lexicographically); returns the default rule if no glob pattern matches.
 func (r *RuleRouter) Match(filePath string) string {
-	for _, pattern := range slices.Sorted(maps.Keys(r.PathRuleMap)) {
+	patterns := slices.Collect(maps.Keys(r.PathRuleMap))
+	slices.SortFunc(patterns, comparePatterns)
+	for _, pattern := range patterns {
 		if globMatch(pattern, filePath) {
 			return r.PathRuleMap[pattern]
 		}
 	}
 	return r.DefaultRule
+}
+
+// comparePatterns orders glob patterns from most specific to least specific,
+// breaking ties lexicographically for deterministic evaluation.
+func comparePatterns(a, b string) int {
+	if c := cmp.Compare(strings.Count(b, "/"), strings.Count(a, "/")); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(literalPatternLen(b), literalPatternLen(a)); c != 0 {
+		return c
+	}
+	return cmp.Compare(a, b)
+}
+
+// literalPatternLen returns the number of non-wildcard characters in a glob pattern.
+func literalPatternLen(pattern string) int {
+	n := 0
+	for _, r := range pattern {
+		switch r {
+		case '*', '?', '{', '}', ',':
+		default:
+			n++
+		}
+	}
+	return n
 }
 
 // MatchAll returns the deduplicated set of rule files that apply to a list of
