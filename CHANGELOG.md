@@ -5,13 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.28.0] — 2026-11-02
 
 ### Added
-- `thinking_level` configuration field, `--thinking-level` CLI flag, and `REVIEW_THINKING_LEVEL` environment variable (`minimal`, `low`, `medium` or `high`, case-insensitive). When set, every Vertex AI generation request (review, summary, explain, consensus and the agent loop) carries the matching thinking config, passed to the model as given. Unset keeps requests unchanged. An invalid flag value is a usage error; an invalid environment or YAML value is ignored with a warning. The setting is not sent to `--api-url` endpoints. A level that applies is part of the review cache identity, so changing it re-reviews cached diffs; leaving it unset keeps existing cache entries valid.
+- `thinking_level` configuration field, `--thinking-level` CLI flag, and `REVIEW_THINKING_LEVEL` environment variable (`minimal`, `low`, `medium` or `high`, case-insensitive) (#168). When set, every Vertex AI generation request (review, summary, explain, consensus and the agent loop) carries the matching thinking config, passed to the model as given. Unset keeps requests unchanged. An invalid flag value is a usage error; an invalid environment or YAML value is ignored with a warning. The setting is not sent to `--api-url` endpoints. A level that applies is part of the review cache identity, so changing it re-reviews cached diffs; leaving it unset keeps existing cache entries valid.
 
 ### Fixed
-- The intent pass is given every changed file when the per-file review cache serves some of them. It used to see only the files that still needed a review, so a later push could draw "missing test coverage" or "outside the stated scope" findings against a change that, taken whole, has its tests and is in scope.
+- The intent pass is given every changed file when the per-file review cache serves some of them (skipped with a warning when the full diff exceeds the model token limit) (#169). It used to see only the files that still needed a review, so a later push could draw "missing test coverage" or "outside the stated scope" findings against a change that, taken whole, has its tests and is in scope.
+- `pkg/rules.RuleRouter.Match` now evaluates glob patterns deterministically from most specific to least specific, and `rules/system_rules.json` routes `pyproject.toml` and `requirements*.txt` to `languages/python.md`, `Cargo.toml` and `*.rs` to `languages/rust.md`, and `Containerfile*` to `languages/dockerfile.md` (#171).
+- Bumped `golang.org/x/crypto` to `v0.58.0` and `google.golang.org/grpc` to `v1.85.0` (along with transitive `golang.org/x/*` and `google.golang.org/protobuf` modules) for CVE remediation (#172).
 
 ## [0.27.0] — 2026-10-15
 

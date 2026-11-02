@@ -1,6 +1,6 @@
 # Roadmap
 
-Current status: **v0.27.0 — released**
+Current status: **v0.28.0 — released**
 
 ## ✅ v0.1 — Foundation (Done)
 
@@ -60,7 +60,7 @@ Current status: **v0.27.0 — released**
 - [x] **GitLab Draft Notes API** — For single-notification reviews
 - [x] **SSRF hardening and tech debt cleanup**
 
-## ✅ v0.7–v0.27 — Enterprise Governance, Agentic Verification & Distribution (Done)
+## ✅ v0.7–v0.28 — Enterprise Governance, Agentic Verification & Distribution (Done)
 
 - [x] **Composite GitHub Action (`action.yml`) & workflow examples** — Drop-in `OpticDiff/code-reviewer` composite action and ready-to-use workflows in `examples/github/`
 - [x] **Policy engine & Platform Governance (`--profile`, `--platform-config`, `--platform-review-md`)** — Path-based custom rules, banned pattern regex scanning, and dual-plane platform/product governance profiles
