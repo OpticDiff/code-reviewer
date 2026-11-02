@@ -349,6 +349,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
 | `--temperature` | Sampling temperature for review calls, 0-2 (unset = built-in 0.2) | — |
 | `--use-temperature` | Send a temperature with model calls; `--use-temperature=false` sends none so the model's own default applies (conflicts with `--temperature`) | `true` |
+| `--thinking-level` | Thinking level sent with Vertex AI model calls: `minimal`, `low`, `medium` or `high` (case-insensitive; unset = send none) | — |
 | `--extra-rules` | Additional prompt rules | — |
 | `--custom-prompt` | Path to custom system prompt file | — |
 | `--dry-run` | Analyze without posting (with `--ci`, the merge request is still read) | `false` |
@@ -415,6 +416,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_CONTEXT_FILES` | Directory-scoped guidance files, comma-separated | — |
 | `REVIEW_TEMPERATURE` | Sampling temperature for review calls (0-2) | — |
 | `REVIEW_USE_TEMPERATURE` | Set to `false` to send no temperature on any model call | `true` |
+| `REVIEW_THINKING_LEVEL` | Thinking level for Vertex AI model calls (`minimal`, `low`, `medium`, `high`); invalid values are ignored with a warning | — |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
 | `CODE_REVIEW_PLATFORM_CONFIG` | Platform rules YAML path, comma-separated paths, or glob | — |
 | `CODE_REVIEW_PLATFORM_REVIEW_MD` | Platform guidelines markdown path or glob | — |
@@ -457,6 +459,7 @@ chunk_concurrency: 4     # Optional: review up to 4 chunks at once
 confidence_floor: 80     # Optional: minimum model confidence percent (1-100) to report a finding
 temperature: 0           # Optional: sampling temperature (0-2); unset = built-in 0.2
 use_temperature: true    # Optional: false = send no temperature at all (model default applies)
+thinking_level: high     # Optional: minimal | low | medium | high; unset = send no thinking config
 focus: [bugs, security]
 context_files: [AGENTS.md]   # Optional: include the nearest AGENTS.md for each changed directory
 min_severity: low
@@ -564,6 +567,8 @@ A suppressed finding is not posted, so it is also absent from `severity_counts`,
 For repeatable verdicts on unchanged code, `temperature: 0` (or `--temperature 0`) lowers sampling randomness.
 
 Some models deprecate or reject sampling parameters. Google's Gemini 3 documentation, for example, recommends keeping `temperature` at its default and lists it among the deprecated sampling parameters. For such models set `use_temperature: false` (or `--use-temperature=false`, or `REVIEW_USE_TEMPERATURE=false`): the tool then sends no temperature on any call (review, summary, explain, consensus and the agent loop, over Vertex AI or `--api-url`), and the model's own default applies. It cannot be combined with `temperature`. For repeatable verdicts on such models, prefer multi-model consensus (`--models`).
+
+To choose how much a thinking model reasons before answering, set `thinking_level` (or `--thinking-level`, or `REVIEW_THINKING_LEVEL`) to `minimal`, `low`, `medium` or `high`. The level is sent as the `ThinkingConfig` of every Vertex AI generation request (review, summary, explain, consensus and the agent loop) exactly as given, so a model that does not accept it returns its own API error. When unset, no thinking config is sent and the request is unchanged. It is not sent to `--api-url` endpoints, which log a warning and ignore it.
 
 ### Auto-Approve
 

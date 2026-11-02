@@ -221,6 +221,7 @@ classDiagram
 - For Gemini models: uses native JSON response schema (`ResponseMIMEType: "application/json"`) to constrain output
 - For non-Gemini models (Claude, Mistral via Model Garden): relies on prompt-instructed JSON
 - Temperature defaults to 0.2 for consistent reviews (configurable; `use_temperature: false` omits it so the model default applies)
+- Sends no thinking config unless `thinking_level` is set; then every generation request (review, summary, explain, consensus, agent loop) carries it unchanged
 - Retries on 429, 502, 503, 504, and transient error strings
 
 ### HTTPProvider: OpenAI-Compatible
@@ -456,6 +457,7 @@ token_limit: 1000000
 confidence_floor: 80
 temperature: 0
 use_temperature: true
+thinking_level: high
 max_tokens: 500000
 api_url: http://localhost:11434/v1
 ```

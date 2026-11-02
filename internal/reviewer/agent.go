@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	providermodel "github.com/OpticDiff/code-reviewer/internal/model"
 	"github.com/OpticDiff/code-reviewer/internal/retry"
 	"github.com/OpticDiff/code-reviewer/pkg/model"
 	"google.golang.org/genai"
@@ -61,6 +62,7 @@ type AgentConfig struct {
 	Timeout         time.Duration // Wall-clock timeout (default 3m).
 	RepoRoot        string        // Repository root for tool access.
 	OmitTemperature bool          // Send no temperature, leaving the model's own default (default false: 0.0).
+	ThinkingLevel   string        // Thinking level sent on every turn: minimal, low, medium or high ("" = send none).
 }
 
 // AgentResult holds the output of the agent refinement loop.
@@ -226,6 +228,7 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 	if !cfg.OmitTemperature {
 		genConfig.Temperature = genai.Ptr(float32(0.0)) // Deterministic for refinement (ML review).
 	}
+	genConfig.ThinkingConfig = providermodel.ThinkingConfigFor(cfg.ThinkingLevel)
 	finalConfig := *genConfig
 	finalConfig.ResponseSchema = agentResponseSchema(false)
 

@@ -22,8 +22,9 @@ type Finding = pkgmodel.Finding
 type Provider struct {
 	client      *genai.Client
 	modelName   string
-	temperature *float32 // nil = defaultTemperature.
-	omitTemp    bool     // true = send no temperature; the model's own default applies.
+	temperature *float32              // nil = defaultTemperature.
+	omitTemp    bool                  // true = send no temperature; the model's own default applies.
+	thinking    *genai.ThinkingConfig // nil = send no thinking config.
 }
 
 // defaultTemperature is the sampling temperature used for review calls
@@ -36,6 +37,34 @@ func (p *Provider) SetTemperature(t float32) { p.temperature = &t }
 // OmitTemperature makes the provider send no temperature at all, leaving the
 // model's own default in effect. It takes precedence over SetTemperature.
 func (p *Provider) OmitTemperature() { p.omitTemp = true }
+
+// SetThinkingLevel makes every request carry a ThinkingConfig with the given
+// level (minimal, low, medium or high, case-insensitive). An empty or
+// unrecognized level leaves requests without one.
+func (p *Provider) SetThinkingLevel(level string) { p.thinking = ThinkingConfigFor(level) }
+
+// ThinkingConfig returns the thinking config sent with requests, or nil when none is.
+func (p *Provider) ThinkingConfig() *genai.ThinkingConfig { return p.thinking }
+
+// ThinkingConfigFor returns the ThinkingConfig for a thinking level, or nil
+// when level is empty or not one of minimal, low, medium, high. The level is
+// passed through as given; the model decides whether it accepts it.
+func ThinkingConfigFor(level string) *genai.ThinkingConfig {
+	var l genai.ThinkingLevel
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "minimal":
+		l = genai.ThinkingLevelMinimal
+	case "low":
+		l = genai.ThinkingLevelLow
+	case "medium":
+		l = genai.ThinkingLevelMedium
+	case "high":
+		l = genai.ThinkingLevelHigh
+	default:
+		return nil
+	}
+	return &genai.ThinkingConfig{ThinkingLevel: l}
+}
 
 // temperatureConfig returns the temperature to send, or nil to send none.
 func (p *Provider) temperatureConfig() *float32 {
@@ -102,6 +131,7 @@ func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt str
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
 		Temperature:       p.temperatureConfig(),
+		ThinkingConfig:    p.thinking,
 	}
 
 	// Gemini models support native JSON mode (without schema constraint for flexibility).

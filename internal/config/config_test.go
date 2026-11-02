@@ -1867,3 +1867,63 @@ func TestLoad_AutoFixRemote(t *testing.T) {
 	}
 }
 
+
+func TestLoad_ThinkingLevel(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		env     string
+		args    []string
+		want    string
+		wantErr bool
+	}{
+		{name: "unset by default"},
+		{name: "yaml", yaml: "thinking_level: low\n", want: "low"},
+		{name: "yaml is case-insensitive", yaml: "thinking_level: MEDIUM\n", want: "medium"},
+		{name: "env", env: "high", want: "high"},
+		{name: "env is case-insensitive", env: "Minimal", want: "minimal"},
+		{name: "flag", args: []string{"--thinking-level", "high"}, want: "high"},
+		{name: "flag is case-insensitive", args: []string{"--thinking-level", "LOW"}, want: "low"},
+		{name: "env overrides yaml", yaml: "thinking_level: low\n", env: "medium", want: "medium"},
+		{name: "flag overrides env", env: "low", args: []string{"--thinking-level", "high"}, want: "high"},
+		{name: "flag overrides yaml", yaml: "thinking_level: low\n", args: []string{"--thinking-level=medium"}, want: "medium"},
+		{name: "invalid flag is a usage error", args: []string{"--thinking-level", "extreme"}, wantErr: true},
+		{name: "invalid flag is not rescued by env", env: "low", args: []string{"--thinking-level", "extreme"}, wantErr: true},
+		{name: "invalid env is ignored", env: "extreme"},
+		{name: "invalid env keeps yaml", yaml: "thinking_level: low\n", env: "extreme", want: "low"},
+		{name: "invalid yaml is ignored", yaml: "thinking_level: extreme\n"},
+		{name: "invalid yaml keeps default", yaml: "thinking_level: extreme\n", env: "high", want: "high"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("REVIEW_THINKING_LEVEL", tt.env)
+			cfg, err := loadWithAgentScope(t, tt.yaml, tt.args...)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("Load() succeeded, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() unexpected error: %v", err)
+			}
+			if cfg.ThinkingLevel != tt.want {
+				t.Errorf("ThinkingLevel = %q, want %q", cfg.ThinkingLevel, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseThinkingLevel(t *testing.T) {
+	for _, level := range ThinkingLevels {
+		got, err := ParseThinkingLevel(" " + strings.ToUpper(level) + " ")
+		if err != nil || got != level {
+			t.Errorf("ParseThinkingLevel(%q) = %q, %v; want %q", level, got, err, level)
+		}
+	}
+	for _, bad := range []string{"", "none", "max", "0"} {
+		if _, err := ParseThinkingLevel(bad); err == nil {
+			t.Errorf("ParseThinkingLevel(%q) succeeded, want error", bad)
+		}
+	}
+}

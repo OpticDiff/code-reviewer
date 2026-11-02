@@ -18,7 +18,7 @@
           inherit version;
           src = self;
           # Update after go.mod/go.sum changes: ./scripts/update-vendor-hash.sh
-          vendorHash = "sha256-FZUO2vyA56DpHazr5eiEApffJe07oHN7iDuoteQmK2Y=";
+          vendorHash = "sha256-hksrds08uy/rUwsXSvDRB7+pk9YnHJHcHt7X26zAoHw=";
           subPackages = [ "cmd/code-reviewer" ];
           ldflags = [ "-s" "-w" "-X main.version=${version}" ];
           meta = {
