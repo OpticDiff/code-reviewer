@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -39,11 +41,12 @@ func LoadRuleRouter(rulesDir string) (*RuleRouter, error) {
 }
 
 // Match returns the rule file path that applies to a given source file path.
-// Returns the default rule if no glob pattern matches.
+// Patterns are evaluated in deterministic sorted order; returns the default
+// rule if no glob pattern matches.
 func (r *RuleRouter) Match(filePath string) string {
-	for pattern, ruleFile := range r.PathRuleMap {
+	for _, pattern := range slices.Sorted(maps.Keys(r.PathRuleMap)) {
 		if globMatch(pattern, filePath) {
-			return ruleFile
+			return r.PathRuleMap[pattern]
 		}
 	}
 	return r.DefaultRule

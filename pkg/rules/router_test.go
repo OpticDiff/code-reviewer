@@ -78,6 +78,37 @@ func TestGlobMatch(t *testing.T) {
 	}
 }
 
+func TestSystemRulesJSON_Routing(t *testing.T) {
+	router, err := LoadRuleRouter(filepath.Join("..", "..", "rules"))
+	if err != nil {
+		t.Fatalf("LoadRuleRouter failed: %v", err)
+	}
+
+	tests := []struct {
+		filePath string
+		wantRule string
+	}{
+		{"app.py", "languages/python.md"},
+		{"services/ocr/types.pyi", "languages/python.md"},
+		{"pyproject.toml", "languages/python.md"},
+		{"services/api/pyproject.toml", "languages/python.md"},
+		{"requirements.txt", "languages/python.md"},
+		{"requirements-dev.txt", "languages/python.md"},
+		{"services/worker/requirements-prod.txt", "languages/python.md"},
+		{"main.rs", "languages/rust.md"},
+		{"Cargo.toml", "languages/rust.md"},
+		{"crates/core/Cargo.toml", "languages/rust.md"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filePath, func(t *testing.T) {
+			if got := router.Match(tt.filePath); got != tt.wantRule {
+				t.Errorf("router.Match(%q) = %q, want %q", tt.filePath, got, tt.wantRule)
+			}
+		})
+	}
+}
+
 func TestRuleLoader_Load(t *testing.T) {
 	dir := t.TempDir()
 	err := os.WriteFile(filepath.Join(dir, "rule.md"), []byte("content"), 0644)
