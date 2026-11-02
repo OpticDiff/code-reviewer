@@ -78,6 +78,71 @@ func TestGlobMatch(t *testing.T) {
 	}
 }
 
+// TestSystemRulesJSON_Routing verifies that rules/system_rules.json routes
+// language sources, manifests, containerfiles, and GitHub workflows to their
+// expected rule checklists.
+func TestSystemRulesJSON_Routing(t *testing.T) {
+	router, err := LoadRuleRouter(filepath.Join("..", "..", "rules"))
+	if err != nil {
+		t.Fatalf("LoadRuleRouter failed: %v", err)
+	}
+
+	tests := []struct {
+		filePath string
+		wantRule string
+	}{
+		{"app.py", "languages/python.md"},
+		{"services/ocr/types.pyi", "languages/python.md"},
+		{"pyproject.toml", "languages/python.md"},
+		{"services/api/pyproject.toml", "languages/python.md"},
+		{"requirements.txt", "languages/python.md"},
+		{"requirements-dev.txt", "languages/python.md"},
+		{"services/worker/requirements-prod.txt", "languages/python.md"},
+		{"lib.rs", "languages/rust.md"},
+		{"main.rs", "languages/rust.md"},
+		{"Cargo.toml", "languages/rust.md"},
+		{"crates/core/Cargo.toml", "languages/rust.md"},
+		{"Dockerfile", "languages/dockerfile.md"},
+		{"Containerfile", "languages/dockerfile.md"},
+		{"services/api/Containerfile.prod", "languages/dockerfile.md"},
+		{".github/workflows/ci.yml", "languages/github_workflows.md"},
+		{".github/workflows/release.yaml", "languages/github_workflows.md"},
+		{"config/app.yaml", "languages/yaml_config.md"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filePath, func(t *testing.T) {
+			if got := router.Match(tt.filePath); got != tt.wantRule {
+				t.Errorf("router.Match(%q) = %q, want %q", tt.filePath, got, tt.wantRule)
+			}
+		})
+	}
+}
+
+// TestRuleRouter_Match_Deterministic verifies that RuleRouter.Match evaluates
+// overlapping glob patterns deterministically, preferring more specific patterns
+// over broader wildcards.
+func TestRuleRouter_Match_Deterministic(t *testing.T) {
+	router := &RuleRouter{
+		DefaultRule: "default.md",
+		PathRuleMap: map[string]string{
+			"**/*.txt":                        "generic_txt.md",
+			"**/a_manifest.txt":               "manifest_txt.md",
+			"**/*.{yaml,yml}":                 "generic_yaml.md",
+			"**/.github/workflows/*.{yaml,yml}": "workflow_yaml.md",
+		},
+	}
+
+	for i := 0; i < 100; i++ {
+		if got := router.Match("dir/a_manifest.txt"); got != "manifest_txt.md" {
+			t.Fatalf("iteration %d: router.Match returned %q, want specific match %q", i, got, "manifest_txt.md")
+		}
+		if got := router.Match(".github/workflows/build.yml"); got != "workflow_yaml.md" {
+			t.Fatalf("iteration %d: router.Match returned %q, want workflow match %q", i, got, "workflow_yaml.md")
+		}
+	}
+}
+
 func TestRuleLoader_Load(t *testing.T) {
 	dir := t.TempDir()
 	err := os.WriteFile(filepath.Join(dir, "rule.md"), []byte("content"), 0644)
