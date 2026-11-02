@@ -55,6 +55,10 @@ inputs:
     description: "Whether to send sampling temperature on model calls (true or false)"
     required: false
     default: ""
+  thinking-level:
+    description: "Thinking level sent to the model: minimal, low, medium or high (unset sends none)"
+    required: false
+    default: ""
   agent:
     description: "Enable the agent refinement loop to verify findings with repo tools (true or false)"
     required: false
@@ -190,6 +194,7 @@ runs:
         INPUT_CLEANUP_MODE: ${{ inputs.cleanup-mode }}
         INPUT_DISMISSAL_MODE: ${{ inputs.dismissal-mode }}
         INPUT_USE_TEMPERATURE: ${{ inputs.use-temperature }}
+        INPUT_THINKING_LEVEL: ${{ inputs.thinking-level }}
         INPUT_AGENT: ${{ inputs.agent }}
         INPUT_AGENT_SCOPE: ${{ inputs.agent-scope }}
         INPUT_INCREMENTAL: ${{ inputs.incremental }}
@@ -228,6 +233,7 @@ runs:
         [ -n "${INPUT_CLEANUP_MODE}" ] && ARGS+=(--cleanup-mode "${INPUT_CLEANUP_MODE}")
         [ -n "${INPUT_DISMISSAL_MODE}" ] && ARGS+=(--dismissal-mode "${INPUT_DISMISSAL_MODE}")
         [ -n "${INPUT_USE_TEMPERATURE}" ] && ARGS+=("--use-temperature=${INPUT_USE_TEMPERATURE}")
+        [ -n "${INPUT_THINKING_LEVEL}" ] && ARGS+=(--thinking-level "${INPUT_THINKING_LEVEL}")
         [ "${INPUT_AGENT}" = "true" ] && ARGS+=(--agent)
         [ -n "${INPUT_AGENT_SCOPE}" ] && ARGS+=(--agent-scope "${INPUT_AGENT_SCOPE}")
         [ "${INPUT_INCREMENTAL}" = "true" ] && ARGS+=(--incremental)

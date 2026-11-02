@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/OpticDiff/code-reviewer/internal/config"
+	"github.com/OpticDiff/code-reviewer/internal/model"
+	"google.golang.org/genai"
 )
 
 func TestWrapProviderError_AuthErrors(t *testing.T) {
@@ -209,6 +211,34 @@ func TestNewVCSClient(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := newVCSClient(&tt.cfg); (got == nil) != tt.wantNil {
 				t.Errorf("newVCSClient() = %v, want nil=%v", got, tt.wantNil)
+			}
+		})
+	}
+}
+
+func TestVertexProviderOptions_ThinkingLevel(t *testing.T) {
+	tests := []struct {
+		name  string
+		level string
+		want  genai.ThinkingLevel // empty = no thinking config.
+	}{
+		{name: "unset sends none"},
+		{name: "low", level: "low", want: genai.ThinkingLevelLow},
+		{name: "high", level: "high", want: genai.ThinkingLevelHigh},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := vertexProviderOptions(&config.Config{ThinkingLevel: tt.level})
+			p := &model.Provider{}
+			for _, opt := range opts {
+				opt(p)
+			}
+			got := p.ThinkingConfig()
+			switch {
+			case tt.want == "" && got != nil:
+				t.Errorf("ThinkingConfig() = %+v, want nil", got)
+			case tt.want != "" && (got == nil || got.ThinkingLevel != tt.want):
+				t.Errorf("ThinkingConfig() = %+v, want level %q", got, tt.want)
 			}
 		})
 	}

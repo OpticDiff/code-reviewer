@@ -74,6 +74,18 @@ func NewWithDiffSource(cfg *config.Config, provider ModelReviewer, glClient vcs.
 	}
 }
 
+// agentConfig builds the agent loop configuration from the review settings.
+func (r *Reviewer) agentConfig(remainingBudget int64) AgentConfig {
+	return AgentConfig{
+		MaxIterations:   r.cfg.AgentMaxIterations,
+		RemainingBudget: remainingBudget,
+		Timeout:         r.cfg.AgentTimeout,
+		RepoRoot:        findRepoRoot(),
+		OmitTemperature: r.cfg.DisableTemperature,
+		ThinkingLevel:   r.cfg.ThinkingLevel,
+	}
+}
+
 // SetChatter sets the multi-turn chat provider for agent loop support.
 // If not set, the agent loop is skipped even when --agent is enabled.
 func (r *Reviewer) SetChatter(c Chatter) {
@@ -331,16 +343,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 		}
 	}
 
-	cacheModelID := r.cfg.Model
-	if len(r.cfg.Models) > 1 {
-		cacheModelID = fmt.Sprintf("consensus:%s:threshold=%d", strings.Join(r.cfg.Models, "+"), r.cfg.ConsensusThreshold)
-	}
-	if r.cfg.Profile != "" && r.cfg.Profile != "all" {
-		cacheModelID += ":profile=" + r.cfg.Profile
-	}
-	if r.cfg.Version != "" {
-		cacheModelID += ":version=" + r.cfg.Version
-	}
+	cacheModelID := reviewCacheModelID(r.cfg)
 
 	// Step 2e: Cache lookup.
 	// Snapshot diffs for audit before Partition filters to uncached only.
@@ -549,13 +552,7 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 			}
 		}
 		{
-			agentCfg := AgentConfig{
-				MaxIterations:   r.cfg.AgentMaxIterations,
-				RemainingBudget: remainingBudget,
-				Timeout:         r.cfg.AgentTimeout,
-				RepoRoot:        findRepoRoot(),
-				OmitTemperature: r.cfg.DisableTemperature,
-			}
+			agentCfg := r.agentConfig(remainingBudget)
 			scoped, agentResult, err := runScopedAgentLoop(ctx, r.chatter, agentCfg, allFindings, r.cfg.AgentScope)
 			// Always aggregate usage, even on error (agent preserves accumulated tokens).
 			if agentResult != nil {
@@ -1353,4 +1350,26 @@ func (r *Reviewer) getCommitMessage(ctx context.Context) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// reviewCacheModelID builds the model identity that scopes review cache keys.
+// Every setting that changes what the model is asked or how it answers is part
+// of it, so a changed setting cannot replay findings produced under another.
+// Settings at their default, and the thinking level when --api-url makes the
+// provider ignore it, are left out so existing cache entries stay valid.
+func reviewCacheModelID(cfg *config.Config) string {
+	id := cfg.Model
+	if len(cfg.Models) > 1 {
+		id = fmt.Sprintf("consensus:%s:threshold=%d", strings.Join(cfg.Models, "+"), cfg.ConsensusThreshold)
+	}
+	if cfg.Profile != "" && cfg.Profile != "all" {
+		id += ":profile=" + cfg.Profile
+	}
+	if cfg.ThinkingLevel != "" && cfg.APIURL == "" {
+		id += ":thinking=" + cfg.ThinkingLevel
+	}
+	if cfg.Version != "" {
+		id += ":version=" + cfg.Version
+	}
+	return id
 }

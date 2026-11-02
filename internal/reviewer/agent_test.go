@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/OpticDiff/code-reviewer/internal/config"
 	"github.com/OpticDiff/code-reviewer/pkg/model"
 	"google.golang.org/genai"
 )
@@ -274,6 +275,43 @@ func TestRunAgentLoop_Temperature(t *testing.T) {
 	}
 }
 
+func TestRunAgentLoop_ThinkingLevel(t *testing.T) {
+	initial := []model.Finding{{File: "a.go", Line: 1, Severity: "HIGH", Title: "kept"}}
+	refined, _ := json.Marshal(initial)
+
+	tests := []struct {
+		name  string
+		level string
+		want  genai.ThinkingLevel // empty = not sent.
+	}{
+		{name: "unset sends none"},
+		{name: "low", level: "low", want: genai.ThinkingLevelLow},
+		{name: "high", level: "high", want: genai.ThinkingLevelHigh},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chatter := &configChatter{scriptedChatter: scriptedChatter{replies: []string{
+				`{"action":"findings","findings":` + string(refined) + `}`,
+			}}}
+			_, err := RunAgentLoop(context.Background(), chatter, AgentConfig{RepoRoot: t.TempDir(), ThinkingLevel: tt.level}, initial)
+			if err != nil {
+				t.Fatalf("RunAgentLoop: %v", err)
+			}
+			if len(chatter.configs) == 0 {
+				t.Fatal("chatter was never called")
+			}
+			for i, cfg := range chatter.configs {
+				switch {
+				case tt.want == "" && cfg.ThinkingConfig != nil:
+					t.Errorf("call %d: ThinkingConfig = %+v, want nil", i, cfg.ThinkingConfig)
+				case tt.want != "" && (cfg.ThinkingConfig == nil || cfg.ThinkingConfig.ThinkingLevel != tt.want):
+					t.Errorf("call %d: ThinkingConfig = %+v, want level %q", i, cfg.ThinkingConfig, tt.want)
+				}
+			}
+		})
+	}
+}
+
 // emptyChatter mimics a model answering a text-protocol prompt with a native
 // function call it cannot complete: no content, finish reason set, tokens spent.
 type emptyChatter struct{ reason genai.FinishReason }
@@ -493,5 +531,26 @@ func TestRunAgentLoop_LastTurnCannotCallTools(t *testing.T) {
 	}
 	if strings.Contains(chatter.histories[1][len(chatter.histories[1])-1].Parts[0].Text, "last turn") {
 		t.Error("the notice must not be sent before the final turn")
+	}
+}
+
+// TestReviewer_AgentConfigCarriesRequestSettings checks the review settings
+// that the agent loop must repeat on its own requests.
+func TestReviewer_AgentConfigCarriesRequestSettings(t *testing.T) {
+	r := &Reviewer{cfg: &config.Config{ThinkingLevel: "medium", DisableTemperature: true, AgentMaxIterations: 4}}
+	got := r.agentConfig(1234)
+	if got.ThinkingLevel != "medium" {
+		t.Errorf("ThinkingLevel = %q, want medium", got.ThinkingLevel)
+	}
+	if !got.OmitTemperature {
+		t.Error("OmitTemperature = false, want true")
+	}
+	if got.RemainingBudget != 1234 || got.MaxIterations != 4 {
+		t.Errorf("RemainingBudget, MaxIterations = %d, %d; want 1234, 4", got.RemainingBudget, got.MaxIterations)
+	}
+
+	r = &Reviewer{cfg: &config.Config{}}
+	if got := r.agentConfig(1); got.ThinkingLevel != "" {
+		t.Errorf("unset ThinkingLevel = %q, want empty", got.ThinkingLevel)
 	}
 }

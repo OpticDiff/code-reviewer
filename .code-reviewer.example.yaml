@@ -28,6 +28,11 @@ model: gemini-3.8-flash
 # parameters. Cannot be combined with temperature.
 # use_temperature: false
 
+# Thinking level sent with Vertex AI model calls: minimal, low, medium or high.
+# Unset sends no thinking config. Passed to the model as given; a model that does
+# not accept it returns an API error. Not sent to api_url endpoints.
+# thinking_level: high
+
 # Multiple models for consensus review (CLI-only: --models flag).
 # Runs all models in parallel and deduplicates findings.
 # Consensus activates only with 2+ models; single model uses the normal path.

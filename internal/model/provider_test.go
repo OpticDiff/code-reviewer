@@ -311,3 +311,100 @@ func TestProvider_RequestTemperature(t *testing.T) {
 		}
 	}
 }
+
+func TestThinkingConfigFor(t *testing.T) {
+	tests := []struct {
+		level string
+		want  genai.ThinkingLevel // empty = no ThinkingConfig.
+	}{
+		{level: "minimal", want: genai.ThinkingLevelMinimal},
+		{level: "low", want: genai.ThinkingLevelLow},
+		{level: "medium", want: genai.ThinkingLevelMedium},
+		{level: "high", want: genai.ThinkingLevelHigh},
+		{level: "HIGH", want: genai.ThinkingLevelHigh},
+		{level: ""},
+		{level: "extreme"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.level, func(t *testing.T) {
+			got := ThinkingConfigFor(tt.level)
+			switch {
+			case tt.want == "" && got != nil:
+				t.Errorf("ThinkingConfigFor(%q) = %+v, want nil", tt.level, got)
+			case tt.want != "" && (got == nil || got.ThinkingLevel != tt.want):
+				t.Errorf("ThinkingConfigFor(%q) = %+v, want level %q", tt.level, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestProvider_RequestThinkingLevel checks the thinkingConfig that reaches the
+// wire for each call type, and that it is absent when no level is set.
+func TestProvider_RequestThinkingLevel(t *testing.T) {
+	tests := []struct {
+		name  string
+		level string
+		want  any // nil = field absent.
+	}{
+		{name: "unset", level: ""},
+		{name: "minimal", level: "minimal", want: "MINIMAL"},
+		{name: "low", level: "low", want: "LOW"},
+		{name: "medium", level: "medium", want: "MEDIUM"},
+		{name: "high", level: "high", want: "HIGH"},
+	}
+	calls := map[string]func(*Provider) error{
+		"review": func(p *Provider) error {
+			_, err := p.Review(context.Background(), "sys", "user")
+			return err
+		},
+		"summarize": func(p *Provider) error {
+			_, _ = p.Summarize(context.Background(), "sys", "user") // Only the request is under test, not the parsed summary.
+			return nil
+		},
+		"explain": func(p *Provider) error {
+			_, _, err := p.Explain(context.Background(), "sys", "user")
+			return err
+		},
+	}
+	for _, tt := range tests {
+		for callName, call := range calls {
+			t.Run(tt.name+"/"+callName, func(t *testing.T) {
+				var body map[string]any
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Errorf("decoding request: %v", err)
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"{\"summary\":\"ok\",\"findings\":[]}"}]}}]}`))
+				}))
+				defer server.Close()
+
+				client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+					Backend:     genai.BackendGeminiAPI,
+					APIKey:      "k",
+					HTTPOptions: genai.HTTPOptions{BaseURL: server.URL},
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := &Provider{client: client, modelName: "some-model"}
+				p.SetThinkingLevel(tt.level)
+				if err := call(p); err != nil {
+					t.Fatalf("call: %v", err)
+				}
+
+				genCfg, _ := body["generationConfig"].(map[string]any)
+				thinking, present := genCfg["thinkingConfig"].(map[string]any)
+				if tt.want == nil {
+					if present {
+						t.Errorf("thinkingConfig = %v, want it absent", thinking)
+					}
+					return
+				}
+				if !present || thinking["thinkingLevel"] != tt.want {
+					t.Errorf("thinkingConfig = %v, want thinkingLevel %v", thinking, tt.want)
+				}
+			})
+		}
+	}
+}
