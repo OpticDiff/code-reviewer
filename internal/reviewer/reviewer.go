@@ -416,7 +416,12 @@ func (r *Reviewer) Run(ctx context.Context) (int, error) {
 	var intentContext string
 	var intentSummary *model.SummaryResult
 	if r.cfg.IntentReview && len(diffs) > 0 {
-		if sp, ok := r.provider.(model.SummarizeProvider); ok {
+		if intentTokens := diff.EstimateTokens(auditDiffs); intentTokens > tokenLimit {
+			slog.Warn("intent review skipped: full diff exceeds model token limit",
+				"estimated_tokens", intentTokens,
+				"token_limit", tokenLimit,
+			)
+		} else if sp, ok := r.provider.(model.SummarizeProvider); ok {
 			fullDiff := buildNumberedDiff(auditDiffs)
 			sysPrompt := model.BuildSummaryPrompt()
 			uPrompt := model.BuildSummaryUserPrompt(mrTitle, mrDesc, fullDiff)
