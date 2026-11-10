@@ -6,6 +6,7 @@
 - **Code Blocks**: Missing language identifier on fenced code blocks, outdated/incorrect code examples.
 - **Security**: Credentials, API keys, or internal URLs in documentation, PII in examples.
 - **Accuracy**: README instructions that don't match actual CLI flags or API, outdated version references, stale badges.
+- **OpenWiki Integrity (`openwiki-gcs-integrity`)**: Deleting `<!-- OPENWIKI:START -->...<!-- OPENWIKI:END -->` marker blocks or committing `openwiki/**` artifacts directly to Git (OpenWiki artifacts are published out-of-band to GCS and symlinked locally from `~/.cache/azra/openwiki/<repo_tag>/`).
 
 ## DO NOT Flag
 - Prose style, grammar, or tone (subjective).
