@@ -108,6 +108,13 @@ func TestSystemRulesJSON_Routing(t *testing.T) {
 		{".github/workflows/ci.yml", "languages/github_workflows.md"},
 		{".github/workflows/release.yaml", "languages/github_workflows.md"},
 		{"config/app.yaml", "languages/yaml_config.md"},
+		{"openwiki/index.md", "architecture/openwiki-gcs-integrity.md"},
+		{"openwiki/pages/overview.md", "architecture/openwiki-gcs-integrity.md"},
+		{"openwiki/manifest.json", "architecture/openwiki-gcs-integrity.md"},
+		{".gitignore", "architecture/openwiki-gcs-integrity.md"},
+		{"services/api/.gitignore", "architecture/openwiki-gcs-integrity.md"},
+		{".dockerignore", "architecture/openwiki-gcs-integrity.md"},
+		{"services/api/.dockerignore", "architecture/openwiki-gcs-integrity.md"},
 	}
 
 	for _, tt := range tests {
@@ -116,6 +123,16 @@ func TestSystemRulesJSON_Routing(t *testing.T) {
 				t.Errorf("router.Match(%q) = %q, want %q", tt.filePath, got, tt.wantRule)
 			}
 		})
+	}
+
+	loader, err := NewRuleLoader(filepath.Join("..", "..", "rules"))
+	if err != nil {
+		t.Fatalf("NewRuleLoader failed: %v", err)
+	}
+	defer loader.Close() //nolint:errcheck
+
+	if _, err := loader.Load("architecture/openwiki-gcs-integrity.md"); err != nil {
+		t.Errorf("loader.Load(architecture/openwiki-gcs-integrity.md) failed: %v", err)
 	}
 }
 
