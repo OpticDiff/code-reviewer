@@ -727,6 +727,7 @@ See [`examples/hooks/`](examples/hooks/) for lefthook, Husky, and mise configura
 |---|---|---|---|---|
 | `gemini-3.8-flash` | ⭐ Recommended | 1M | Vertex AI | Fast CI reviews (default) |
 | `gemini-3.1-pro-preview` | ⭐⭐ Best | 1M | Vertex AI | Deep analysis |
+| `gemini-4-argon`, `gemini-4-carbon`, `gemini-4-neon`, `gemini-4-hydrogen` | ⭐⭐ Best | 1M | Vertex AI | Gemini 4 family |
 | `claude-sonnet-5` | ⭐⭐ Best | 1M | Vertex AI | Code-focused reviews |
 | `mistral-medium-3` | ⭐ Good | 128k | Vertex AI | Alternative perspective |
 | `qwen3:32b` | ⭐ Good | 32k | Ollama / self-hosted | Local, no cloud needed (32GB RAM) |

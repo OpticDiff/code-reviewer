@@ -365,6 +365,7 @@ Known model limits:
 
 | Model | Token Limit |
 |---|---|
+| `gemini-4-argon` / `gemini-4-carbon` / `gemini-4-neon` / `gemini-4-hydrogen` | 1,000,000 |
 | `gemini-3.8-flash` / `gemini-3.7-flash` / `gemini-3.6-flash` / `gemini-3.5-flash` / `gemini-3.5-flash-lite` / `gemini-3.1-flash-lite` / `gemini-3.1-pro-preview` / `gemini-3-flash-preview` | 1,000,000 |
 | `gemini-2.5-flash` / `gemini-2.5-pro` | 1,000,000 |
 | `claude-fable-5-1` / `claude-fable-5` / `claude-opus-5` / `claude-opus-4-8` / `claude-opus-4-7` / `claude-opus-4-6` / `claude-sonnet-5` / `claude-sonnet-4-6` | 1,000,000 |

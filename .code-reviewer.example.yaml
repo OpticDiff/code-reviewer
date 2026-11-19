@@ -3,7 +3,7 @@
 # All settings can be overridden by environment variables or CLI flags.
 
 # Vertex AI model to use for reviews.
-# Options: gemini-3.8-flash (default), gemini-3.1-pro-preview, claude-sonnet-5, etc.
+# Options: gemini-3.8-flash (default), gemini-3.1-pro-preview, gemini-4-argon, claude-sonnet-5, etc.
 model: gemini-3.8-flash
 
 # Explicit context window limit in tokens (overrides built-in model context window table).

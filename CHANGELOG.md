@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- Gemini 4 models (`gemini-4-argon`, `gemini-4-carbon`, `gemini-4-neon`, `gemini-4-hydrogen`) now resolve to their 1,048,576-token context window (listed as 1,000,000, like the other 1M-token models) instead of the 128,000-token default for unknown models (#TBD). With `chunk_strategy: split` a diff is no longer cut into far more chunks than needed, and with the default `fail` strategy a diff that fits is no longer refused.
+
 ## [0.28.0] — 2026-11-02
 
 ### Added
