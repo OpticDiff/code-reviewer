@@ -133,7 +133,7 @@ type Config struct {
 	ConfidenceFloor    int      // Minimum confidence percent (1-100) the model needs to report a finding (0 = built-in default of 80).
 	Temperature        *float64 // Sampling temperature override (nil = provider default).
 	DisableTemperature bool     // Send no temperature on any model call; the model's own default applies.
-	ThinkingLevel      string   // Thinking level sent on Vertex AI generation requests: minimal, low, medium or high ("" = send none).
+	ThinkingLevel      string   // Thinking level sent on Vertex AI generation requests: minimal, low, medium, high or xhigh ("" = send none).
 	GCPProject         string
 	GCPLocation        string
 	ChunkStrategy      ChunkStrategy
@@ -907,7 +907,7 @@ func (c *Config) loadFlags() error {
 	contextFiles := fs.String("context-files", "", "Directory-scoped guidance file names to include for changed directories, comma-separated (e.g. AGENTS.md)")
 	temperature := fs.Float64("temperature", 0, "Sampling temperature for review calls (0-2); unset keeps the provider default")
 	useTemperature := fs.Bool("use-temperature", true, "Send a sampling temperature with model calls; --use-temperature=false sends none, so the model's own default applies")
-	thinkingLevel := fs.String("thinking-level", "", "Thinking level for model calls: minimal, low, medium or high; unset sends none")
+	thinkingLevel := fs.String("thinking-level", "", "Thinking level for model calls: minimal, low, medium, high or xhigh; unset sends none")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
 	minSev := fs.String("min-severity", "", "Minimum severity to report (low, medium, high, critical)")
 	commentMode := fs.String("comment-mode", "", "GitLab comment mode: notes (simple) or discussions (inline)")
@@ -1277,7 +1277,7 @@ func githubStackedPR(baseRef, eventPath string) bool {
 }
 
 // ThinkingLevels lists the accepted thinking-level values, lowest first.
-var ThinkingLevels = []string{"minimal", "low", "medium", "high"}
+var ThinkingLevels = []string{"minimal", "low", "medium", "high", "xhigh"}
 
 // ParseThinkingLevel normalizes a thinking level to lower case and checks it
 // against ThinkingLevels.

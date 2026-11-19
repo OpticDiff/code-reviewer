@@ -154,7 +154,7 @@ var configTemplate = template.Must(template.New("config").Parse(`# .code-reviewe
 # Docs: https://github.com/OpticDiff/code-reviewer
 
 # Model for review.
-# Options: gemini-3.8-flash (recommended), gemini-3.1-pro-preview, claude-sonnet-5,
+# Options: gemini-3.8-flash (recommended), gemini-3.1-pro-preview, gemini-4-argon, claude-sonnet-5,
 #          or any OpenAI-compatible model via api_url.
 model: {{ .Model }}
 

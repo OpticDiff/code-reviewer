@@ -56,7 +56,7 @@ inputs:
     required: false
     default: ""
   thinking-level:
-    description: "Thinking level sent to the model: minimal, low, medium or high (unset sends none)"
+    description: "Thinking level sent to the model: minimal, low, medium, high or xhigh (unset sends none)"
     required: false
     default: ""
   agent:

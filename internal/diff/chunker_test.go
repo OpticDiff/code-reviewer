@@ -123,6 +123,10 @@ func TestTokenLimitForModel(t *testing.T) {
 		model string
 		want  int
 	}{
+		{"gemini-4-argon", 1000000},
+		{"gemini-4-carbon", 1000000},
+		{"gemini-4-neon", 1000000},
+		{"gemini-4-hydrogen", 1000000},
 		{"gemini-3.8-flash", 1000000},
 		{"gemini-2.5-flash", 1000000},
 		{"claude-sonnet-5", 1000000},

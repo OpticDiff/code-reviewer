@@ -3,7 +3,7 @@
 # All settings can be overridden by environment variables or CLI flags.
 
 # Vertex AI model to use for reviews.
-# Options: gemini-3.8-flash (default), gemini-3.1-pro-preview, claude-sonnet-5, etc.
+# Options: gemini-3.8-flash (default), gemini-3.1-pro-preview, gemini-4-argon, claude-sonnet-5, etc.
 model: gemini-3.8-flash
 
 # Explicit context window limit in tokens (overrides built-in model context window table).
@@ -28,7 +28,7 @@ model: gemini-3.8-flash
 # parameters. Cannot be combined with temperature.
 # use_temperature: false
 
-# Thinking level sent with Vertex AI model calls: minimal, low, medium or high.
+# Thinking level sent with Vertex AI model calls: minimal, low, medium, high or xhigh.
 # Unset sends no thinking config. Passed to the model as given; a model that does
 # not accept it returns an API error. Not sent to api_url endpoints.
 # thinking_level: high

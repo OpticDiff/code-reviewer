@@ -146,6 +146,12 @@ func estimateFileDiffTokens(d *FileDiff) int {
 // ModelTokenLimits maps known model names to their approximate context window sizes.
 // These are conservative estimates leaving room for the system prompt and response.
 var ModelTokenLimits = map[string]int{
+	// Gemini 4 (1,048,576-token context window).
+	"gemini-4-argon":    1000000,
+	"gemini-4-carbon":   1000000,
+	"gemini-4-neon":     1000000,
+	"gemini-4-hydrogen": 1000000,
+
 	// Gemini 3.x (1,048,576-token context window).
 	"gemini-3.8-flash":       1000000,
 	"gemini-3.7-flash":       1000000,
