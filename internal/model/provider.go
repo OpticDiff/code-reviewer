@@ -39,7 +39,7 @@ func (p *Provider) SetTemperature(t float32) { p.temperature = &t }
 func (p *Provider) OmitTemperature() { p.omitTemp = true }
 
 // SetThinkingLevel makes every request carry a ThinkingConfig with the given
-// level (minimal, low, medium or high, case-insensitive). An empty or
+// level (minimal, low, medium, high or xhigh, case-insensitive). An empty or
 // unrecognized level leaves requests without one.
 func (p *Provider) SetThinkingLevel(level string) { p.thinking = ThinkingConfigFor(level) }
 
@@ -47,7 +47,7 @@ func (p *Provider) SetThinkingLevel(level string) { p.thinking = ThinkingConfigF
 func (p *Provider) ThinkingConfig() *genai.ThinkingConfig { return p.thinking }
 
 // ThinkingConfigFor returns the ThinkingConfig for a thinking level, or nil
-// when level is empty or not one of minimal, low, medium, high. The level is
+// when level is empty or not one of minimal, low, medium, high, xhigh. The level is
 // passed through as given; the model decides whether it accepts it.
 func ThinkingConfigFor(level string) *genai.ThinkingConfig {
 	var l genai.ThinkingLevel
@@ -60,6 +60,8 @@ func ThinkingConfigFor(level string) *genai.ThinkingConfig {
 		l = genai.ThinkingLevelMedium
 	case "high":
 		l = genai.ThinkingLevelHigh
+	case "xhigh":
+		l = genai.ThinkingLevelXhigh
 	default:
 		return nil
 	}

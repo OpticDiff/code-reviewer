@@ -321,6 +321,7 @@ func TestThinkingConfigFor(t *testing.T) {
 		{level: "low", want: genai.ThinkingLevelLow},
 		{level: "medium", want: genai.ThinkingLevelMedium},
 		{level: "high", want: genai.ThinkingLevelHigh},
+		{level: "xhigh", want: genai.ThinkingLevelXhigh},
 		{level: "HIGH", want: genai.ThinkingLevelHigh},
 		{level: ""},
 		{level: "extreme"},
@@ -351,6 +352,7 @@ func TestProvider_RequestThinkingLevel(t *testing.T) {
 		{name: "low", level: "low", want: "LOW"},
 		{name: "medium", level: "medium", want: "MEDIUM"},
 		{name: "high", level: "high", want: "HIGH"},
+		{name: "xhigh", level: "xhigh", want: "XHIGH"},
 	}
 	calls := map[string]func(*Provider) error{
 		"review": func(p *Provider) error {

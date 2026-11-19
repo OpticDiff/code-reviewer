@@ -28,7 +28,7 @@ model: gemini-3.8-flash
 # parameters. Cannot be combined with temperature.
 # use_temperature: false
 
-# Thinking level sent with Vertex AI model calls: minimal, low, medium or high.
+# Thinking level sent with Vertex AI model calls: minimal, low, medium, high or xhigh.
 # Unset sends no thinking config. Passed to the model as given; a model that does
 # not accept it returns an API error. Not sent to api_url endpoints.
 # thinking_level: high

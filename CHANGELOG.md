@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `xhigh` is now an accepted `thinking_level` / `--thinking-level` / `REVIEW_THINKING_LEVEL` value (#TBD). It is sent as the `XHIGH` thinking level on Vertex AI generation requests; a model that does not accept it returns its own API error. Requires `google.golang.org/genai` v1.79.1, which defines the level, so the module is bumped from v1.52.0.
+
 ### Fixed
 - Gemini 4 models (`gemini-4-argon`, `gemini-4-carbon`, `gemini-4-neon`, `gemini-4-hydrogen`) now resolve to their 1,048,576-token context window (listed as 1,000,000, like the other 1M-token models) instead of the 128,000-token default for unknown models (#TBD). With `chunk_strategy: split` a diff is no longer cut into far more chunks than needed, and with the default `fail` strategy a diff that fits is no longer refused.
 
