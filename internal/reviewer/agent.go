@@ -273,11 +273,7 @@ func RunAgentLoop(ctx context.Context, chatter Chatter, cfg AgentConfig,
 		result.Iterations = i + 1
 
 		// Track token usage.
-		if resp.UsageMetadata != nil {
-			totalUsage.InputTokens += int64(resp.UsageMetadata.PromptTokenCount)
-			totalUsage.OutputTokens += int64(resp.UsageMetadata.CandidatesTokenCount)
-			totalUsage.TotalTokens += int64(resp.UsageMetadata.TotalTokenCount)
-		}
+		totalUsage.Add(providermodel.UsageFromMetadata(resp.UsageMetadata))
 
 		// Extract model response text.
 		modelText := extractResponseText(resp)

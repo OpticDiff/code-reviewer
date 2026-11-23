@@ -31,8 +31,33 @@ type Finding struct {
 }
 
 // TokenUsage tracks token consumption across model calls.
+//
+// CachedInputTokens is a subset of InputTokens: the part of the prompt the
+// provider served from a cache, which providers usually bill at a discount.
+// InputTokens still counts every prompt token, so a consumer that ignores the
+// field sees the same numbers as before.
+//
+// ThinkingTokens counts the reasoning ("thinking") tokens the provider
+// reports. Where it sits in the other counts follows the transport: a Vertex
+// AI response reports it apart from OutputTokens and includes it in
+// TotalTokens, while an OpenAI-compatible response reports it as part of
+// OutputTokens. Both fields are zero when the provider does not report them.
 type TokenUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-	TotalTokens  int64 `json:"total_tokens"`
+	InputTokens       int64 `json:"input_tokens"`
+	CachedInputTokens int64 `json:"cached_input_tokens"`
+	OutputTokens      int64 `json:"output_tokens"`
+	ThinkingTokens    int64 `json:"thinking_tokens"`
+	TotalTokens       int64 `json:"total_tokens"`
+}
+
+// Add accumulates other into u. A nil other adds nothing.
+func (u *TokenUsage) Add(other *TokenUsage) {
+	if other == nil {
+		return
+	}
+	u.InputTokens += other.InputTokens
+	u.CachedInputTokens += other.CachedInputTokens
+	u.OutputTokens += other.OutputTokens
+	u.ThinkingTokens += other.ThinkingTokens
+	u.TotalTokens += other.TotalTokens
 }

@@ -59,7 +59,9 @@ func (r *Reviewer) RunExplain(ctx context.Context) (int, error) {
 	if usage != nil && usage.TotalTokens > 0 {
 		slog.Info("token usage",
 			"input", usage.InputTokens,
+			"cached_input", usage.CachedInputTokens,
 			"output", usage.OutputTokens,
+			"thinking", usage.ThinkingTokens,
 			"total", usage.TotalTokens,
 		)
 	}

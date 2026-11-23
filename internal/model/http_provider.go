@@ -125,6 +125,50 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+// chatUsage is the usage object of a chat completion. The detail objects are
+// optional: servers that do not report them leave the counts at zero.
+type chatUsage struct {
+	PromptTokens        int64 `json:"prompt_tokens"`
+	CompletionTokens    int64 `json:"completion_tokens"`
+	TotalTokens         int64 `json:"total_tokens"`
+	PromptTokensDetails *struct {
+		CachedTokens int64 `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	CompletionTokensDetails *struct {
+		ReasoningTokens int64 `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
+}
+
+// cachedTokens returns usage.prompt_tokens_details.cached_tokens, or 0.
+func (u *chatUsage) cachedTokens() int64 {
+	if u.PromptTokensDetails == nil {
+		return 0
+	}
+	return u.PromptTokensDetails.CachedTokens
+}
+
+// reasoningTokens returns usage.completion_tokens_details.reasoning_tokens, or 0.
+func (u *chatUsage) reasoningTokens() int64 {
+	if u.CompletionTokensDetails == nil {
+		return 0
+	}
+	return u.CompletionTokensDetails.ReasoningTokens
+}
+
+// tokenUsage converts the usage object; a nil usage converts to nil.
+func (u *chatUsage) tokenUsage() *TokenUsage {
+	if u == nil {
+		return nil
+	}
+	return &TokenUsage{
+		InputTokens:       u.PromptTokens,
+		CachedInputTokens: u.cachedTokens(),
+		OutputTokens:      u.CompletionTokens,
+		ThinkingTokens:    u.reasoningTokens(),
+		TotalTokens:       u.TotalTokens,
+	}
+}
+
 // chatResponse is the OpenAI Chat Completions response format.
 type chatResponse struct {
 	Choices []struct {
@@ -133,11 +177,7 @@ type chatResponse struct {
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage *struct {
-		PromptTokens     int64 `json:"prompt_tokens"`
-		CompletionTokens int64 `json:"completion_tokens"`
-		TotalTokens      int64 `json:"total_tokens"`
-	} `json:"usage"`
+	Usage *chatUsage `json:"usage"`
 }
 
 // Review sends a diff to the model for review and returns structured findings.
@@ -251,16 +291,7 @@ func (p *HTTPProvider) generateRaw(ctx context.Context, systemPrompt, userPrompt
 
 	slog.Debug("raw model response", "length", len(text))
 
-	var usage *TokenUsage
-	if chatResp.Usage != nil {
-		usage = &TokenUsage{
-			InputTokens:  chatResp.Usage.PromptTokens,
-			OutputTokens: chatResp.Usage.CompletionTokens,
-			TotalTokens:  chatResp.Usage.TotalTokens,
-		}
-	}
-
-	return text, usage, truncated, nil
+	return text, chatResp.Usage.tokenUsage(), truncated, nil
 }
 
 // Close is a no-op for the HTTP provider.

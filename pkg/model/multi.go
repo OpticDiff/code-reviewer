@@ -162,10 +162,8 @@ func mergeResults(results []*ReviewResult, threshold int) *ReviewResult {
 	// Aggregate token usage across all models.
 	var totalUsage TokenUsage
 	for _, r := range results {
-		if r != nil && r.Usage != nil {
-			totalUsage.InputTokens += r.Usage.InputTokens
-			totalUsage.OutputTokens += r.Usage.OutputTokens
-			totalUsage.TotalTokens += r.Usage.TotalTokens
+		if r != nil {
+			totalUsage.Add(r.Usage)
 		}
 	}
 

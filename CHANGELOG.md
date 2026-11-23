@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `response_schema` configuration field, `--response-schema` flag, `REVIEW_RESPONSE_SCHEMA` environment variable and `response-schema` action input (default `true`). On Vertex AI the main review call now sends a response schema with the JSON MIME type, so the API constrains the answer to the shape the built-in prompt asks for and `parseReviewJSON` reads: `summary` and `findings`, with `severity` limited to `CRITICAL`, `HIGH`, `MEDIUM` and `LOW`, and `file`, `severity`, `category`, `title` and `body` required. `category` stays a free string because a rule can fix a category outside the prompt's list. The schema is not sent with `custom_prompt`, whose output shape is its own, with `--api-url`, or on the summary, explain and intent calls. `response_schema: false` returns to JSON asked for in the prompt only. The tolerant parser is unchanged and still handles fenced or prose-wrapped JSON. The request carries no tools or tool config, so it cannot end in a function-call failure.
+- Cached and thinking tokens in the usage figures. `usage` in the JSON report and the audit log gains `cached_input_tokens` and `thinking_tokens` (always present, zero when the provider does not report them), and the "token usage" log line shows both. They are read from the Vertex AI usage metadata (`cachedContentTokenCount`, `thoughtsTokenCount`) and, for `--api-url` endpoints, from `usage.prompt_tokens_details.cached_tokens` and `usage.completion_tokens_details.reasoning_tokens`, and summed over every model call of the run: review chunks, the intent pass and the agent loop. `cached_input_tokens` is a subset of `input_tokens`, which is unchanged, so a caller that prices a run bills the cached part at the cached rate. Over Vertex AI `thinking_tokens` is reported apart from `output_tokens`; over `--api-url` it is part of `output_tokens`. `TokenUsage` in `pkg/model` gains `CachedInputTokens`, `ThinkingTokens` and an `Add` method.
+
 ## [0.28.0] — 2026-11-02
 
 ### Added

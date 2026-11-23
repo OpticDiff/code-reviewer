@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"testing/quick"
+
+	"github.com/OpticDiff/code-reviewer/internal/model"
 )
 
 // TestParseSeverity_AllLevels is a table-driven test covering all valid
@@ -1633,6 +1636,82 @@ func TestLoad_UseTemperature(t *testing.T) {
 				t.Errorf("DisableTemperature = %v, want %v", cfg.DisableTemperature, tt.wantDisabled)
 			}
 		})
+	}
+}
+
+// TestLoad_ResponseSchema verifies response_schema is on by default and can be
+// turned off from YAML, env and flag with the usual precedence.
+func TestLoad_ResponseSchema(t *testing.T) {
+	oldArgs := os.Args
+	t.Cleanup(func() { os.Args = oldArgs })
+	t.Setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+
+	tests := []struct {
+		name         string
+		yaml         string
+		env          string
+		args         []string
+		wantDisabled bool
+	}{
+		{name: "enabled by default", args: []string{"--diff"}},
+		{name: "yaml false disables", yaml: "response_schema: false\n", args: []string{"--diff"}, wantDisabled: true},
+		{name: "yaml true keeps enabled", yaml: "response_schema: true\n", args: []string{"--diff"}},
+		{name: "env false disables", env: "false", args: []string{"--diff"}, wantDisabled: true},
+		{name: "invalid env is ignored", env: "maybe", args: []string{"--diff"}},
+		{name: "flag false disables", args: []string{"--diff", "--response-schema=false"}, wantDisabled: true},
+		{name: "flag true overrides env false", env: "false", args: []string{"--diff", "--response-schema=true"}},
+		{name: "flag false overrides yaml true", yaml: "response_schema: true\n", args: []string{"--diff", "--response-schema=false"}, wantDisabled: true},
+		{name: "env true overrides yaml false", yaml: "response_schema: false\n", env: "true", args: []string{"--diff"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			yaml := tt.yaml
+			if yaml == "" {
+				yaml = "model: some-model\n"
+			}
+			if err := os.WriteFile(filepath.Join(dir, ".code-reviewer.yaml"), []byte(yaml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			oldDir, err := os.Getwd()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chdir(oldDir) }) //nolint:errcheck
+			if err := os.Chdir(dir); err != nil {
+				t.Fatal(err)
+			}
+			os.Args = append([]string{"code-reviewer"}, tt.args...)
+			t.Setenv("REVIEW_RESPONSE_SCHEMA", tt.env)
+
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("Load() unexpected error: %v", err)
+			}
+			if cfg.DisableResponseSchema != tt.wantDisabled {
+				t.Errorf("DisableResponseSchema = %v, want %v", cfg.DisableResponseSchema, tt.wantDisabled)
+			}
+		})
+	}
+}
+
+// TestReviewSeverities_AreTheAcceptedSeverities keeps the severity enum of the
+// review response schema equal to the set ParseSeverity accepts.
+func TestReviewSeverities_AreTheAcceptedSeverities(t *testing.T) {
+	var accepted []string
+	for sev := SeverityLow; sev <= SeverityCritical; sev++ {
+		accepted = append(accepted, sev.String())
+	}
+	got := append([]string(nil), model.ReviewSeverities...)
+	sort.Strings(got)
+	sort.Strings(accepted)
+	if !reflect.DeepEqual(got, accepted) {
+		t.Errorf("schema severities = %v, accepted severities = %v", got, accepted)
+	}
+	for _, s := range model.ReviewSeverities {
+		if _, err := ParseSeverity(s); err != nil {
+			t.Errorf("ParseSeverity(%q): %v", s, err)
+		}
 	}
 }
 

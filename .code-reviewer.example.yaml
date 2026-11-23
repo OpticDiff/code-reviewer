@@ -28,6 +28,10 @@ model: gemini-3.8-flash
 # parameters. Cannot be combined with temperature.
 # use_temperature: false
 
+# Constrain the Vertex AI review response with a JSON schema (default true).
+# false asks for JSON in the prompt only. Never sent with custom_prompt or api_url.
+# response_schema: false
+
 # Thinking level sent with Vertex AI model calls: minimal, low, medium or high.
 # Unset sends no thinking config. Passed to the model as given; a model that does
 # not accept it returns an API error. Not sent to api_url endpoints.

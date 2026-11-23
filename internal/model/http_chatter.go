@@ -147,9 +147,11 @@ func (c *HTTPChatter) Chat(ctx context.Context, history []*genai.Content, config
 	}
 	if chatResp.Usage != nil {
 		genaiResp.UsageMetadata = &genai.GenerateContentResponseUsageMetadata{
-			PromptTokenCount:     int32(chatResp.Usage.PromptTokens),
-			CandidatesTokenCount: int32(chatResp.Usage.CompletionTokens),
-			TotalTokenCount:      int32(chatResp.Usage.TotalTokens),
+			PromptTokenCount:        int32(chatResp.Usage.PromptTokens),
+			CachedContentTokenCount: int32(chatResp.Usage.cachedTokens()),
+			CandidatesTokenCount:    int32(chatResp.Usage.CompletionTokens),
+			ThoughtsTokenCount:      int32(chatResp.Usage.reasoningTokens()),
+			TotalTokenCount:         int32(chatResp.Usage.TotalTokens),
 		}
 	}
 

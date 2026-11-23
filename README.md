@@ -348,6 +348,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `--confidence-floor` | Minimum model confidence percent (1-100) required to report a finding | `80` |
 | `--context-files` | Directory-scoped guidance files (comma-separated, e.g. `AGENTS.md`) | — |
 | `--temperature` | Sampling temperature for review calls, 0-2 (unset = built-in 0.2) | — |
+| `--response-schema` | Constrain the Vertex AI review response with a JSON schema; `--response-schema=false` asks for JSON in the prompt only. Not sent with `--custom-prompt` or `--api-url` | `true` |
 | `--use-temperature` | Send a temperature with model calls; `--use-temperature=false` sends none so the model's own default applies (conflicts with `--temperature`) | `true` |
 | `--thinking-level` | Thinking level sent with Vertex AI model calls: `minimal`, `low`, `medium` or `high` (case-insensitive; unset = send none) | — |
 | `--extra-rules` | Additional prompt rules | — |
@@ -415,6 +416,7 @@ Settings are applied in priority order: **CLI flags > env vars > `.code-reviewer
 | `REVIEW_CONFIDENCE_FLOOR` | Minimum model confidence percent (1-100) to report a finding | `80` |
 | `REVIEW_CONTEXT_FILES` | Directory-scoped guidance files, comma-separated | — |
 | `REVIEW_TEMPERATURE` | Sampling temperature for review calls (0-2) | — |
+| `REVIEW_RESPONSE_SCHEMA` | Set to `false` to send no response schema with the Vertex AI review call | `true` |
 | `REVIEW_USE_TEMPERATURE` | Set to `false` to send no temperature on any model call | `true` |
 | `REVIEW_THINKING_LEVEL` | Thinking level for Vertex AI model calls (`minimal`, `low`, `medium`, `high`); invalid values are ignored with a warning | — |
 | `REVIEW_CUSTOM_PROMPT` | Path to custom system prompt | — |
@@ -459,6 +461,7 @@ chunk_concurrency: 4     # Optional: review up to 4 chunks at once
 confidence_floor: 80     # Optional: minimum model confidence percent (1-100) to report a finding
 temperature: 0           # Optional: sampling temperature (0-2); unset = built-in 0.2
 use_temperature: true    # Optional: false = send no temperature at all (model default applies)
+response_schema: true    # Optional: false = ask for JSON in the prompt only (no response schema on Vertex AI)
 thinking_level: high     # Optional: minimal | low | medium | high; unset = send no thinking config
 focus: [bugs, security]
 context_files: [AGENTS.md]   # Optional: include the nearest AGENTS.md for each changed directory
@@ -569,6 +572,10 @@ For repeatable verdicts on unchanged code, `temperature: 0` (or `--temperature 0
 Some models deprecate or reject sampling parameters. Google's Gemini 3 documentation, for example, recommends keeping `temperature` at its default and lists it among the deprecated sampling parameters. For such models set `use_temperature: false` (or `--use-temperature=false`, or `REVIEW_USE_TEMPERATURE=false`): the tool then sends no temperature on any call (review, summary, explain, consensus and the agent loop, over Vertex AI or `--api-url`), and the model's own default applies. It cannot be combined with `temperature`. For repeatable verdicts on such models, prefer multi-model consensus (`--models`).
 
 To choose how much a thinking model reasons before answering, set `thinking_level` (or `--thinking-level`, or `REVIEW_THINKING_LEVEL`) to `minimal`, `low`, `medium` or `high`. The level is sent as the `ThinkingConfig` of every Vertex AI generation request (review, summary, explain, consensus and the agent loop) exactly as given, so a model that does not accept it returns its own API error. When unset, no thinking config is sent and the request is unchanged. It is not sent to `--api-url` endpoints, which log a warning and ignore it.
+
+On Vertex AI the main review call also sends a response schema, so the API constrains the answer to the JSON the built-in prompt asks for (`summary` and `findings`; `severity` is one of `CRITICAL`, `HIGH`, `MEDIUM`, `LOW`; `file`, `severity`, `category`, `title` and `body` are required, `line` or `old_line` is given as the prompt says). `category` stays a free string because a rule can fix a category the prompt does not list. The schema is not sent when `custom_prompt` is set, because a custom prompt defines its own output shape and a schema for the built-in one would override it, nor with `--api-url`, which has no schema negotiation. The summary, explain and intent calls never carry it. Set `response_schema: false` (or `--response-schema=false`, or `REVIEW_RESPONSE_SCHEMA=false`) to ask for JSON in the prompt only. The tolerant parser stays in every case, so fenced or prose-wrapped JSON still parses.
+
+The `usage` object of the JSON report (`--json`) and of the audit log (`--audit-log`) is the sum over every model call of the run and has five counts: `input_tokens`, `cached_input_tokens`, `output_tokens`, `thinking_tokens` and `total_tokens`. `cached_input_tokens` is a subset of `input_tokens`: the part of the prompt the provider served from a cache, usually billed at a discount. `input_tokens` is not reduced by it. A provider that does not report a count leaves it at zero. Over Vertex AI `thinking_tokens` is reported apart from `output_tokens`; over `--api-url` it is part of `output_tokens`.
 
 ### Auto-Approve
 
