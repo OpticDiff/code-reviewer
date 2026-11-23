@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Cached and thinking tokens in the usage figures. `usage` in the JSON report and the audit log gains `cached_input_tokens` and `thinking_tokens` (always present, zero when the provider does not report them), and the "token usage" log line shows both. They are read from the Vertex AI usage metadata (`cachedContentTokenCount`, `thoughtsTokenCount`) and, for `--api-url` endpoints, from `usage.prompt_tokens_details.cached_tokens` and `usage.completion_tokens_details.reasoning_tokens`, and summed over every model call of the run: review chunks, the intent pass and the agent loop. `cached_input_tokens` is a subset of `input_tokens`, which is unchanged, so a caller that prices a run bills the cached part at the cached rate. Over Vertex AI `thinking_tokens` is reported apart from `output_tokens`; over `--api-url` it is part of `output_tokens`. `TokenUsage` in `pkg/model` gains `CachedInputTokens`, `ThinkingTokens` and an `Add` method.
+
 ## [0.28.0] — 2026-11-02
 
 ### Added

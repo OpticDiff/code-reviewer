@@ -60,7 +60,9 @@ func (r *Reviewer) RunSummary(ctx context.Context) (int, error) {
 	if result.Usage != nil && result.Usage.TotalTokens > 0 {
 		slog.Info("token usage",
 			"input", result.Usage.InputTokens,
+			"cached_input", result.Usage.CachedInputTokens,
 			"output", result.Usage.OutputTokens,
+			"thinking", result.Usage.ThinkingTokens,
 			"total", result.Usage.TotalTokens,
 		)
 	}

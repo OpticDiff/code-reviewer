@@ -172,16 +172,23 @@ func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt str
 		truncated = result.Candidates[0].FinishReason == genai.FinishReasonMaxTokens
 	}
 
-	var usage *TokenUsage
-	if result.UsageMetadata != nil {
-		usage = &TokenUsage{
-			InputTokens:  int64(result.UsageMetadata.PromptTokenCount),
-			OutputTokens: int64(result.UsageMetadata.CandidatesTokenCount),
-			TotalTokens:  int64(result.UsageMetadata.TotalTokenCount),
-		}
-	}
+	return text, UsageFromMetadata(result.UsageMetadata), truncated, nil
+}
 
-	return text, usage, truncated, nil
+// UsageFromMetadata converts the usage metadata of a genai response. It
+// returns nil when the response carried none. The cached-content count is a
+// subset of the prompt count; absent counts are zero.
+func UsageFromMetadata(m *genai.GenerateContentResponseUsageMetadata) *TokenUsage {
+	if m == nil {
+		return nil
+	}
+	return &TokenUsage{
+		InputTokens:       int64(m.PromptTokenCount),
+		CachedInputTokens: int64(m.CachedContentTokenCount),
+		OutputTokens:      int64(m.CandidatesTokenCount),
+		ThinkingTokens:    int64(m.ThoughtsTokenCount),
+		TotalTokens:       int64(m.TotalTokenCount),
+	}
 }
 
 // Close releases resources held by the provider.

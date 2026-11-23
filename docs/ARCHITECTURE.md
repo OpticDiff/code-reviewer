@@ -600,11 +600,15 @@ Full `ReviewResult` struct serialized with `json.MarshalIndent`:
   ],
   "usage": {
     "input_tokens": 12345,
+    "cached_input_tokens": 9000,
     "output_tokens": 678,
+    "thinking_tokens": 410,
     "total_tokens": 13023
   }
 }
 ```
+
+`usage` sums every model call of the run (review chunks, the intent pass and the agent loop); the audit log carries the same object. All five keys are always present, zero when the provider does not report a count. `cached_input_tokens` is a subset of `input_tokens`, the part of the prompt the provider served from a cache; `input_tokens` is not reduced by it, so a caller that prices a run bills `input_tokens - cached_input_tokens` at the full input rate and `cached_input_tokens` at the cached rate. `thinking_tokens` counts reasoning tokens. A Vertex AI response reports them apart from `output_tokens` (they are part of `total_tokens`); an OpenAI-compatible response reports them as part of `output_tokens`.
 
 ### SARIF 2.1.0 (`--sarif <path>`) & GitLab SAST (`--sast <path>`)
 
