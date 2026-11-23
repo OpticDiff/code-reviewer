@@ -55,6 +55,10 @@ inputs:
     description: "Whether to send sampling temperature on model calls (true or false)"
     required: false
     default: ""
+  response-schema:
+    description: "Whether to constrain the Vertex AI review response with a JSON schema (true or false; unset = true)"
+    required: false
+    default: ""
   thinking-level:
     description: "Thinking level sent to the model: minimal, low, medium or high (unset sends none)"
     required: false
@@ -194,6 +198,7 @@ runs:
         INPUT_CLEANUP_MODE: ${{ inputs.cleanup-mode }}
         INPUT_DISMISSAL_MODE: ${{ inputs.dismissal-mode }}
         INPUT_USE_TEMPERATURE: ${{ inputs.use-temperature }}
+        INPUT_RESPONSE_SCHEMA: ${{ inputs.response-schema }}
         INPUT_THINKING_LEVEL: ${{ inputs.thinking-level }}
         INPUT_AGENT: ${{ inputs.agent }}
         INPUT_AGENT_SCOPE: ${{ inputs.agent-scope }}
@@ -233,6 +238,7 @@ runs:
         [ -n "${INPUT_CLEANUP_MODE}" ] && ARGS+=(--cleanup-mode "${INPUT_CLEANUP_MODE}")
         [ -n "${INPUT_DISMISSAL_MODE}" ] && ARGS+=(--dismissal-mode "${INPUT_DISMISSAL_MODE}")
         [ -n "${INPUT_USE_TEMPERATURE}" ] && ARGS+=("--use-temperature=${INPUT_USE_TEMPERATURE}")
+        [ -n "${INPUT_RESPONSE_SCHEMA}" ] && ARGS+=("--response-schema=${INPUT_RESPONSE_SCHEMA}")
         [ -n "${INPUT_THINKING_LEVEL}" ] && ARGS+=(--thinking-level "${INPUT_THINKING_LEVEL}")
         [ "${INPUT_AGENT}" = "true" ] && ARGS+=(--agent)
         [ -n "${INPUT_AGENT_SCOPE}" ] && ARGS+=(--agent-scope "${INPUT_AGENT_SCOPE}")

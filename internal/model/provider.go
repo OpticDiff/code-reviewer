@@ -25,6 +25,7 @@ type Provider struct {
 	temperature *float32              // nil = defaultTemperature.
 	omitTemp    bool                  // true = send no temperature; the model's own default applies.
 	thinking    *genai.ThinkingConfig // nil = send no thinking config.
+	schema      bool                  // true = the review call carries ReviewResponseSchema.
 }
 
 // defaultTemperature is the sampling temperature used for review calls
@@ -37,6 +38,12 @@ func (p *Provider) SetTemperature(t float32) { p.temperature = &t }
 // OmitTemperature makes the provider send no temperature at all, leaving the
 // model's own default in effect. It takes precedence over SetTemperature.
 func (p *Provider) OmitTemperature() { p.omitTemp = true }
+
+// EnableResponseSchema makes the review call send ReviewResponseSchema, so the
+// API constrains the answer to the shape the built-in review prompt asks for.
+// The summary and explain calls never carry it. Leave it off when the system
+// prompt defines a different output shape, such as a custom prompt does.
+func (p *Provider) EnableResponseSchema() { p.schema = true }
 
 // SetThinkingLevel makes every request carry a ThinkingConfig with the given
 // level (minimal, low, medium or high, case-insensitive). An empty or
@@ -109,12 +116,17 @@ func NewProvider(ctx context.Context, project, location, modelName, proxyURL str
 
 // Review sends a diff to the model for review and returns structured findings.
 func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) (*ReviewResult, error) {
-	text, usage, truncated, err := p.generateRaw(ctx, systemPrompt, userPrompt)
+	var schema *genai.Schema
+	if p.schema {
+		schema = ReviewResponseSchema()
+	}
+	text, usage, truncated, err := p.generateWithSchema(ctx, systemPrompt, userPrompt, schema)
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse JSON response.
+	// Parse JSON response. The parser also reads fenced and prose-wrapped JSON,
+	// which a model may still return when no schema was sent.
 	review, err := parseReviewJSON(text)
 	if err != nil {
 		return nil, fmt.Errorf("parsing model response: %w (raw: %s)", err, truncate(text, 500))
@@ -128,6 +140,15 @@ func (p *Provider) Review(ctx context.Context, systemPrompt, userPrompt string) 
 // generateRaw sends a prompt to the model and returns the raw text response
 // along with token usage. This is the shared core used by both Review and Summarize.
 func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt string) (string, *TokenUsage, bool, error) {
+	return p.generateWithSchema(ctx, systemPrompt, userPrompt, nil)
+}
+
+// generateWithSchema is generateRaw with an optional response schema. A schema
+// requires the JSON MIME type, which is then sent whatever the model's name.
+// No tools and no tool config are ever set: the answer is plain constrained
+// text, so the model has no function to call (see agentResponseSchema for the
+// MALFORMED_FUNCTION_CALL case this avoids).
+func (p *Provider) generateWithSchema(ctx context.Context, systemPrompt, userPrompt string, schema *genai.Schema) (string, *TokenUsage, bool, error) {
 	config := &genai.GenerateContentConfig{
 		SystemInstruction: genai.NewContentFromText(systemPrompt, genai.RoleUser),
 		Temperature:       p.temperatureConfig(),
@@ -137,6 +158,10 @@ func (p *Provider) generateRaw(ctx context.Context, systemPrompt, userPrompt str
 	// Gemini models support native JSON mode (without schema constraint for flexibility).
 	if isGeminiModel(p.modelName) {
 		config.ResponseMIMEType = "application/json"
+	}
+	if schema != nil {
+		config.ResponseMIMEType = "application/json"
+		config.ResponseSchema = schema
 	}
 
 	var result *genai.GenerateContentResponse

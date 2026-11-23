@@ -105,7 +105,26 @@ func vertexProviderOptions(cfg *config.Config) []func(*model.Provider) {
 		level := cfg.ThinkingLevel
 		opts = append(opts, func(p *model.Provider) { p.SetThinkingLevel(level) })
 	}
+	if useResponseSchema(cfg) {
+		opts = append(opts, (*model.Provider).EnableResponseSchema)
+	}
 	return opts
+}
+
+// useResponseSchema reports whether the Vertex AI review call is constrained
+// with the built-in response schema. A custom prompt defines its own output
+// shape in prose, which a schema for the built-in shape would override, so it
+// keeps prompt-only JSON; --response-schema=false does the same for the
+// built-in prompt.
+func useResponseSchema(cfg *config.Config) bool {
+	if cfg.DisableResponseSchema {
+		return false
+	}
+	if cfg.CustomPrompt != "" {
+		slog.Info("response schema not sent: a custom prompt defines its own output shape")
+		return false
+	}
+	return true
 }
 
 func run(ctx, initCtx context.Context) (int, error) {

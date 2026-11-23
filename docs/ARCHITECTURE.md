@@ -218,7 +218,7 @@ classDiagram
 
 - Uses `genai.Client` with `BackendVertexAI` and Application Default Credentials
 - Supports optional proxy URL (routed via `HTTPOptions.BaseURL`)
-- For Gemini models: uses native JSON response schema (`ResponseMIMEType: "application/json"`) to constrain output
+- On Vertex AI with the built-in prompt: the review call sends a response schema (`model.ReviewResponseSchema`) and the JSON MIME type, so the API constrains the output to the shape `parseReviewJSON` reads. `response_schema: false` turns it off, and a `custom_prompt` never gets it (its output shape is its own). The summary, explain and intent calls send no schema
 - For non-Gemini models (Claude, Mistral via Model Garden): relies on prompt-instructed JSON
 - Temperature defaults to 0.2 for consistent reviews (configurable; `use_temperature: false` omits it so the model default applies)
 - Sends no thinking config unless `thinking_level` is set; then every generation request (review, summary, explain, consensus, agent loop) carries it unchanged
@@ -457,6 +457,7 @@ token_limit: 1000000
 confidence_floor: 80
 temperature: 0
 use_temperature: true
+response_schema: true
 thinking_level: high
 max_tokens: 500000
 api_url: http://localhost:11434/v1
@@ -471,6 +472,7 @@ api_url: http://localhost:11434/v1
 | `REVIEW_CONFIDENCE_FLOOR` | `ConfidenceFloor` |
 | `REVIEW_TEMPERATURE` | `Temperature` |
 | `REVIEW_USE_TEMPERATURE` | `DisableTemperature` (inverted) |
+| `REVIEW_RESPONSE_SCHEMA` | `DisableResponseSchema` (inverted) |
 | `REVIEW_FOCUS` | `Focus` (comma-separated) |
 | `REVIEW_CONTEXT_FILES` | `ContextFiles` (comma-separated) |
 | `REVIEW_MIN_SEVERITY` | `MinSeverity` |

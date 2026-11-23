@@ -243,3 +243,35 @@ func TestVertexProviderOptions_ThinkingLevel(t *testing.T) {
 		})
 	}
 }
+
+// TestVertexProviderOptions_ResponseSchema checks which Vertex AI review calls
+// carry the response schema: the built-in prompt does unless it is switched
+// off, and a custom prompt, whose output shape is its own, never does.
+func TestVertexProviderOptions_ResponseSchema(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  config.Config
+		want bool
+	}{
+		{name: "built-in prompt, default", cfg: config.Config{}, want: true},
+		{name: "built-in prompt, switched off", cfg: config.Config{DisableResponseSchema: true}},
+		{name: "custom prompt", cfg: config.Config{CustomPrompt: "prompts/team.md"}},
+		{name: "custom prompt, switched off", cfg: config.Config{CustomPrompt: "prompts/team.md", DisableResponseSchema: true}},
+		{name: "focus mode keeps the built-in shape", cfg: config.Config{Focus: []string{"security"}}, want: true},
+		{name: "dry run keeps the built-in shape", cfg: config.Config{DryRun: true}, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := useResponseSchema(&tt.cfg); got != tt.want {
+				t.Errorf("useResponseSchema = %v, want %v", got, tt.want)
+			}
+			// The option list is what reaches every provider, consensus included.
+			withSchema := len(vertexProviderOptions(&tt.cfg))
+			base := tt.cfg
+			base.DisableResponseSchema = true
+			if got := withSchema - len(vertexProviderOptions(&base)); (got == 1) != tt.want {
+				t.Errorf("response-schema option present = %v, want %v", got == 1, tt.want)
+			}
+		})
+	}
+}

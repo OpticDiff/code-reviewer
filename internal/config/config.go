@@ -133,6 +133,7 @@ type Config struct {
 	ConfidenceFloor    int      // Minimum confidence percent (1-100) the model needs to report a finding (0 = built-in default of 80).
 	Temperature        *float64 // Sampling temperature override (nil = provider default).
 	DisableTemperature bool     // Send no temperature on any model call; the model's own default applies.
+	DisableResponseSchema bool  // Send no response schema with the Vertex AI review call; the model is asked for JSON in the prompt only.
 	ThinkingLevel      string   // Thinking level sent on Vertex AI generation requests: minimal, low, medium or high ("" = send none).
 	GCPProject         string
 	GCPLocation        string
@@ -268,6 +269,7 @@ type repoConfig struct {
 	ConfidenceFloor  int      `yaml:"confidence_floor"`
 	Temperature      *float64 `yaml:"temperature"`
 	UseTemperature   *bool    `yaml:"use_temperature"`
+	ResponseSchema   *bool    `yaml:"response_schema"`
 	ThinkingLevel    string   `yaml:"thinking_level"`
 	Focus            []string `yaml:"focus"`
 	ContextFiles     []string `yaml:"context_files"`
@@ -512,6 +514,9 @@ func (c *Config) applyRepoConfig(data []byte) error {
 	if rc.UseTemperature != nil {
 		c.DisableTemperature = !*rc.UseTemperature
 	}
+	if rc.ResponseSchema != nil {
+		c.DisableResponseSchema = !*rc.ResponseSchema
+	}
 	if rc.ThinkingLevel != "" {
 		if level, err := ParseThinkingLevel(rc.ThinkingLevel); err != nil {
 			slog.Warn("ignoring invalid thinking_level in .code-reviewer.yaml", "value", rc.ThinkingLevel, "error", err)
@@ -697,6 +702,14 @@ func (c *Config) loadEnv() {
 			slog.Warn("ignoring invalid REVIEW_USE_TEMPERATURE", "value", v, "error", err)
 		} else {
 			c.DisableTemperature = !use
+		}
+	}
+	if v := os.Getenv("REVIEW_RESPONSE_SCHEMA"); v != "" {
+		use, err := strconv.ParseBool(v)
+		if err != nil {
+			slog.Warn("ignoring invalid REVIEW_RESPONSE_SCHEMA", "value", v, "error", err)
+		} else {
+			c.DisableResponseSchema = !use
 		}
 	}
 	if v := os.Getenv("REVIEW_THINKING_LEVEL"); v != "" {
@@ -906,6 +919,7 @@ func (c *Config) loadFlags() error {
 	confidenceFloor := fs.Int("confidence-floor", 0, "Minimum model confidence percent (1-100) required to report a finding (default 80)")
 	contextFiles := fs.String("context-files", "", "Directory-scoped guidance file names to include for changed directories, comma-separated (e.g. AGENTS.md)")
 	temperature := fs.Float64("temperature", 0, "Sampling temperature for review calls (0-2); unset keeps the provider default")
+	responseSchema := fs.Bool("response-schema", true, "Constrain the Vertex AI review response with a JSON schema when the prompt is the built-in one; --response-schema=false asks for JSON in the prompt only")
 	useTemperature := fs.Bool("use-temperature", true, "Send a sampling temperature with model calls; --use-temperature=false sends none, so the model's own default applies")
 	thinkingLevel := fs.String("thinking-level", "", "Thinking level for model calls: minimal, low, medium or high; unset sends none")
 	focus := fs.String("focus", "", "Review focus areas, comma-separated (bugs,security,performance,style,docs,all)")
@@ -1092,6 +1106,9 @@ func (c *Config) loadFlags() error {
 		}
 		if f.Name == "use-temperature" {
 			c.DisableTemperature = !*useTemperature
+		}
+		if f.Name == "response-schema" {
+			c.DisableResponseSchema = !*responseSchema
 		}
 		if f.Name == "max-tokens" {
 			if *maxTokens < 0 {
